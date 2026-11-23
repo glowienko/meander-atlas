@@ -15,6 +15,13 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+if [[ -x "/opt/homebrew/bin/node" ]]; then
+  current_node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  if [[ "$current_node_major" -lt 26 ]]; then
+    export PATH="/opt/homebrew/bin:$PATH"
+  fi
+fi
+
 if [[ -n "${DOCKER_HOST:-}" && "${DOCKER_HOST}" == unix://* ]]; then
   sock_path="${DOCKER_HOST#unix://}"
   if [[ ! -S "$sock_path" && -S "$HOME/.docker/run/docker.sock" ]]; then
@@ -133,6 +140,13 @@ if [[ -f frontend/package.json ]]; then
   if [[ "$FE_BEFORE_HASH" != "$FE_AFTER_HASH" ]]; then
     printf 'FAIL: frontend/src/api/schema.d.ts drifted after gen:api; review and re-run ./scripts/verify.sh\n' >&2
     exit 1
+  fi
+  if [[ "${CI:-}" == "true" ]]; then
+    FE_DRIFT="$(git status --porcelain -- frontend/src/api/schema.d.ts)"
+    if [[ -n "$FE_DRIFT" ]]; then
+      printf 'FAIL: frontend/src/api/schema.d.ts has uncommitted changes:\n%s\n' "$FE_DRIFT" >&2
+      exit 1
+    fi
   fi
   CHECKS+=("frontend-api-sync")
 fi

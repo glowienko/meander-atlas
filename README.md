@@ -8,7 +8,7 @@ MeanderAtlas transforms exported Google Maps saved lists and Timeline history in
 
 - **Backend:** Pure Java 25 LTS (no Lombok), Spring Boot 4.1.3 (Spring MVC + Virtual Threads), Spring Modulith 2.1.1, `NamedParameterJdbcTemplate`, Flyway, PostgreSQL 17 + PostGIS 3.5, `springdoc-openapi` 3.x, Gradle 9.9.2 Kotlin DSL.
 - **Quality & Contracts:** Spotless (`google-java-format`), Checkstyle (AST no-comment rule), Error Prone + NullAway (JSpecify `@NullMarked`), ArchUnit + Spring Modulith verification, Testcontainers PostGIS, `gitleaks`, deterministic OpenAPI export (`contracts/openapi.json`).
-- **Frontend *(Phase 0 PR 2)*:** React, Vite, TypeScript (strict), Tailwind CSS v4, Biome, TanStack Query + `openapi-fetch`, MapLibre GL JS v5, Vitest, Playwright.
+- **Frontend:** Node 26 + `pnpm 12`, React 19, Vite 8, strict TypeScript (`noUncheckedIndexedAccess`), Tailwind CSS v4, Biome, TanStack Query + `openapi-fetch` + `openapi-typescript`, MapLibre GL JS, Vitest.
 
 ## Repository Layout
 
