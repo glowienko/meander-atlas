@@ -1,6 +1,9 @@
-import { Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
+import { Map as MapLibreMap, type StyleSpecification, setWorkerUrl } from "maplibre-gl";
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useEffect, useRef } from "react";
 import type { AtlasProjection, AtlasTheme } from "./viewState";
+
+setWorkerUrl(maplibreWorkerUrl);
 
 interface AtlasMapViewProps {
   projection: AtlasProjection;
@@ -61,6 +64,11 @@ export function AtlasMapView({ projection, theme }: AtlasMapViewProps) {
 
     map.on("style.load", () => {
       map.setProjection({ type: projectionRef.current });
+      container.dataset.styleLoaded = "true";
+    });
+
+    map.once("load", () => {
+      container.dataset.mapLoaded = "true";
     });
 
     mapRef.current = map;

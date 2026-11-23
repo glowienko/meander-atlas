@@ -149,6 +149,9 @@ if [[ -f frontend/package.json ]]; then
     fi
   fi
   CHECKS+=("frontend-api-sync")
+  if [[ -f scripts/run-e2e-proof.sh ]]; then
+    run_step "playwright-proof" ./scripts/run-e2e-proof.sh
+  fi
 fi
 
 ELAPSED="$(( $(date +%s) - START_TS ))"

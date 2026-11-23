@@ -51,6 +51,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm --dir frontend install --frozen-lockfile
 
+      - name: Install Playwright Chromium
+        run: pnpm --dir frontend exec playwright install --with-deps chromium
+
       - name: Install gitleaks
         shell: bash
         run: |
@@ -64,3 +67,11 @@ jobs:
         env:
           CI: "true"
         run: ./scripts/verify.sh
+
+      - name: Upload Playwright visual proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-visual-proof
+          path: artifacts/proof/
+          if-no-files-found: ignore
