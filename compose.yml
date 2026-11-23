@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgis/postgis:17-3.5
+    container_name: meander-atlas-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-meander_atlas}
+      POSTGRES_USER: ${POSTGRES_USER:-meander}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meander_local_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - meander_atlas_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meander} -d ${POSTGRES_DB:-meander_atlas}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  meander_atlas_pgdata:

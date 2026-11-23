@@ -1,0 +1,25 @@
+[versions]
+spring-boot = "4.1.3"
+spring-dependency-management = "1.1.7"
+spring-modulith = "2.1.1"
+springdoc = "3.2.1"
+jspecify = "1.0.1"
+errorprone-plugin = "5.2.0"
+errorprone-core = "2.53.0"
+nullaway = "0.14.4"
+spotless = "8.12.0"
+google-java-format = "2.0.0"
+checkstyle = "14.4.0"
+
+[libraries]
+spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
+springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
+errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone-core" }
+nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
+errorprone = { id = "net.ltgt.errorprone", version.ref = "errorprone-plugin" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

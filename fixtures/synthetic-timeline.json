@@ -1,0 +1,322 @@
+{
+  "semanticSegments": [
+    {
+      "startTime": "2026-08-10T09:00:00.000+02:00",
+      "endTime": "2026-08-10T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-wawel-01",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "50.0540490°, 19.9354120°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-10T11:30:00.000+02:00",
+      "endTime": "2026-08-10T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "50.0540490°, 19.9354120°"
+        },
+        "end": {
+          "latLng": "50.0618971°, 19.9367559°"
+        },
+        "distanceMeters": 1200,
+        "topCandidate": {
+          "type": "WALKING",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-11T09:00:00.000+02:00",
+      "endTime": "2026-08-11T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-rynek-02",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "50.0618971°, 19.9367559°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-11T11:30:00.000+02:00",
+      "endTime": "2026-08-11T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "50.0618971°, 19.9367559°"
+        },
+        "end": {
+          "latLng": "48.8583701°, 2.2944813°"
+        },
+        "distanceMeters": 1700,
+        "topCandidate": {
+          "type": "IN_TRAIN",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-12T09:00:00.000+02:00",
+      "endTime": "2026-08-12T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-eiffel-03",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "48.8583701°, 2.2944813°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-12T11:30:00.000+02:00",
+      "endTime": "2026-08-12T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "48.8583701°, 2.2944813°"
+        },
+        "end": {
+          "latLng": "41.8902102°, 12.4922309°"
+        },
+        "distanceMeters": 2200,
+        "topCandidate": {
+          "type": "IN_PASSENGER_VEHICLE",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-13T09:00:00.000+02:00",
+      "endTime": "2026-08-13T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-colosseum-04",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "41.8902102°, 12.4922309°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-13T11:30:00.000+02:00",
+      "endTime": "2026-08-13T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "41.8902102°, 12.4922309°"
+        },
+        "end": {
+          "latLng": "41.4036299°, 2.1743558°"
+        },
+        "distanceMeters": 2700,
+        "topCandidate": {
+          "type": "WALKING",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-14T09:00:00.000+02:00",
+      "endTime": "2026-08-14T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-sagrada-05",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "41.4036299°, 2.1743558°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-14T11:30:00.000+02:00",
+      "endTime": "2026-08-14T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "41.4036299°, 2.1743558°"
+        },
+        "end": {
+          "latLng": "52.3599976°, 4.8852188°"
+        },
+        "distanceMeters": 3200,
+        "topCandidate": {
+          "type": "IN_TRAIN",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-15T09:00:00.000+02:00",
+      "endTime": "2026-08-15T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-rijks-06",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "52.3599976°, 4.8852188°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-15T11:30:00.000+02:00",
+      "endTime": "2026-08-15T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "52.3599976°, 4.8852188°"
+        },
+        "end": {
+          "latLng": "35.7147651°, 139.7966553°"
+        },
+        "distanceMeters": 3700,
+        "topCandidate": {
+          "type": "IN_PASSENGER_VEHICLE",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-16T09:00:00.000+02:00",
+      "endTime": "2026-08-16T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-sensoji-07",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "35.7147651°, 139.7966553°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-16T11:30:00.000+02:00",
+      "endTime": "2026-08-16T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "35.7147651°, 139.7966553°"
+        },
+        "end": {
+          "latLng": "34.9671402°, 135.7726717°"
+        },
+        "distanceMeters": 4200,
+        "topCandidate": {
+          "type": "WALKING",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-17T09:00:00.000+02:00",
+      "endTime": "2026-08-17T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-fushimi-08",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "34.9671402°, 135.7726717°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-17T11:30:00.000+02:00",
+      "endTime": "2026-08-17T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "34.9671402°, 135.7726717°"
+        },
+        "end": {
+          "latLng": "37.8199286°, -122.4782551°"
+        },
+        "distanceMeters": 4700,
+        "topCandidate": {
+          "type": "IN_TRAIN",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-18T09:00:00.000+02:00",
+      "endTime": "2026-08-18T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-ggb-09",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "37.8199286°, -122.4782551°"
+          }
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-18T11:30:00.000+02:00",
+      "endTime": "2026-08-18T12:15:00.000+02:00",
+      "activity": {
+        "start": {
+          "latLng": "37.8199286°, -122.4782551°"
+        },
+        "end": {
+          "latLng": "40.6892494°, -74.0445004°"
+        },
+        "distanceMeters": 5200,
+        "topCandidate": {
+          "type": "IN_PASSENGER_VEHICLE",
+          "probability": 0.88
+        }
+      }
+    },
+    {
+      "startTime": "2026-08-19T09:00:00.000+02:00",
+      "endTime": "2026-08-19T11:30:00.000+02:00",
+      "visit": {
+        "hierarchyLevel": 0,
+        "probability": 0.95,
+        "topCandidate": {
+          "placeId": "ChIJ0-synthetic-liberty-10",
+          "semanticType": "UNKNOWN",
+          "probability": 0.92,
+          "placeLocation": {
+            "latLng": "40.6892494°, -74.0445004°"
+          }
+        }
+      }
+    }
+  ],
+  "rawSignals": [],
+  "userLocationProfile": {
+    "frequentPlaces": [],
+    "persona": {}
+  }
+}

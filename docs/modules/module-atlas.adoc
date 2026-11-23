@@ -1,0 +1,9 @@
+[%autowidth.stretch, cols="h,a"]
+|===
+|Base package
+|`com.meanderatlas.atlas`
+|Spring components
+|_Services_
+
+* `c.m.a.AtlasFacade`
+|===

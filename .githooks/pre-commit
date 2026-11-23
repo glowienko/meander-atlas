@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+./scripts/check-privacy.sh --staged
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --config .gitleaks.toml --redact --no-banner
+else
+  printf 'ERROR: gitleaks is not installed; install it before committing.\n' >&2
+  exit 1
+fi

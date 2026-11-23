@@ -1,0 +1,11 @@
+title = "MeanderAtlas gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow synthetic non-secret fixtures and local dev template defaults"
+paths = [
+  '''^\.env\.example$''',
+  '''^fixtures/synthetic-.*$'''
+]

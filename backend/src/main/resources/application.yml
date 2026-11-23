@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: meander-atlas
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:meander_atlas}
+    username: ${POSTGRES_USER:meander}
+    password: ${POSTGRES_PASSWORD:meander_local_dev}
+  flyway:
+    enabled: true
+  modulith:
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
+
+server:
+  port: ${APP_PORT:8080}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  default-produces-media-type: application/json
+  writer-with-order-by-keys: true
+
+app:
+  imports-dir: ${APP_IMPORTS_DIR:~/meander-atlas-data/imports}
+  default-user-id: ${APP_DEFAULT_USER_ID:00000000-0000-0000-0000-000000000001}
