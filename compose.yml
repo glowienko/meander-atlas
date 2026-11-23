@@ -15,5 +15,31 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    profiles: ["app"]
+    build:
+      context: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-meander_atlas}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-meander}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-meander_local_dev}
+      APP_DEFAULT_USER_ID: ${APP_DEFAULT_USER_ID:-00000000-0000-0000-0000-000000000001}
+      APP_IMPORTS_DIR: /data/imports
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8088}:80"
+
 volumes:
   meander_atlas_pgdata:

@@ -1,0 +1,11 @@
+[%autowidth.stretch, cols="h,a"]
+|===
+|Base package
+|`com.meanderatlas.planning`
+|Spring components
+|_Services_
+
+* `c.m.p.PlanningFacade`
+|Bean references
+|* `c.m.a.AtlasFacade` (in Atlas)
+|===

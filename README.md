@@ -1,25 +1,26 @@
 # MeanderAtlas
 
-Personal-first, SaaS-ready spatial travel atlas and trip-planning platform built on **Java 25 LTS**, **Spring Boot 4.1**, **Spring Modulith**, **PostgreSQL 17 + PostGIS**, and **React + MapLibre GL JS v5**.
+Personal-first, SaaS-ready spatial travel atlas and trip-planning platform built on **Java 25 LTS**, **Spring Boot 4.1**, **Spring Modulith**, **PostgreSQL 17 + PostGIS**, and **React + MapLibre GL JS**.
 
 MeanderAtlas transforms exported Google Maps saved lists and Timeline history into a minimalist 3D globe retrospective and a PostGIS-powered trip discovery and routing engine.
 
 ## Stack
 
-- **Backend:** Pure Java 25 LTS (no Lombok), Spring Boot 4.1.3 (Spring MVC + Virtual Threads), Spring Modulith 2.1.1, `NamedParameterJdbcTemplate`, Flyway, PostgreSQL 17 + PostGIS 3.5, `springdoc-openapi` 3.x, Gradle 9.9.2 Kotlin DSL.
-- **Quality & Contracts:** Spotless (`google-java-format`), Checkstyle (AST no-comment rule), Error Prone + NullAway (JSpecify `@NullMarked`), ArchUnit + Spring Modulith verification, Testcontainers PostGIS, `gitleaks`, deterministic OpenAPI export (`contracts/openapi.json`).
-- **Frontend:** Node 26 + `pnpm 12`, React 19, Vite 8, strict TypeScript (`noUncheckedIndexedAccess`), Tailwind CSS v4, Biome, TanStack Query + `openapi-fetch` + `openapi-typescript`, MapLibre GL JS, Vitest.
+- **Backend:** Pure Java 25 LTS (no Lombok), Spring Boot 4.1.3 (Spring MVC + Virtual Threads), Spring Modulith 2.1.1 (`shared`, `atlas`, `ingestion`, `memories`, `planning`), `NamedParameterJdbcTemplate`, Flyway, PostgreSQL 17 + PostGIS 3.5, `springdoc-openapi` 3.x, Gradle 9.9.2 Kotlin DSL.
+- **Frontend:** Node 26 + `pnpm 12`, React 19, Vite 8, strict TypeScript (`noUncheckedIndexedAccess`), Tailwind CSS v4, Biome 2, TanStack Query + `openapi-fetch` + `openapi-typescript`, MapLibre GL JS + OpenFreeMap, Vitest, Playwright.
+- **Quality & Guardrails:** Spotless (`google-java-format`), Checkstyle & TS AST no-comment rules, Error Prone + NullAway (JSpecify `@NullMarked`), ArchUnit + Spring Modulith verification, PostGIS Testcontainers, deterministic OpenAPI & module-doc drift gates, Playwright visual proof (`artifacts/proof/`), `gitleaks`, and privacy guardrails.
 
 ## Repository Layout
 
 ```text
-backend/        Spring Boot 4.1 modular monolith (com.meanderatlas)
+backend/        Spring Boot 4.1 modular monolith (com.meanderatlas) + Dockerfile
+frontend/       React 19 + Vite 8 + MapLibre GL JS app + Caddy Dockerfile
 contracts/      Generated OpenAPI contract (contracts/openapi.json)
 docs/adr/       Concise Architecture Decision Records
 docs/modules/   Generated Spring Modulith module canvases
 fixtures/       Tiny synthetic public-landmark PL+EN fixtures (zero PII)
-scripts/        Verification, privacy guardrail, and git hook scripts
-compose.yml     Local PostgreSQL 17 + PostGIS 3.5 service
+scripts/        Verification, E2E visual proof, privacy, and git hook scripts
+compose.yml     Local PostGIS service + optional full-stack `app` profile
 ```
 
 ## Quickstart
@@ -32,13 +33,15 @@ compose.yml     Local PostgreSQL 17 + PostGIS 3.5 service
    ```bash
    ./scripts/install-hooks.sh
    ```
-3. Start PostGIS locally (optional for tests, which use Testcontainers):
+3. Run fast loop or full end-to-end verification (includes PostGIS Testcontainers + Playwright proof):
+   ```bash
+   ./scripts/verify.sh --fast
+   ./scripts/verify.sh
+   ```
+4. Start PostGIS only for local dev, or the full containerized stack (`http://localhost:8088`):
    ```bash
    docker compose up -d
-   ```
-4. Run the full verification gate:
-   ```bash
-   ./scripts/verify.sh
+   docker compose --profile app up --build
    ```
 
 ## Documentation
