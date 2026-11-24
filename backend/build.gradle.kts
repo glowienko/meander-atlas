@@ -1,5 +1,6 @@
 import net.ltgt.gradle.errorprone.CheckSeverity
 import net.ltgt.gradle.errorprone.errorprone
+import org.springframework.boot.gradle.tasks.bundling.BootJar
 
 plugins {
     java
@@ -90,8 +91,21 @@ tasks.withType<JavaCompile>().configureEach {
     }
 }
 
+tasks.named<Jar>("jar") {
+    enabled = false
+}
+
+tasks.named<BootJar>("bootJar") {
+    archiveFileName.set("meander-atlas-backend.jar")
+}
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+}
+
+tasks.named<Test>("test") {
+    outputs.file(rootProject.file("../contracts/openapi.json"))
+    outputs.dir(rootProject.file("../docs/modules"))
 }
 
 tasks.register<Test>("unitTest") {
@@ -99,6 +113,7 @@ tasks.register<Test>("unitTest") {
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
+    systemProperty("meanderatlas.syncModuleDocs", "false")
     useJUnitPlatform {
         excludeTags("e2e")
     }
