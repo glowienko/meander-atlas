@@ -15,20 +15,10 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [[ -x "/opt/homebrew/bin/node" ]]; then
-  current_node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-  if [[ "$current_node_major" -lt 26 ]]; then
-    export PATH="/opt/homebrew/bin:$PATH"
-  fi
-fi
-
-if [[ -n "${DOCKER_HOST:-}" && "${DOCKER_HOST}" == unix://* ]]; then
-  sock_path="${DOCKER_HOST#unix://}"
-  if [[ ! -S "$sock_path" && -S "$HOME/.docker/run/docker.sock" ]]; then
-    export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
-  fi
-elif [[ -z "${DOCKER_HOST:-}" && ! -S "/var/run/docker.sock" && -S "$HOME/.docker/run/docker.sock" ]]; then
-  export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
+source "$REPO_ROOT/scripts/lib/env.sh"
+resolve_docker_host
+if [[ -f frontend/package.json ]]; then
+  resolve_node26
 fi
 
 START_TS="$(date +%s)"
@@ -73,7 +63,17 @@ hash_paths() {
   printf '%s' "$out" | sha256_cmd | awk '{print $1}'
 }
 
+format_checks() {
+  if [[ "${#CHECKS[@]}" -eq 0 ]]; then
+    printf 'none'
+    return
+  fi
+  local IFS=', '
+  printf '%s' "${CHECKS[*]}"
+}
+
 run_step "privacy" ./scripts/check-privacy.sh
+run_step "guardrail-tests" ./scripts/test-guardrails.sh
 
 if [[ "$FAST" == true ]]; then
   run_step "backend-fast" ./backend/gradlew -p backend --console=plain checkstyleMain checkstyleTest unitTest
@@ -81,7 +81,7 @@ if [[ "$FAST" == true ]]; then
     run_step "frontend-fast" pnpm --dir frontend run check:fast
   fi
   ELAPSED="$(( $(date +%s) - START_TS ))"
-  printf 'PASS: verify --fast (%s) [%ss]\n' "$(IFS=', '; echo "${CHECKS[*]}")" "$ELAPSED"
+  printf 'PASS: verify --fast (%s) [%ss]\n' "$(format_checks)" "$ELAPSED"
   exit 0
 fi
 
@@ -99,7 +99,10 @@ scan_working_tree_secrets() {
       cp "$f" "$stage_dir/$f"
     fi
   done < <(git ls-files -z --cached --others --exclude-standard)
-  gitleaks detect --source "$stage_dir" --no-git --config "$REPO_ROOT/.gitleaks.toml" --redact --no-banner
+  (
+    cd "$stage_dir"
+    gitleaks detect --source . --no-git --config "$REPO_ROOT/.gitleaks.toml" --redact --no-banner
+  )
 }
 
 run_step "gitleaks-git" gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
@@ -155,4 +158,4 @@ if [[ -f frontend/package.json ]]; then
 fi
 
 ELAPSED="$(( $(date +%s) - START_TS ))"
-printf 'PASS: verify (%s) [%ss]\n' "$(IFS=', '; echo "${CHECKS[*]}")" "$ELAPSED"
+printf 'PASS: verify (%s) [%ss]\n' "$(format_checks)" "$ELAPSED"

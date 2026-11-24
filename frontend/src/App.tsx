@@ -5,50 +5,46 @@ import { AtlasMapView } from "./features/atlas/AtlasMapView";
 import { useAtlasHealth } from "./features/atlas/useAtlasHealth";
 import {
   type AtlasProjection,
-  type AtlasTheme,
   readAtlasViewState,
   writeAtlasViewState,
 } from "./features/atlas/viewState";
-
-const queryClient = new QueryClient();
 
 function AtlasShell() {
   const [viewState, setViewState] = useState(() => readAtlasViewState(window.location.search));
   const { data, isLoading, isError } = useAtlasHealth();
 
   useEffect(() => {
-    document.documentElement.dataset.theme = viewState.theme;
     const nextSearch = writeAtlasViewState(viewState, window.location.search);
     if (window.location.search !== nextSearch) {
-      window.history.replaceState(null, "", `${window.location.pathname}${nextSearch}`);
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${nextSearch}${window.location.hash}`,
+      );
     }
   }, [viewState]);
 
   const handleProjectionChange = (projection: AtlasProjection) => {
-    setViewState((prev) => ({ ...prev, projection }));
-  };
-
-  const handleThemeChange = (theme: AtlasTheme) => {
-    setViewState((prev) => ({ ...prev, theme }));
+    setViewState({ projection });
   };
 
   return (
     <main className="relative h-full w-full">
-      <AtlasMapView projection={viewState.projection} theme={viewState.theme} />
+      <AtlasMapView projection={viewState.projection} />
       <AtlasHealthPill
         health={data}
         isLoading={isLoading}
         isError={isError}
         projection={viewState.projection}
-        theme={viewState.theme}
         onProjectionChange={handleProjectionChange}
-        onThemeChange={handleThemeChange}
       />
     </main>
   );
 }
 
 export function App() {
+  const [queryClient] = useState(() => new QueryClient());
+
   return (
     <QueryClientProvider client={queryClient}>
       <AtlasShell />

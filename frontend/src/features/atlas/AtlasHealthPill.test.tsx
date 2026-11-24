@@ -4,9 +4,8 @@ import { AtlasHealthPill } from "./AtlasHealthPill";
 import { readAtlasViewState, writeAtlasViewState } from "./viewState";
 
 describe("AtlasHealthPill", () => {
-  it("renders live PostGIS health status and toggles controls", () => {
+  it("renders live PostGIS health status and toggles projection controls", () => {
     const onProjectionChange = vi.fn();
-    const onThemeChange = vi.fn();
 
     render(
       <AtlasHealthPill
@@ -14,19 +13,15 @@ describe("AtlasHealthPill", () => {
         isLoading={false}
         isError={false}
         projection="globe"
-        theme="light"
         onProjectionChange={onProjectionChange}
-        onThemeChange={onThemeChange}
       />,
     );
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("UP · PostGIS 3.5.3");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-accent)]");
 
     fireEvent.click(screen.getByRole("button", { name: "2D Map" }));
     expect(onProjectionChange).toHaveBeenCalledWith("mercator");
-
-    fireEvent.click(screen.getByRole("button", { name: "Switch to dark theme" }));
-    expect(onThemeChange).toHaveBeenCalledWith("dark");
   });
 
   it("renders offline state when health query fails", () => {
@@ -36,21 +31,40 @@ describe("AtlasHealthPill", () => {
         isLoading={false}
         isError={true}
         projection="mercator"
-        theme="dark"
         onProjectionChange={vi.fn()}
-        onThemeChange={vi.fn()}
       />,
     );
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("Backend Offline");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-danger)]");
+  });
+
+  it("renders danger indicator when backend reports non-UP status", () => {
+    render(
+      <AtlasHealthPill
+        health={{ status: "DEGRADED", database: "postgresql", postgisVersion: "3.5.3" }}
+        isLoading={false}
+        isError={false}
+        projection="globe"
+        onProjectionChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("DEGRADED · PostGIS 3.5.3");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-danger)]");
   });
 });
 
 describe("viewState URL serialization", () => {
-  it("defaults to globe and light theme and round-trips dark 2D map", () => {
-    expect(readAtlasViewState("")).toEqual({ projection: "globe", theme: "light" });
-    const serialized = writeAtlasViewState({ projection: "mercator", theme: "dark" }, "?foo=bar");
+  it("defaults to clean URL for globe and preserves other query params on round-trip", () => {
+    expect(readAtlasViewState("")).toEqual({ projection: "globe" });
+    expect(writeAtlasViewState({ projection: "globe" }, "")).toBe("");
+
+    const serialized = writeAtlasViewState({ projection: "mercator" }, "?foo=bar");
     expect(serialized).toContain("foo=bar");
-    expect(readAtlasViewState(serialized)).toEqual({ projection: "mercator", theme: "dark" });
+    expect(serialized).toContain("view=map");
+    expect(readAtlasViewState(serialized)).toEqual({ projection: "mercator" });
+
+    expect(writeAtlasViewState({ projection: "globe" }, serialized)).toBe("?foo=bar");
   });
 });
