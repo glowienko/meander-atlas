@@ -1,6 +1,6 @@
 # MeanderAtlas — Agent & Engineering Guide
 
-> **Status:** Phase 0 complete on `master` (PRs #1–#4 merged). Next milestone: **MVP v0.1 (Living Atlas)** — run `/grill-me` on Section 8 open decisions in the Google Drive Architecture Plan before Slice 1.
+> **Status:** Phase 0 complete on `master` (PRs #1–#4 merged). MVP v0.1 `/grill-me` decisions locked (see `docs/adr/0004-v01-living-atlas-schema-and-resolution.md` and Google Drive Architecture Plan Section 8); Slice 1 in progress.
 
 ## Pinned Toolchain & Stack
 - **Java:** 25 LTS (pure Java, no Lombok; records + JSpecify `@NullMarked` / `@Nullable`; no magic numbers/strings — extract `static final` constants and pin container versions in `libs.versions.toml` → `TestEnvironment`)
@@ -22,7 +22,7 @@
 | --- | --- | --- | --- |
 | `shared` | none | `UserId`, `PlaceId`, `GeoPoint`, `VisitSource`, `CurrentUserProvider` (interface) | Phase 0 / v0.1 |
 | `atlas` | `places`, `place_visit_state`, `place_memberships`, `region_boundaries` | `AtlasFacade`, `AtlasHealthView`, event `PlacesChanged` | Phase 0 / v0.1 |
-| `ingestion` | `import_batches`, `imported_signals`, `resolution_jobs` | `ImportFacade` | v0.1 |
+| `ingestion` | `import_batches`, `import_records`, `resolution_jobs` | `ImportFacade` | v0.1 |
 | `memories` | `location_visits`, `trips`, `home_bases`, `reviews` | `MemoriesFacade` | v0.2 |
 | `planning` | `trip_plans`, `trip_chat_sessions`, chat memory | `PlanningFacade` | v0.3–v0.4 |
 
