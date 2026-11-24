@@ -1,0 +1,66 @@
+spring:
+  application:
+    name: meander-atlas
+  threads:
+    virtual:
+      enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  mvc:
+    problemdetails:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 256MB
+      max-request-size: 256MB
+  datasource:
+    url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:meander_atlas}
+    username: ${POSTGRES_USER:meander}
+    password: ${POSTGRES_PASSWORD:meander_local_dev}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      connection-timeout: 5000
+  flyway:
+    enabled: true
+  modulith:
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
+
+server:
+  port: ${APP_PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework
+  error:
+    include-stacktrace: never
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        readiness:
+          include: readinessState,db
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  default-produces-media-type: application/json
+  writer-with-order-by-keys: true
+
+app:
+  imports-dir: ${APP_IMPORTS_DIR:${user.home}/meander-atlas-data/imports}
+  default-user-id: ${APP_DEFAULT_USER_ID:00000000-0000-0000-0000-000000000001}

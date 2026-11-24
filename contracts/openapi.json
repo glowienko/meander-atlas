@@ -1,0 +1,49 @@
+{
+  "openapi" : "3.1.0",
+  "info" : {
+    "title" : "MeanderAtlas API",
+    "version" : "v1"
+  },
+  "servers" : [ {
+    "url" : "/"
+  } ],
+  "paths" : {
+    "/api/v1/atlas/health" : {
+      "get" : {
+        "operationId" : "health",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AtlasHealthView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-health-controller" ]
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "AtlasHealthView" : {
+        "type" : "object",
+        "properties" : {
+          "database" : {
+            "type" : "string"
+          },
+          "postgisVersion" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "database", "postgisVersion", "status" ]
+      }
+    }
+  }
+}
