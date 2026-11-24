@@ -14,6 +14,6 @@ class OpenApiConfiguration {
     OpenAPI meanderAtlasOpenApi() {
         return new OpenAPI()
                 .info(new Info().title("MeanderAtlas API").version("v1"))
-                .servers(List.of(new Server().url("http://localhost:8080")));
+                .servers(List.of(new Server().url("/")));
     }
 }

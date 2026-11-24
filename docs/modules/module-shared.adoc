@@ -3,5 +3,5 @@
 |Base package
 |`com.meanderatlas.shared`
 |Spring components
-|* `c.m.s.CurrentUserProvider`
+|* `c.m.s.CurrentUserProvider` (via `c.m.s.ConfiguredCurrentUserProvider`)
 |===

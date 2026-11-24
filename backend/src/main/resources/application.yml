@@ -26,5 +26,5 @@ springdoc:
   writer-with-order-by-keys: true
 
 app:
-  imports-dir: ${APP_IMPORTS_DIR:~/meander-atlas-data/imports}
+  imports-dir: ${APP_IMPORTS_DIR:${user.home}/meander-atlas-data/imports}
   default-user-id: ${APP_DEFAULT_USER_ID:00000000-0000-0000-0000-000000000001}
