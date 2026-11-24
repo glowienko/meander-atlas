@@ -2,11 +2,13 @@
 set -euo pipefail
 
 FAST=false
+DOCKER_SMOKE=false
 for arg in "$@"; do
   case "$arg" in
     --fast) FAST=true ;;
+    --docker) DOCKER_SMOKE=true ;;
     *)
-      printf 'Usage: %s [--fast]\n' "$0" >&2
+      printf 'Usage: %s [--fast] [--docker]\n' "$0" >&2
       exit 2
       ;;
   esac
@@ -73,6 +75,7 @@ format_checks() {
 }
 
 run_step "privacy" ./scripts/check-privacy.sh
+run_step "docs-budget" ./scripts/check-docs-budget.sh
 run_step "guardrail-tests" ./scripts/test-guardrails.sh
 
 if [[ "$FAST" == true ]]; then
@@ -155,6 +158,10 @@ if [[ -f frontend/package.json ]]; then
   if [[ -f scripts/run-e2e-proof.sh ]]; then
     run_step "playwright-proof" ./scripts/run-e2e-proof.sh
   fi
+fi
+
+if [[ "$DOCKER_SMOKE" == true && -f scripts/verify-docker.sh ]]; then
+  run_step "docker-smoke" ./scripts/verify-docker.sh
 fi
 
 ELAPSED="$(( $(date +%s) - START_TS ))"

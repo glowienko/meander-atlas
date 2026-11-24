@@ -66,7 +66,7 @@ jobs:
       - name: Run verify gate
         env:
           CI: "true"
-        run: ./scripts/verify.sh
+        run: ./scripts/verify.sh --docker
 
       - name: Upload Playwright visual proof
         if: always()

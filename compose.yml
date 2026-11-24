@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgis/postgis:17-3.5
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-meander_atlas}
       POSTGRES_USER: ${POSTGRES_USER:-meander}
@@ -14,6 +15,43 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  backend:
+    profiles: ["app"]
+    build:
+      context: ./backend
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-meander_atlas}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-meander}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-meander_local_dev}
+      APP_DEFAULT_USER_ID: ${APP_DEFAULT_USER_ID:-00000000-0000-0000-0000-000000000001}
+      APP_IMPORTS_DIR: /data/imports
+    volumes:
+      - "${APP_IMPORTS_DIR:-${HOME}/meander-atlas-data/imports}:/data/imports:ro"
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8088}:80"
 
 volumes:
   meander_atlas_pgdata:
