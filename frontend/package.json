@@ -17,6 +17,7 @@
     "typecheck": "tsc -b --noEmit",
     "gen:api": "openapi-typescript ../contracts/openapi.json -o src/api/schema.d.ts",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "check:fast": "pnpm run lint && pnpm run check:comments && pnpm run typecheck && pnpm run test",
     "check:all": "pnpm run gen:api && pnpm run lint && pnpm run check:comments && pnpm run typecheck && pnpm run test && pnpm run build"
   },
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",
+    "@playwright/test": "1.65.1",
     "@tailwindcss/vite": "4.3.5",
     "@testing-library/jest-dom": "8.0.0",
     "@testing-library/react": "16.3.3",
