@@ -34,6 +34,7 @@ test("renders MapLibre globe with live PostGIS health and zero runtime errors", 
 
   const mapContainer = page.getByTestId("atlas-map-canvas");
   await expect(mapContainer).toHaveAttribute("data-map-loaded", "true", { timeout: 25_000 });
+  await expect(mapContainer).toHaveAttribute("data-projection", "globe");
 
   const canvas = page.locator(".maplibregl-canvas");
   await expect(canvas).toBeVisible();
@@ -50,10 +51,11 @@ test("renders MapLibre globe with live PostGIS health and zero runtime errors", 
 
   await page.getByRole("button", { name: "2D Map" }).click();
   await expect(page).toHaveURL(/view=map/);
+  await expect(mapContainer).toHaveAttribute("data-projection", "mercator");
 
-  await page.getByRole("button", { name: "Switch to dark theme" }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page).toHaveURL(/theme=dark/);
+  await page.getByRole("button", { name: "Globe" }).click();
+  await expect(page).not.toHaveURL(/view=map/);
+  await expect(mapContainer).toHaveAttribute("data-projection", "globe");
 
   expect(consoleErrors, `Console errors: ${consoleErrors.join("; ")}`).toEqual([]);
   expect(pageErrors, `Page errors: ${pageErrors.join("; ")}`).toEqual([]);

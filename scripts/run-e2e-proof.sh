@@ -4,29 +4,21 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [[ -n "${DOCKER_HOST:-}" && "${DOCKER_HOST}" == unix://* ]]; then
-  sock_path="${DOCKER_HOST#unix://}"
-  if [[ ! -S "$sock_path" && -S "$HOME/.docker/run/docker.sock" ]]; then
-    export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
-  fi
-elif [[ -z "${DOCKER_HOST:-}" && ! -S "/var/run/docker.sock" && -S "$HOME/.docker/run/docker.sock" ]]; then
-  export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
-fi
+source "$REPO_ROOT/scripts/lib/env.sh"
+resolve_docker_host
+resolve_node26
 
-if [[ -x "/opt/homebrew/bin/node" ]]; then
-  current_node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-  if [[ "$current_node_major" -lt 26 ]]; then
-    export PATH="/opt/homebrew/bin:$PATH"
-  fi
-fi
-
-free_port() {
+allocate_two_ports() {
   node -e '
     const net = require("node:net");
-    const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const { port } = s.address();
-      s.close(() => console.log(port));
+    const s1 = net.createServer();
+    const s2 = net.createServer();
+    s1.listen(0, "127.0.0.1", () => {
+      s2.listen(0, "127.0.0.1", () => {
+        const p1 = s1.address().port;
+        const p2 = s2.address().port;
+        s1.close(() => s2.close(() => console.log(`${p1} ${p2}`)));
+      });
     });
   '
 }
@@ -45,7 +37,7 @@ cleanup() {
   fi
   rm -f "$BACKEND_LOG"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 PG_CONTAINER="$(docker run --rm -d \
   -e POSTGRES_DB=meander_atlas \
@@ -56,22 +48,33 @@ PG_CONTAINER="$(docker run --rm -d \
 
 PG_PORT="$(docker port "$PG_CONTAINER" 5432/tcp | head -n 1 | awk -F: '{print $NF}')"
 
+PG_READY=false
 for _ in $(seq 1 30); do
-  if docker exec "$PG_CONTAINER" pg_isready -U meander -d meander_atlas >/dev/null 2>&1; then
+  if docker exec "$PG_CONTAINER" pg_isready -h 127.0.0.1 -U meander -d meander_atlas >/dev/null 2>&1; then
+    PG_READY=true
     break
   fi
   sleep 1
 done
 
-./backend/gradlew -p backend --console=plain bootJar >/dev/null
-JAR_PATH="$(find backend/build/libs -maxdepth 1 -name 'meander-atlas-backend-*.jar' ! -name '*-plain.jar' | head -n 1)"
-if [[ -z "$JAR_PATH" ]]; then
-  printf 'FAIL: bootJar artifact not found under backend/build/libs\n' >&2
+if [[ "$PG_READY" != true ]]; then
+  printf 'FAIL: ephemeral PostGIS container did not become ready in time:\n' >&2
+  docker logs "$PG_CONTAINER" 2>&1 | tail -n 60 >&2 || true
   exit 1
 fi
 
-BACKEND_PORT="$(free_port)"
-PREVIEW_PORT="$(free_port)"
+./backend/gradlew -p backend --console=plain bootJar >/dev/null
+JAR_PATH="backend/build/libs/meander-atlas-backend.jar"
+if [[ ! -f "$JAR_PATH" ]]; then
+  printf 'FAIL: bootJar artifact not found at %s\n' "$JAR_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -f frontend/dist/index.html ]]; then
+  pnpm --dir frontend run build >/dev/null
+fi
+
+read -r BACKEND_PORT PREVIEW_PORT <<<"$(allocate_two_ports)"
 
 java -jar "$JAR_PATH" \
   --server.port="$BACKEND_PORT" \
