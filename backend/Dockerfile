@@ -14,5 +14,5 @@ COPY --from=build /workspace/build/libs/meander-atlas-backend.jar /app/app.jar
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=5s --timeout=3s --start-period=15s --retries=10 \
-  CMD wget -qO- http://127.0.0.1:8080/api/v1/atlas/health >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/actuator/health/readiness >/dev/null || exit 1
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/app.jar"]

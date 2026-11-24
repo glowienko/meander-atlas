@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgis/postgis:17-3.5
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-meander_atlas}
       POSTGRES_USER: ${POSTGRES_USER:-meander}
@@ -19,6 +20,11 @@ services:
     profiles: ["app"]
     build:
       context: ./backend
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,12 +37,16 @@ services:
     volumes:
       - "${APP_IMPORTS_DIR:-${HOME}/meander-atlas-data/imports}:/data/imports:ro"
     ports:
-      - "${APP_PORT:-8080}:8080"
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
 
   frontend:
     profiles: ["app"]
     build:
       context: ./frontend
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       backend:
         condition: service_healthy

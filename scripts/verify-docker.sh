@@ -72,4 +72,17 @@ if ! printf '%s' "$HEALTH" | grep -q '"status":"UP"' || ! printf '%s' "$HEALTH" 
   exit 1
 fi
 
-printf 'PASS: verify-docker (postgres + backend + frontend Caddy proxy healthy)\n'
+LIVENESS="$(curl -fsS "http://127.0.0.1:${BE_PORT}/actuator/health/liveness")"
+READINESS="$(curl -fsS "http://127.0.0.1:${BE_PORT}/actuator/health/readiness")"
+if ! printf '%s' "$LIVENESS" | grep -q '"status":"UP"' || ! printf '%s' "$READINESS" | grep -q '"status":"UP"'; then
+  printf 'FAIL: backend actuator probes failed (liveness=%s, readiness=%s)\n' "$LIVENESS" "$READINESS" >&2
+  exit 1
+fi
+
+PUBLIC_ACTUATOR="$(curl -fsS "http://127.0.0.1:${FE_PORT}/actuator/health")"
+if printf '%s' "$PUBLIC_ACTUATOR" | grep -q '"status":"UP"'; then
+  printf 'FAIL: /actuator/health leaked through Caddy proxy\n' >&2
+  exit 1
+fi
+
+printf 'PASS: verify-docker (postgres + backend actuator probes + frontend Caddy proxy healthy)\n'
