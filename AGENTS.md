@@ -1,8 +1,10 @@
 # MeanderAtlas — Agent & Engineering Guide
 
+> **Status:** Phase 0 complete on `master` (PRs #1–#4 merged). Next milestone: **MVP v0.1 (Living Atlas)** — run `/grill-me` on Section 8 open decisions in the Google Drive Architecture Plan before Slice 1.
+
 ## Pinned Toolchain & Stack
-- **Java:** 25 LTS (pure Java, no Lombok; records + JSpecify `@NullMarked` / `@Nullable`)
-- **Backend:** Spring Boot `4.1.3` (Spring MVC on Tomcat + Virtual Threads, no WebFlux), Spring Modulith `2.1.1`, Gradle `9.9.2` Kotlin DSL (`backend/gradle/libs.versions.toml`)
+- **Java:** 25 LTS (pure Java, no Lombok; records + JSpecify `@NullMarked` / `@Nullable`; no magic numbers/strings — extract `static final` constants and pin container versions in `libs.versions.toml` → `TestEnvironment`)
+- **Backend:** Spring Boot `4.1.3` (Spring MVC + Virtual Threads + Actuator `/actuator/health/{liveness,readiness}` + RFC 9457 `problemdetails` + `forward-headers-strategy: framework` + graceful shutdown, no WebFlux), Spring Modulith `2.1.1`, Gradle `9.9.2` Kotlin DSL (`backend/gradle/libs.versions.toml`)
 - **Database:** PostgreSQL `17` + PostGIS `3.5` (`postgis/postgis:17-3.5`), `NamedParameterJdbcTemplate` only (no JPA, no Spring Data, no `JdbcClient`, no JTS — geometry stays in SQL), Flyway migrations
 - **Frontend:** Node `26`, `pnpm 12`, React 19 + Vite 8 + strict TypeScript (`noUncheckedIndexedAccess`), Tailwind CSS v4 (Warm-Paper `#FAF9F6`), Biome 2, TanStack Query + `openapi-fetch`, MapLibre GL JS (raw, `?url` worker, `styleLoadedRef` — no `setStyle` dark-theme complexity)
 - **Containers & Security:** Temurin 25 (`jdk-noble` → `jre-alpine`), Node 26 (`bookworm-slim` + `npm install -g pnpm`, no Corepack) → `caddy:2-alpine`, `gitleaks`, `scripts/check-privacy.sh`
