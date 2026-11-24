@@ -4,7 +4,7 @@
 - **Java:** 25 LTS (pure Java, no Lombok; records + JSpecify `@NullMarked` / `@Nullable`)
 - **Backend:** Spring Boot `4.1.3` (Spring MVC on Tomcat + Virtual Threads, no WebFlux), Spring Modulith `2.1.1`, Gradle `9.9.2` Kotlin DSL (`backend/gradle/libs.versions.toml`)
 - **Database:** PostgreSQL `17` + PostGIS `3.5` (`postgis/postgis:17-3.5`), `NamedParameterJdbcTemplate` only (no JPA, no Spring Data, no `JdbcClient`, no JTS — geometry stays in SQL), Flyway migrations
-- **Frontend *(PR 2)*:** Node `26`, `pnpm 12`, React + Vite + strict TypeScript (`noUncheckedIndexedAccess`), Tailwind CSS v4, Biome, TanStack Query + `openapi-fetch`, MapLibre GL JS v5
+- **Frontend:** Node `26`, `pnpm 12`, React 19 + Vite 8 + strict TypeScript (`noUncheckedIndexedAccess`), Tailwind CSS v4, Biome 2, TanStack Query + `openapi-fetch`, MapLibre GL JS
 - **Security:** `gitleaks` + `scripts/check-privacy.sh`
 
 ## Commands

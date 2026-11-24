@@ -17,6 +17,9 @@ cd "$REPO_ROOT"
 
 source "$REPO_ROOT/scripts/lib/env.sh"
 resolve_docker_host
+if [[ -f frontend/package.json ]]; then
+  resolve_node26
+fi
 
 START_TS="$(date +%s)"
 TMP_DIR="$(mktemp -d)"
@@ -140,6 +143,13 @@ if [[ -f frontend/package.json ]]; then
   if [[ "$FE_BEFORE_HASH" != "$FE_AFTER_HASH" ]]; then
     printf 'FAIL: frontend/src/api/schema.d.ts drifted after gen:api; review and re-run ./scripts/verify.sh\n' >&2
     exit 1
+  fi
+  if [[ "${CI:-}" == "true" ]]; then
+    FE_DRIFT="$(git status --porcelain -- frontend/src/api/schema.d.ts)"
+    if [[ -n "$FE_DRIFT" ]]; then
+      printf 'FAIL: frontend/src/api/schema.d.ts has uncommitted changes:\n%s\n' "$FE_DRIFT" >&2
+      exit 1
+    fi
   fi
   CHECKS+=("frontend-api-sync")
 fi

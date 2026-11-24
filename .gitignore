@@ -33,6 +33,7 @@ frontend/dist/
 frontend/.vite/
 frontend/playwright-report/
 frontend/test-results/
+*.tsbuildinfo
 
 .idea/
 *.iml

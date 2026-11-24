@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+:root {
+  --atlas-bg: #faf9f6;
+  --atlas-surface: rgba(250, 249, 246, 0.86);
+  --atlas-ink: #16181d;
+  --atlas-muted: #5a606d;
+  --atlas-border: rgba(22, 24, 29, 0.12);
+  --atlas-accent: #1d5b4c;
+  --atlas-accent-soft: rgba(29, 91, 76, 0.12);
+  --atlas-danger: #9f2d2d;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--atlas-bg);
+  color: var(--atlas-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-editorial {
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+}
