@@ -1,18 +1,17 @@
-import { Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
+import { Map as MapLibreMap, type StyleSpecification, setWorkerUrl } from "maplibre-gl";
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useEffect, useRef } from "react";
-import type { AtlasProjection, AtlasTheme } from "./viewState";
+import type { AtlasProjection } from "./viewState";
+
+setWorkerUrl(maplibreWorkerUrl);
 
 interface AtlasMapViewProps {
   projection: AtlasProjection;
-  theme: AtlasTheme;
 }
 
-const STYLE_URLS: Record<AtlasTheme, string> = {
-  light: "https://tiles.openfreemap.org/styles/positron",
-  dark: "https://tiles.openfreemap.org/styles/dark",
-};
+const POSITRON_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
-function createFallbackStyle(theme: AtlasTheme): StyleSpecification {
+function createFallbackStyle(): StyleSpecification {
   return {
     version: 8,
     sources: {},
@@ -21,27 +20,26 @@ function createFallbackStyle(theme: AtlasTheme): StyleSpecification {
         id: "background",
         type: "background",
         paint: {
-          "background-color": theme === "dark" ? "#0f1115" : "#faf9f6",
+          "background-color": "#faf9f6",
         },
       },
     ],
   };
 }
 
-function resolveStyle(theme: AtlasTheme): string | StyleSpecification {
+function resolveStyle(): string | StyleSpecification {
   const params = new URLSearchParams(window.location.search);
   if (params.get("basemap") === "offline") {
-    return createFallbackStyle(theme);
+    return createFallbackStyle();
   }
-  return STYLE_URLS[theme];
+  return POSITRON_STYLE_URL;
 }
 
-export function AtlasMapView({ projection, theme }: AtlasMapViewProps) {
+export function AtlasMapView({ projection }: AtlasMapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const styleLoadedRef = useRef(false);
   const projectionRef = useRef<AtlasProjection>(projection);
-  const initialThemeRef = useRef<AtlasTheme>(theme);
-  const appliedThemeRef = useRef<AtlasTheme>(theme);
 
   projectionRef.current = projection;
 
@@ -51,44 +49,53 @@ export function AtlasMapView({ projection, theme }: AtlasMapViewProps) {
       return;
     }
 
+    styleLoadedRef.current = false;
+    delete container.dataset.mapLoaded;
+    delete container.dataset.styleLoaded;
+    delete container.dataset.projection;
+
     const map = new MapLibreMap({
       container,
-      style: resolveStyle(initialThemeRef.current),
+      style: resolveStyle(),
       center: [12, 34],
       zoom: 1.7,
       attributionControl: { compact: true },
     });
 
     map.on("style.load", () => {
+      styleLoadedRef.current = true;
       map.setProjection({ type: projectionRef.current });
+      container.dataset.styleLoaded = "true";
+      container.dataset.projection = projectionRef.current;
+    });
+
+    map.once("load", () => {
+      container.dataset.mapLoaded = "true";
     });
 
     mapRef.current = map;
 
     return () => {
+      styleLoadedRef.current = false;
       map.remove();
       mapRef.current = null;
+      delete container.dataset.mapLoaded;
+      delete container.dataset.styleLoaded;
+      delete container.dataset.projection;
     };
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) {
+    const container = containerRef.current;
+    if (!map || !styleLoadedRef.current) {
       return;
     }
-    if (map.isStyleLoaded()) {
-      map.setProjection({ type: projection });
+    map.setProjection({ type: projection });
+    if (container) {
+      container.dataset.projection = projection;
     }
   }, [projection]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || appliedThemeRef.current === theme) {
-      return;
-    }
-    appliedThemeRef.current = theme;
-    map.setStyle(resolveStyle(theme));
-  }, [theme]);
 
   return (
     <section className="h-full w-full" aria-label="MeanderAtlas world globe">

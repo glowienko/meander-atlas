@@ -13,18 +13,6 @@
   color-scheme: light;
 }
 
-[data-theme="dark"] {
-  --atlas-bg: #0f1115;
-  --atlas-surface: rgba(15, 17, 21, 0.84);
-  --atlas-ink: #f3f1eb;
-  --atlas-muted: #9ba3b2;
-  --atlas-border: rgba(243, 241, 235, 0.14);
-  --atlas-accent: #56b89e;
-  --atlas-accent-soft: rgba(86, 184, 158, 0.16);
-  --atlas-danger: #e06c6c;
-  color-scheme: dark;
-}
-
 html,
 body,
 #root {

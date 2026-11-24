@@ -1,15 +1,13 @@
-import { Globe, Map as MapIcon, Moon, Sun } from "lucide-react";
+import { Globe, Map as MapIcon } from "lucide-react";
 import type { AtlasHealthView } from "../../api/client";
-import type { AtlasProjection, AtlasTheme } from "./viewState";
+import type { AtlasProjection } from "./viewState";
 
 interface AtlasHealthPillProps {
   health: AtlasHealthView | undefined;
   isLoading: boolean;
   isError: boolean;
   projection: AtlasProjection;
-  theme: AtlasTheme;
   onProjectionChange: (projection: AtlasProjection) => void;
-  onThemeChange: (theme: AtlasTheme) => void;
 }
 
 export function AtlasHealthPill({
@@ -17,10 +15,9 @@ export function AtlasHealthPill({
   isLoading,
   isError,
   projection,
-  theme,
   onProjectionChange,
-  onThemeChange,
 }: AtlasHealthPillProps) {
+  const isHealthy = !isLoading && !isError && health?.status === "UP";
   const statusLabel = isLoading
     ? "Checking PostGIS..."
     : isError || !health
@@ -29,9 +26,9 @@ export function AtlasHealthPill({
 
   const statusDotColor = isLoading
     ? "bg-amber-500"
-    : isError || !health
-      ? "bg-[var(--atlas-danger)]"
-      : "bg-[var(--atlas-accent)]";
+    : isHealthy
+      ? "bg-[var(--atlas-accent)]"
+      : "bg-[var(--atlas-danger)]";
 
   return (
     <header className="pointer-events-none fixed inset-x-0 top-5 z-10 flex justify-center px-4">
@@ -56,7 +53,11 @@ export function AtlasHealthPill({
             className="inline-flex items-center gap-1.5 text-xs font-medium"
             style={{ color: "var(--atlas-muted)" }}
           >
-            <span className={`h-2 w-2 rounded-full ${statusDotColor}`} aria-hidden="true" />
+            <span
+              data-testid="atlas-health-dot"
+              className={`h-2 w-2 rounded-full ${statusDotColor}`}
+              aria-hidden="true"
+            />
             {statusLabel}
           </span>
         </div>
@@ -94,23 +95,6 @@ export function AtlasHealthPill({
             2D Map
           </button>
         </fieldset>
-
-        <button
-          type="button"
-          onClick={() => onThemeChange(theme === "light" ? "dark" : "light")}
-          aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border transition-colors"
-          style={{
-            borderColor: "var(--atlas-border)",
-            color: "var(--atlas-ink)",
-          }}
-        >
-          {theme === "light" ? (
-            <Moon className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <Sun className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </button>
       </div>
     </header>
   );

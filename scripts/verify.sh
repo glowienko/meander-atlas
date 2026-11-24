@@ -15,15 +15,11 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [[ -x "/opt/homebrew/bin/node" ]]; then
-  current_node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-  if [[ "$current_node_major" -lt 26 ]]; then
-    export PATH="/opt/homebrew/bin:$PATH"
-  fi
-fi
-
 source "$REPO_ROOT/scripts/lib/env.sh"
 resolve_docker_host
+if [[ -f frontend/package.json ]]; then
+  resolve_node26
+fi
 
 START_TS="$(date +%s)"
 TMP_DIR="$(mktemp -d)"

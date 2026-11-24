@@ -8,8 +8,8 @@ export const apiClient = createClient<paths>({
 });
 
 export async function fetchAtlasHealth(): Promise<AtlasHealthView> {
-  const { data, response } = await apiClient.GET("/api/v1/atlas/health");
-  if (!data) {
+  const { data, error, response } = await apiClient.GET("/api/v1/atlas/health");
+  if (error || !response.ok || !data) {
     throw new Error(`Atlas health request failed with status ${response.status}`);
   }
   return data;
