@@ -10,6 +10,8 @@ nullaway = "0.14.4"
 spotless = "8.12.0"
 google-java-format = "2.0.0"
 checkstyle = "14.4.0"
+postgis-image = "postgis/postgis:17-3.5"
+postgis-major-prefix = "3."
 
 [libraries]
 spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }

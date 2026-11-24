@@ -4,10 +4,22 @@ spring:
   threads:
     virtual:
       enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  mvc:
+    problemdetails:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 256MB
+      max-request-size: 256MB
   datasource:
     url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:meander_atlas}
     username: ${POSTGRES_USER:meander}
     password: ${POSTGRES_PASSWORD:meander_local_dev}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      connection-timeout: 5000
   flyway:
     enabled: true
   modulith:
@@ -18,6 +30,30 @@ spring:
 
 server:
   port: ${APP_PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework
+  error:
+    include-stacktrace: never
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        readiness:
+          include: readinessState,db
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 springdoc:
   api-docs:

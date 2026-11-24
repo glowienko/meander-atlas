@@ -21,21 +21,30 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class OpenApiExportTest {
 
+    private static final String PATHS_FIELD = "paths";
+    private static final String TRAILING_NEWLINE = "\n";
+
     @LocalServerPort private int port;
 
     @Test
     void exportsDeterministicOpenApiContract() throws IOException {
-        RestClient client = RestClient.builder().baseUrl("http://localhost:" + port).build();
-        String rawSpec = client.get().uri("/v3/api-docs").retrieve().body(String.class);
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        String rawSpec =
+                client.get().uri(TestEnvironment.API_DOCS_PATH).retrieve().body(String.class);
 
         assertThat(rawSpec).isNotBlank();
 
         JsonMapper mapper = JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).build();
         JsonNode root = mapper.readTree(rawSpec);
-        assertThat(root.path("paths").has("/api/v1/atlas/health")).isTrue();
+        JsonNode paths = root.path(PATHS_FIELD);
+        assertThat(paths.has(TestEnvironment.ATLAS_HEALTH_PATH)).isTrue();
+        assertThat(paths.has(TestEnvironment.ACTUATOR_LIVENESS_PATH)).isFalse();
+        assertThat(paths.has(TestEnvironment.ACTUATOR_READINESS_PATH)).isFalse();
 
-        String formatted = mapper.writeValueAsString(root) + "\n";
-        Path outputPath = Path.of("../contracts/openapi.json").toAbsolutePath().normalize();
+        String formatted = mapper.writeValueAsString(root) + TRAILING_NEWLINE;
+        Path outputPath =
+                Path.of(TestEnvironment.CONTRACTS_OPENAPI_PATH).toAbsolutePath().normalize();
         Files.createDirectories(outputPath.getParent());
         Files.writeString(outputPath, formatted, StandardCharsets.UTF_8);
     }

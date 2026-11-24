@@ -5,8 +5,10 @@ import java.util.UUID;
 
 public record UserId(UUID value) {
 
+    private static final String NULL_VALUE_MESSAGE = "UserId value must not be null";
+
     public UserId {
-        Objects.requireNonNull(value, "UserId value must not be null");
+        Objects.requireNonNull(value, NULL_VALUE_MESSAGE);
     }
 
     public static UserId fromString(String raw) {

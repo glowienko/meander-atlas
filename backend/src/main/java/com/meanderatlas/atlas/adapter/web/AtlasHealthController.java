@@ -8,8 +8,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/atlas")
+@RequestMapping(AtlasHealthController.BASE_PATH)
 class AtlasHealthController {
+
+    static final String BASE_PATH = "/api/v1/atlas";
+    static final String HEALTH_PATH = "/health";
 
     private final AtlasFacade atlasFacade;
 
@@ -17,7 +20,7 @@ class AtlasHealthController {
         this.atlasFacade = atlasFacade;
     }
 
-    @GetMapping(value = "/health", produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = HEALTH_PATH, produces = MediaType.APPLICATION_JSON_VALUE)
     AtlasHealthView health() {
         return atlasFacade.health();
     }
