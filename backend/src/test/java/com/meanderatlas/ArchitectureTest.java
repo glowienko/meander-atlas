@@ -18,39 +18,67 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.docs.Documenter;
 
 class ArchitectureTest {
 
+    private static final String BASE_PACKAGE = "com.meanderatlas";
+    private static final String BASE_PACKAGE_PREFIX = BASE_PACKAGE + ".";
+    private static final String DOCS_MODULES_RELATIVE_PATH = "../docs/modules";
+    private static final String MODULE_DOC_PREFIX = "module-";
+    private static final String MODULE_DOC_SUFFIX = ".adoc";
+    private static final String SYNC_MODULE_DOCS_PROPERTY = "meanderatlas.syncModuleDocs";
+    private static final String DEFAULT_SYNC_MODULE_DOCS = "true";
+    private static final String DOMAIN_PACKAGE_PATTERN = "..domain..";
+    private static final String FACADE_SUFFIX = "Facade";
+    private static final String MOCKITO_PACKAGE = "org.mockito..";
+    private static final String[] FORBIDDEN_DOMAIN_PACKAGES = {
+        "org.springframework..", "java.sql.."
+    };
+    private static final String[] FORBIDDEN_STACK_PACKAGES = {
+        "com.fasterxml.jackson..",
+        "org.springframework.lang..",
+        "jakarta.persistence..",
+        "org.springframework.data..",
+        "org.springframework.jdbc.core.simple..",
+        "org.locationtech.jts..",
+        "org.springframework.web.reactive.."
+    };
+    private static final Set<String> INTERNAL_SUBPACKAGES =
+            Set.of("domain", "application", "adapter");
+    private static final int EXPECTED_SYNTHETIC_VIOLATIONS = 2;
+
     private static final JavaClasses PRODUCTION_CLASSES =
             new ClassFileImporter()
                     .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
-                    .importPackages("com.meanderatlas");
+                    .importPackages(BASE_PACKAGE);
 
     private static final JavaClasses TEST_CLASSES =
             new ClassFileImporter()
                     .withImportOption(ImportOption.Predefined.ONLY_INCLUDE_TESTS)
-                    .importPackages("com.meanderatlas");
+                    .importPackages(BASE_PACKAGE);
 
     @Test
     void verifiesApplicationModulesAndRegeneratesModuleDocs() throws IOException {
         ApplicationModules modules = ApplicationModules.of(MeanderAtlasApplication.class);
         modules.verify();
 
-        if (!Boolean.parseBoolean(System.getProperty("meanderatlas.syncModuleDocs", "true"))) {
+        if (!Boolean.parseBoolean(
+                System.getProperty(SYNC_MODULE_DOCS_PROPERTY, DEFAULT_SYNC_MODULE_DOCS))) {
             return;
         }
 
-        Path docsDir = Path.of("../docs/modules").toAbsolutePath().normalize();
+        Path docsDir = Path.of(DOCS_MODULES_RELATIVE_PATH).toAbsolutePath().normalize();
         Files.createDirectories(docsDir);
         try (var existing = Files.list(docsDir)) {
             for (Path path : existing.toList()) {
                 Path fileName = path.getFileName();
                 if (fileName != null
-                        && fileName.toString().startsWith("module-")
-                        && fileName.toString().endsWith(".adoc")) {
+                        && fileName.toString().startsWith(MODULE_DOC_PREFIX)
+                        && fileName.toString().endsWith(MODULE_DOC_SUFFIX)) {
                     Files.deleteIfExists(path);
                 }
             }
@@ -63,10 +91,10 @@ class ArchitectureTest {
     void domainPackagesRemainFreeOfSpringAndSqlDependencies() {
         noClasses()
                 .that()
-                .resideInAPackage("..domain..")
+                .resideInAPackage(DOMAIN_PACKAGE_PATTERN)
                 .should()
                 .dependOnClassesThat()
-                .resideInAnyPackage("org.springframework..", "java.sql..")
+                .resideInAnyPackage(FORBIDDEN_DOMAIN_PACKAGES)
                 .allowEmptyShould(false)
                 .check(PRODUCTION_CLASSES);
     }
@@ -76,7 +104,7 @@ class ArchitectureTest {
         methods()
                 .that()
                 .areDeclaredInClassesThat()
-                .haveSimpleNameEndingWith("Facade")
+                .haveSimpleNameEndingWith(FACADE_SUFFIX)
                 .and()
                 .arePublic()
                 .should(notExposeInternalModuleTypes())
@@ -92,14 +120,14 @@ class ArchitectureTest {
                 methods()
                         .that()
                         .areDeclaredInClassesThat()
-                        .haveSimpleNameEndingWith("Facade")
+                        .haveSimpleNameEndingWith(FACADE_SUFFIX)
                         .and()
                         .arePublic()
                         .should(notExposeInternalModuleTypes())
                         .evaluate(syntheticClasses);
 
         assertThat(result.hasViolation()).isTrue();
-        assertThat(result.getFailureReport().getDetails()).hasSize(2);
+        assertThat(result.getFailureReport().getDetails()).hasSize(EXPECTED_SYNTHETIC_VIOLATIONS);
     }
 
     @Test
@@ -107,14 +135,7 @@ class ArchitectureTest {
         noClasses()
                 .should()
                 .dependOnClassesThat()
-                .resideInAnyPackage(
-                        "com.fasterxml.jackson..",
-                        "org.springframework.lang..",
-                        "jakarta.persistence..",
-                        "org.springframework.data..",
-                        "org.springframework.jdbc.core.simple..",
-                        "org.locationtech.jts..",
-                        "org.springframework.web.reactive..")
+                .resideInAnyPackage(FORBIDDEN_STACK_PACKAGES)
                 .check(PRODUCTION_CLASSES);
     }
 
@@ -123,7 +144,7 @@ class ArchitectureTest {
         noClasses()
                 .should()
                 .dependOnClassesThat()
-                .resideInAnyPackage("org.mockito..")
+                .resideInAnyPackage(MOCKITO_PACKAGE)
                 .check(TEST_CLASSES);
     }
 
@@ -160,14 +181,15 @@ class ArchitectureTest {
 
     private static boolean isInternalModuleType(JavaClass type) {
         String pkg = type.getPackageName();
-        return pkg.startsWith("com.meanderatlas.")
-                && (matchesSubpackage(pkg, "domain")
-                        || matchesSubpackage(pkg, "application")
-                        || matchesSubpackage(pkg, "adapter"));
-    }
-
-    private static boolean matchesSubpackage(String pkg, String segment) {
-        return pkg.endsWith("." + segment) || pkg.contains("." + segment + ".");
+        if (!pkg.startsWith(BASE_PACKAGE_PREFIX)) {
+            return false;
+        }
+        for (String segment : INTERNAL_SUBPACKAGES) {
+            if (pkg.endsWith("." + segment) || pkg.contains("." + segment + ".")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static class SyntheticLeakyFacade {

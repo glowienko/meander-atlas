@@ -15,6 +15,6 @@ public class GetAtlasHealth {
 
     public AtlasHealthView execute() {
         String postgisVersion = atlasHealthRepository.fetchPostgisVersion();
-        return new AtlasHealthView("UP", "postgresql", postgisVersion);
+        return AtlasHealthView.up(postgisVersion);
     }
 }
