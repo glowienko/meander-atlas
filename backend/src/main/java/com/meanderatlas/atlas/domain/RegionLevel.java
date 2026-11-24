@@ -2,5 +2,6 @@ package com.meanderatlas.atlas.domain;
 
 public enum RegionLevel {
     COUNTRY,
-    ADMIN1
+    ADMIN1,
+    CITY
 }

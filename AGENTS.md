@@ -22,7 +22,7 @@
 | --- | --- | --- | --- |
 | `shared` | none | `UserId`, `PlaceId`, `GeoPoint`, `VisitSource`, `CurrentUserProvider` (interface) | Phase 0 / v0.1 |
 | `atlas` | `places`, `place_visit_state`, `place_memberships`, `region_boundaries` | `AtlasFacade`, `AtlasHealthView`, event `PlacesChanged` | Phase 0 / v0.1 |
-| `ingestion` | `import_batches`, `imported_signals`, `resolution_jobs` | `ImportFacade` | v0.1 |
+| `ingestion` | `import_batches`, `import_records`, `resolution_jobs` | `ImportFacade` | v0.1 |
 | `memories` | `location_visits`, `trips`, `home_bases`, `reviews` | `MemoriesFacade` | v0.2 |
 | `planning` | `trip_plans`, `trip_chat_sessions`, chat memory | `PlanningFacade` | v0.3–v0.4 |
 

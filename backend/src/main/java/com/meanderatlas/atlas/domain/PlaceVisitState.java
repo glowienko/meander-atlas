@@ -16,13 +16,8 @@ public record PlaceVisitState(
         @Nullable Instant firstVisitedAt,
         @Nullable Instant lastVisitedAt) {
 
-    private static final int INITIAL_VISIT_COUNT = 0;
-    private static final int MINIMUM_VISITED_COUNT = 1;
-    private static final int VISIT_INCREMENT = 1;
-    private static final int RANK_NONE = 0;
-    private static final int RANK_TIMELINE = 1;
-    private static final int RANK_REVIEW = 2;
-    private static final int RANK_MANUAL = 3;
+    private static final int ZERO_VISITS = 0;
+    private static final int SINGLE_VISIT = 1;
 
     private static final String NULL_PLACE_ID_MESSAGE = "placeId must not be null";
     private static final String NULL_USER_ID_MESSAGE = "userId must not be null";
@@ -41,37 +36,32 @@ public record PlaceVisitState(
         Objects.requireNonNull(placeId, NULL_PLACE_ID_MESSAGE);
         Objects.requireNonNull(userId, NULL_USER_ID_MESSAGE);
         Objects.requireNonNull(status, NULL_STATUS_MESSAGE);
-        if (visitCount < INITIAL_VISIT_COUNT) {
+        if (visitCount < ZERO_VISITS) {
             throw new IllegalArgumentException(NEGATIVE_VISIT_COUNT_MESSAGE);
         }
         if (status != VisitStatus.UNVISITED && source == null) {
             throw new IllegalArgumentException(MISSING_SOURCE_MESSAGE);
         }
-        if (status == VisitStatus.VISITED && visitCount < MINIMUM_VISITED_COUNT) {
+        if (status == VisitStatus.VISITED && visitCount < SINGLE_VISIT) {
             throw new IllegalArgumentException(INVALID_VISITED_COUNT_MESSAGE);
         }
         if (status == VisitStatus.UNVISITED
-                && (visitCount != INITIAL_VISIT_COUNT
-                        || firstVisitedAt != null
-                        || lastVisitedAt != null)) {
+                && (visitCount != ZERO_VISITS || firstVisitedAt != null || lastVisitedAt != null)) {
             throw new IllegalArgumentException(INVALID_UNVISITED_STATE_MESSAGE);
         }
     }
 
     public static PlaceVisitState unvisited(PlaceId placeId, UserId userId) {
         return new PlaceVisitState(
-                placeId, userId, VisitStatus.UNVISITED, null, INITIAL_VISIT_COUNT, null, null);
+                placeId, userId, VisitStatus.UNVISITED, null, ZERO_VISITS, null, null);
     }
 
-    public PlaceVisitState recordSignal(
+    public PlaceVisitState apply(
             VisitStatus incomingStatus, VisitSource incomingSource, @Nullable Instant observedAt) {
         Objects.requireNonNull(incomingStatus, NULL_STATUS_MESSAGE);
         Objects.requireNonNull(incomingSource, MISSING_SOURCE_MESSAGE);
 
-        if (isManual(source) && !isManual(incomingSource)) {
-            return this;
-        }
-        if (precedenceOf(incomingSource) < precedenceOf(source)) {
+        if (source != null && source.outranks(incomingSource)) {
             return this;
         }
         if (incomingStatus == VisitStatus.NEEDS_TRIAGE && status == VisitStatus.VISITED) {
@@ -85,7 +75,7 @@ public record PlaceVisitState(
                             userId,
                             VisitStatus.UNVISITED,
                             incomingSource,
-                            INITIAL_VISIT_COUNT,
+                            ZERO_VISITS,
                             null,
                             null);
             case NEEDS_TRIAGE ->
@@ -94,7 +84,7 @@ public record PlaceVisitState(
                             userId,
                             VisitStatus.NEEDS_TRIAGE,
                             incomingSource,
-                            INITIAL_VISIT_COUNT,
+                            ZERO_VISITS,
                             null,
                             null);
             case VISITED -> applyVisited(incomingSource, observedAt);
@@ -111,9 +101,9 @@ public record PlaceVisitState(
 
     private PlaceVisitState applyVisited(VisitSource incomingSource, @Nullable Instant observedAt) {
         int nextCount =
-                isManual(incomingSource)
-                        ? Math.max(MINIMUM_VISITED_COUNT, visitCount)
-                        : visitCount + VISIT_INCREMENT;
+                incomingSource.isManual()
+                        ? Math.max(SINGLE_VISIT, visitCount)
+                        : visitCount + SINGLE_VISIT;
         Instant nextFirst = earliest(firstVisitedAt, observedAt);
         Instant nextLast = latest(lastVisitedAt, observedAt);
         return new PlaceVisitState(
@@ -124,21 +114,6 @@ public record PlaceVisitState(
                 nextCount,
                 nextFirst,
                 nextLast);
-    }
-
-    private static boolean isManual(@Nullable VisitSource visitSource) {
-        return visitSource == VisitSource.MANUAL_SINGLE || visitSource == VisitSource.MANUAL_BULK;
-    }
-
-    private static int precedenceOf(@Nullable VisitSource visitSource) {
-        if (visitSource == null) {
-            return RANK_NONE;
-        }
-        return switch (visitSource) {
-            case TIMELINE -> RANK_TIMELINE;
-            case REVIEW -> RANK_REVIEW;
-            case MANUAL_SINGLE, MANUAL_BULK -> RANK_MANUAL;
-        };
     }
 
     private static @Nullable Instant earliest(

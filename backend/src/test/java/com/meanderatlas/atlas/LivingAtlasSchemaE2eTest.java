@@ -29,7 +29,7 @@ class LivingAtlasSchemaE2eTest {
                     "place_visit_state",
                     "place_memberships",
                     "import_batches",
-                    "imported_signals",
+                    "import_records",
                     "resolution_jobs");
     private static final List<String> EXPECTED_INDEXES =
             List.of(
@@ -88,32 +88,43 @@ class LivingAtlasSchemaE2eTest {
 
     @Test
     void enforcesSpatialContainmentForeignKeysAndCheckConstraints() {
-        UUID regionId = UUID.randomUUID();
+        UUID admin1Id = UUID.randomUUID();
+        UUID cityRegionId = UUID.randomUUID();
         UUID placeId = UUID.randomUUID();
         UUID batchId = UUID.randomUUID();
-        UUID signalId = UUID.randomUUID();
+        UUID recordId = UUID.randomUUID();
         UUID jobId = UUID.randomUUID();
 
         jdbc.update(
                 """
                 INSERT INTO region_boundaries
-                    (id, region_level, code, country_code, name, parent_country_code, geom, simplified_geom)
+                    (id, region_level, code, country_code, name, geom, simplified_geom)
                 VALUES
-                    (:id, 'ADMIN1', 'PL-12', 'PL', 'Malopolskie', 'PL',
+                    (:id, 'ADMIN1', 'PL-12', 'PL', 'Malopolskie',
                      ST_GeomFromText(:wkt, 4326), ST_GeomFromText(:wkt, 4326))
                 """,
-                Map.of("id", regionId, "wkt", SAMPLE_POLYGON_WKT));
+                Map.of("id", admin1Id, "wkt", SAMPLE_POLYGON_WKT));
+
+        jdbc.update(
+                """
+                INSERT INTO region_boundaries
+                    (id, region_level, code, country_code, name, geom, simplified_geom)
+                VALUES
+                    (:id, 'CITY', 'PL-KRK', 'PL', 'Krakow',
+                     ST_GeomFromText(:wkt, 4326), ST_GeomFromText(:wkt, 4326))
+                """,
+                Map.of("id", cityRegionId, "wkt", SAMPLE_POLYGON_WKT));
 
         jdbc.update(
                 """
                 INSERT INTO places
                     (id, user_id, canonical_name, geom, coord_source, google_place_id, google_cid,
-                     category, category_source, derived_role, derived_priority, country_code, admin1_id)
+                     category, subcategory, category_source, derived_role, country_code, admin1_id, city_name)
                 VALUES
-                    (:id, :userId, 'Wawel Royal Castle',
+                    (:id, :userId, 'Wawel Cathedral',
                      ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), 'TAKEOUT',
                      'ChIJ-wawel-schema-test', :cid,
-                     'MUSEUM', 'HEURISTIC', 'MUST_SEE', 30, 'PL', :admin1Id)
+                     'SACRAL', 'cathedral', 'HEURISTIC', 'MUST_SEE', 'PL', :admin1Id, 'Krakow')
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", placeId)
@@ -121,7 +132,7 @@ class LivingAtlasSchemaE2eTest {
                         .addValue("lng", KRAKOW_LNG)
                         .addValue("lat", KRAKOW_LAT)
                         .addValue("cid", SAMPLE_CID)
-                        .addValue("admin1Id", regionId));
+                        .addValue("admin1Id", admin1Id));
 
         Boolean contained =
                 jdbc.queryForObject(
@@ -154,7 +165,7 @@ class LivingAtlasSchemaE2eTest {
         jdbc.update(
                 """
                 INSERT INTO import_batches
-                    (id, user_id, account_label, content_sha256, source_type, status, signal_count)
+                    (id, user_id, account_label, content_sha256, source_type, status, record_count)
                 VALUES
                     (:id, :userId, 'account-1', 'sha256-schema-test', 'LOCAL_DIRECTORY', 'COMPLETED', 1)
                 """,
@@ -162,21 +173,25 @@ class LivingAtlasSchemaE2eTest {
 
         jdbc.update(
                 """
-                INSERT INTO imported_signals
-                    (id, batch_id, user_id, account_label, signal_type, source_file, payload_json)
+                INSERT INTO import_records
+                    (id, batch_id, user_id, account_label, record_type, source_file, payload_json)
                 VALUES
                     (:id, :batchId, :userId, 'account-1', 'SAVED_CSV', 'Want to go.csv', '{}'::jsonb)
                 """,
-                Map.of("id", signalId, "batchId", batchId, "userId", USER_ID));
+                Map.of("id", recordId, "batchId", batchId, "userId", USER_ID));
 
         jdbc.update(
                 """
                 INSERT INTO resolution_jobs
-                    (id, user_id, signal_id, place_id, job_type, status, attempts)
+                    (id, user_id, import_record_id, place_id, job_type, status, attempts)
                 VALUES
-                    (:id, :userId, :signalId, :placeId, 'OPEN_CATALOG_ENRICH', 'PENDING', 0)
+                    (:id, :userId, :importRecordId, :placeId, 'OPEN_CATALOG_ENRICH', 'PENDING', 0)
                 """,
-                Map.of("id", jobId, "userId", USER_ID, "signalId", signalId, "placeId", placeId));
+                Map.of(
+                        "id", jobId,
+                        "userId", USER_ID,
+                        "importRecordId", recordId,
+                        "placeId", placeId));
 
         UUID claimedJobId =
                 jdbc.queryForObject(

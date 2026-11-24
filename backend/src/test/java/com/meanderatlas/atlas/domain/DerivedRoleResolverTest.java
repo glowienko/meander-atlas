@@ -14,17 +14,15 @@ class DerivedRoleResolverTest {
                         PlaceCategory.HOTEL, List.of(ListKind.STARRED, ListKind.WANT_TO_GO));
 
         assertThat(role).isEqualTo(DerivedRole.PREFERRED_HOTEL);
-        assertThat(role.defaultPriority()).isGreaterThan(DerivedRole.MUST_SEE.defaultPriority());
     }
 
     @Test
     void starredNonHotelResolvesToMustSee() {
         DerivedRole role =
                 DerivedRoleResolver.resolve(
-                        PlaceCategory.MUSEUM, List.of(ListKind.STARRED, ListKind.FAVORITE));
+                        PlaceCategory.SACRAL, List.of(ListKind.STARRED, ListKind.FAVORITE));
 
         assertThat(role).isEqualTo(DerivedRole.MUST_SEE);
-        assertThat(role.defaultPriority()).isGreaterThan(DerivedRole.FAVORITE.defaultPriority());
     }
 
     @Test
@@ -34,7 +32,6 @@ class DerivedRoleResolverTest {
                         PlaceCategory.RESTAURANT, List.of(ListKind.FAVORITE, ListKind.WANT_TO_GO));
 
         assertThat(role).isEqualTo(DerivedRole.FAVORITE);
-        assertThat(role.defaultPriority()).isGreaterThan(DerivedRole.BACKLOG.defaultPriority());
     }
 
     @Test
@@ -43,7 +40,7 @@ class DerivedRoleResolverTest {
                 .isEqualTo(DerivedRole.BACKLOG);
         assertThat(
                         DerivedRoleResolver.resolve(
-                                PlaceCategory.ATTRACTION,
+                                PlaceCategory.MOUNTAIN,
                                 List.of(ListKind.WANT_TO_GO, ListKind.CUSTOM, ListKind.REVIEW)))
                 .isEqualTo(DerivedRole.BACKLOG);
     }

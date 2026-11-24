@@ -33,9 +33,9 @@ class PlaceVisitStateTest {
         PlaceVisitState initial = PlaceVisitState.unvisited(PLACE_ID, USER_ID);
 
         PlaceVisitState first =
-                initial.recordSignal(VisitStatus.VISITED, VisitSource.TIMELINE, LATER_TIME);
+                initial.apply(VisitStatus.VISITED, VisitSource.TIMELINE, LATER_TIME);
         PlaceVisitState second =
-                first.recordSignal(VisitStatus.VISITED, VisitSource.TIMELINE, EARLIER_TIME);
+                first.apply(VisitStatus.VISITED, VisitSource.TIMELINE, EARLIER_TIME);
 
         assertThat(second.status()).isEqualTo(VisitStatus.VISITED);
         assertThat(second.source()).isEqualTo(VisitSource.TIMELINE);
@@ -48,12 +48,12 @@ class PlaceVisitStateTest {
     void reviewOverridesTimelineAndTimelineNeverClobbersReview() {
         PlaceVisitState timeline =
                 PlaceVisitState.unvisited(PLACE_ID, USER_ID)
-                        .recordSignal(VisitStatus.VISITED, VisitSource.TIMELINE, EARLIER_TIME);
+                        .apply(VisitStatus.VISITED, VisitSource.TIMELINE, EARLIER_TIME);
 
         PlaceVisitState reviewed =
-                timeline.recordSignal(VisitStatus.VISITED, VisitSource.REVIEW, LATER_TIME);
+                timeline.apply(VisitStatus.VISITED, VisitSource.REVIEW, LATER_TIME);
         PlaceVisitState afterReimport =
-                reviewed.recordSignal(VisitStatus.VISITED, VisitSource.TIMELINE, LATEST_TIME);
+                reviewed.apply(VisitStatus.VISITED, VisitSource.TIMELINE, LATEST_TIME);
 
         assertThat(reviewed.source()).isEqualTo(VisitSource.REVIEW);
         assertThat(reviewed.visitCount()).isEqualTo(TWO_VISITS);
@@ -64,17 +64,17 @@ class PlaceVisitStateTest {
     void manualVisitedAndManualUnvisitedWinOverAutomatedReimports() {
         PlaceVisitState reviewed =
                 PlaceVisitState.unvisited(PLACE_ID, USER_ID)
-                        .recordSignal(VisitStatus.VISITED, VisitSource.REVIEW, EARLIER_TIME);
+                        .apply(VisitStatus.VISITED, VisitSource.REVIEW, EARLIER_TIME);
 
         PlaceVisitState manualUnvisited =
-                reviewed.recordSignal(VisitStatus.UNVISITED, VisitSource.MANUAL_SINGLE, null);
+                reviewed.apply(VisitStatus.UNVISITED, VisitSource.MANUAL_SINGLE, null);
         PlaceVisitState afterReviewReimport =
-                manualUnvisited.recordSignal(VisitStatus.VISITED, VisitSource.REVIEW, LATER_TIME);
+                manualUnvisited.apply(VisitStatus.VISITED, VisitSource.REVIEW, LATER_TIME);
         PlaceVisitState manualBulkVisited =
-                afterReviewReimport.recordSignal(
+                afterReviewReimport.apply(
                         VisitStatus.VISITED, VisitSource.MANUAL_BULK, LATEST_TIME);
         PlaceVisitState afterTimelineReimport =
-                manualBulkVisited.recordSignal(
+                manualBulkVisited.apply(
                         VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, LATEST_TIME);
 
         assertThat(manualUnvisited.status()).isEqualTo(VisitStatus.UNVISITED);
@@ -91,11 +91,11 @@ class PlaceVisitStateTest {
     void needsTriageMarksUnvisitedButNeverDowngradesVisited() {
         PlaceVisitState triage =
                 PlaceVisitState.unvisited(PLACE_ID, USER_ID)
-                        .recordSignal(VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, EARLIER_TIME);
+                        .apply(VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, EARLIER_TIME);
         PlaceVisitState visited =
-                triage.recordSignal(VisitStatus.VISITED, VisitSource.TIMELINE, LATER_TIME);
+                triage.apply(VisitStatus.VISITED, VisitSource.TIMELINE, LATER_TIME);
         PlaceVisitState stillVisited =
-                visited.recordSignal(VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, LATEST_TIME);
+                visited.apply(VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, LATEST_TIME);
 
         assertThat(triage.status()).isEqualTo(VisitStatus.NEEDS_TRIAGE);
         assertThat(triage.visitCount()).isEqualTo(ZERO_VISITS);
@@ -106,9 +106,9 @@ class PlaceVisitStateTest {
     void restoresExactPreviousSnapshotAndRejectsMismatchedIdentity() {
         PlaceVisitState previous =
                 PlaceVisitState.unvisited(PLACE_ID, USER_ID)
-                        .recordSignal(VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, EARLIER_TIME);
+                        .apply(VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, EARLIER_TIME);
         PlaceVisitState bulkMarked =
-                previous.recordSignal(VisitStatus.VISITED, VisitSource.MANUAL_BULK, LATER_TIME);
+                previous.apply(VisitStatus.VISITED, VisitSource.MANUAL_BULK, LATER_TIME);
 
         assertThat(bulkMarked.restoreFrom(previous)).isEqualTo(previous);
 

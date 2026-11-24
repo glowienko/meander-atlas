@@ -2,10 +2,14 @@ package com.meanderatlas.atlas.domain;
 
 public enum PlaceCategory {
     RESTAURANT,
-    HOTEL,
-    ATTRACTION,
-    NATURE,
-    MUSEUM,
     CAFE_BAR,
+    HOTEL,
+    MUSEUM,
+    LANDMARK,
+    SACRAL,
+    MOUNTAIN,
+    WATER,
+    NATURE_PARK,
+    VIEWPOINT,
     UNCATEGORIZED
 }
