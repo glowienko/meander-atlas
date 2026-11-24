@@ -6,9 +6,11 @@ import org.springframework.stereotype.Component;
 @Component
 class ConfiguredCurrentUserProvider implements CurrentUserProvider {
 
+    private static final String DEFAULT_USER_ID_EXPRESSION = "${app.default-user-id}";
+
     private final UserId defaultUserId;
 
-    ConfiguredCurrentUserProvider(@Value("${app.default-user-id}") String defaultUserId) {
+    ConfiguredCurrentUserProvider(@Value(DEFAULT_USER_ID_EXPRESSION) String defaultUserId) {
         this.defaultUserId = UserId.fromString(defaultUserId);
     }
 
