@@ -66,7 +66,14 @@ if [[ "${#FILES[@]}" -gt 0 ]]; then
       is_synthetic_fixture=true
     fi
 
-    if [[ "$is_synthetic_fixture" == false ]]; then
+    is_source_code=false
+    case "$f" in
+      backend/src/*.java|frontend/src/*.ts|frontend/src/*.tsx)
+        is_source_code=true
+        ;;
+    esac
+
+    if [[ "$is_synthetic_fixture" == false && "$is_source_code" == false ]]; then
       if [[ "$lower_base" == *.zip || "$lower" == *takeout* || "$lower" == *timeline* || "$lower" == *zapisane* || "$lower" == *opinie* ]]; then
         VIOLATIONS+=("blocked archive or personal export path: $f")
         continue

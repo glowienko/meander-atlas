@@ -21,6 +21,9 @@ credentials*.json
 *Timeline*
 *Zapisane*
 *Opinie*
+!backend/src/**/*.java
+!frontend/src/**/*.ts
+!frontend/src/**/*.tsx
 !fixtures/synthetic-*.zip
 !fixtures/synthetic-*.json
 

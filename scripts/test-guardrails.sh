@@ -48,13 +48,22 @@ git -C "$TMP_REPO" rm -q .env.example
 assert_pass "deletion-only staged commit"
 git -C "$TMP_REPO" reset -q --hard HEAD
 
-for blocked in ".env" ".env.local" "secret.pem" "Takeout.zip" "Timeline.json" "Zapisane miejsca.csv" "Opinie.json" "data/export.csv"; do
+for blocked in ".env" ".env.local" "secret.pem" "Takeout.zip" "Timeline.json" "Zapisane miejsca.csv" "Opinie.json" "data/export.csv" "backend/src/test/resources/Timeline.json" "backend/src/main/resources/Takeout.csv"; do
   mkdir -p "$(dirname "$TMP_REPO/$blocked")"
   printf 'blocked\n' > "$TMP_REPO/$blocked"
   git -C "$TMP_REPO" add -f "$blocked"
   assert_fail "blocked path $blocked"
   git -C "$TMP_REPO" reset -q -- "$blocked"
   rm -f "$TMP_REPO/$blocked"
+done
+
+for allowed_src in "backend/src/main/java/com/meanderatlas/ingestion/domain/TakeoutCsvParser.java" "backend/src/main/java/com/meanderatlas/ingestion/domain/TimelineParser.java" "frontend/src/features/ingestion/TimelineView.tsx"; do
+  mkdir -p "$(dirname "$TMP_REPO/$allowed_src")"
+  printf 'package test;\n' > "$TMP_REPO/$allowed_src"
+  git -C "$TMP_REPO" add -f "$allowed_src"
+  assert_pass "allowed source path $allowed_src"
+  git -C "$TMP_REPO" reset -q -- "$allowed_src"
+  rm -f "$TMP_REPO/$allowed_src"
 done
 
 dd if=/dev/zero of="$TMP_REPO/fixtures/synthetic-too-big.json" bs=1024 count=60 status=none
