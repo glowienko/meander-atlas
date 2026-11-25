@@ -4,14 +4,10 @@ import com.meanderatlas.atlas.AtlasFacade;
 import com.meanderatlas.atlas.BoundarySeedResultView;
 import com.meanderatlas.atlas.RegionScope;
 import java.time.Duration;
-import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.CacheControl;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,12 +51,5 @@ class AtlasBoundariesController {
                 .contentType(MVT_MEDIA_TYPE)
                 .cacheControl(CacheControl.maxAge(TILE_CACHE_DURATION).cachePublic())
                 .body(tile);
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    ProblemDetail handleInvalidArguments(IllegalArgumentException ex) {
-        String detail =
-                Objects.requireNonNullElse(ex.getMessage(), "Invalid boundary tile request");
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
     }
 }

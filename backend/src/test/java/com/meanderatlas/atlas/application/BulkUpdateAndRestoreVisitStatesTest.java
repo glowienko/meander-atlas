@@ -1,0 +1,160 @@
+package com.meanderatlas.atlas.application;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.meanderatlas.atlas.BulkVisitStatusRequest;
+import com.meanderatlas.atlas.BulkVisitStatusResultView;
+import com.meanderatlas.atlas.PlaceVisitStateView;
+import com.meanderatlas.atlas.RestoreVisitStatesRequest;
+import com.meanderatlas.atlas.RestoreVisitStatesResultView;
+import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
+import com.meanderatlas.atlas.domain.PlaceVisitState;
+import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
+import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
+import com.meanderatlas.atlas.domain.places.StoredPlace;
+import com.meanderatlas.shared.CurrentUserProvider;
+import com.meanderatlas.shared.PlaceId;
+import com.meanderatlas.shared.UserId;
+import com.meanderatlas.shared.VisitSource;
+import com.meanderatlas.shared.VisitStatus;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.Test;
+
+class BulkUpdateAndRestoreVisitStatesTest {
+
+    private static final UserId USER_ID =
+            new UserId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+    @Test
+    void bulkUpdatesPlacesCapturesPreviousStatesAndRestoresAtomically() {
+        UUID unvisitedPlaceId = UUID.randomUUID();
+        UUID timelinePlaceId = UUID.randomUUID();
+        Instant timelineInstant = Instant.parse("2026-08-10T09:00:00Z");
+
+        FakeAtlasPlaceRepository repo = new FakeAtlasPlaceRepository();
+        repo.ownedIds.add(new PlaceId(unvisitedPlaceId));
+        repo.ownedIds.add(new PlaceId(timelinePlaceId));
+        repo.states.put(
+                new PlaceId(timelinePlaceId),
+                new PlaceVisitState(
+                        new PlaceId(timelinePlaceId),
+                        USER_ID,
+                        VisitStatus.VISITED,
+                        VisitSource.TIMELINE,
+                        2,
+                        timelineInstant,
+                        timelineInstant));
+
+        CurrentUserProvider userProvider = () -> USER_ID;
+        BulkUpdatePlaceVisitStatus bulkUpdate = new BulkUpdatePlaceVisitStatus(repo, userProvider);
+        RestorePlaceVisitStates restore = new RestorePlaceVisitStates(repo, userProvider);
+
+        BulkVisitStatusResultView updated =
+                bulkUpdate.execute(
+                        new BulkVisitStatusRequest(
+                                List.of(unvisitedPlaceId, timelinePlaceId), VisitStatus.VISITED));
+
+        assertThat(updated.updatedCount()).isEqualTo(2);
+        assertThat(updated.previousStates()).hasSize(2);
+        assertThat(repo.stateOf(unvisitedPlaceId).status()).isEqualTo(VisitStatus.VISITED);
+        assertThat(repo.stateOf(unvisitedPlaceId).source()).isEqualTo(VisitSource.MANUAL_BULK);
+        assertThat(repo.stateOf(timelinePlaceId).source()).isEqualTo(VisitSource.MANUAL_BULK);
+        assertThat(repo.stateOf(timelinePlaceId).visitCount()).isEqualTo(2);
+
+        RestoreVisitStatesResultView restored =
+                restore.execute(new RestoreVisitStatesRequest(updated.previousStates()));
+
+        assertThat(restored.restoredCount()).isEqualTo(2);
+        PlaceVisitState restoredUnvisited = repo.stateOf(unvisitedPlaceId);
+        assertThat(restoredUnvisited.status()).isEqualTo(VisitStatus.UNVISITED);
+        assertThat(restoredUnvisited.source()).isNull();
+        assertThat(restoredUnvisited.visitCount()).isZero();
+
+        PlaceVisitState restoredTimeline = repo.stateOf(timelinePlaceId);
+        assertThat(restoredTimeline.status()).isEqualTo(VisitStatus.VISITED);
+        assertThat(restoredTimeline.source()).isEqualTo(VisitSource.TIMELINE);
+        assertThat(restoredTimeline.visitCount()).isEqualTo(2);
+        assertThat(restoredTimeline.firstVisitedAt()).isEqualTo(timelineInstant);
+    }
+
+    @Test
+    void rejectsUnknownOrUnownedPlaceIdsOnSingleAndBulkUpdates() {
+        UUID ownedId = UUID.randomUUID();
+        UUID missingId = UUID.randomUUID();
+
+        FakeAtlasPlaceRepository repo = new FakeAtlasPlaceRepository();
+        repo.ownedIds.add(new PlaceId(ownedId));
+        CurrentUserProvider userProvider = () -> USER_ID;
+
+        UpdatePlaceVisitStatus singleUpdate = new UpdatePlaceVisitStatus(repo, userProvider);
+        BulkUpdatePlaceVisitStatus bulkUpdate = new BulkUpdatePlaceVisitStatus(repo, userProvider);
+
+        assertThatThrownBy(() ->
+                        singleUpdate.execute(
+                                missingId, new UpdatePlaceVisitStatusRequest(VisitStatus.VISITED)))
+                .isInstanceOf(NoSuchElementException.class);
+
+        assertThatThrownBy(() ->
+                        bulkUpdate.execute(
+                                new BulkVisitStatusRequest(
+                                        List.of(ownedId, missingId), VisitStatus.VISITED)))
+                .isInstanceOf(NoSuchElementException.class);
+
+        PlaceVisitStateView view =
+                singleUpdate.execute(
+                        ownedId, new UpdatePlaceVisitStatusRequest(VisitStatus.VISITED));
+        assertThat(view.status()).isEqualTo(VisitStatus.VISITED);
+        assertThat(view.source()).isEqualTo(VisitSource.MANUAL_SINGLE);
+        assertThat(view.previousState().status()).isEqualTo(VisitStatus.UNVISITED);
+    }
+
+    private static final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
+
+        private final Set<PlaceId> ownedIds = new java.util.HashSet<>();
+        private final Map<PlaceId, PlaceVisitState> states = new HashMap<>();
+
+        PlaceVisitState stateOf(UUID id) {
+            return Objects.requireNonNull(states.get(new PlaceId(id)));
+        }
+
+        @Override
+        public List<StoredPlace> findPlaces(UserId userId, PlaceQueryFilter filter) {
+            return List.of();
+        }
+
+        @Override
+        public Optional<PlaceVisitState> findVisitState(UserId userId, PlaceId placeId) {
+            return Optional.ofNullable(states.get(placeId));
+        }
+
+        @Override
+        public List<PlaceVisitState> findVisitStates(UserId userId, List<PlaceId> placeIds) {
+            return placeIds.stream().map(states::get).filter(java.util.Objects::nonNull).toList();
+        }
+
+        @Override
+        public boolean existsPlaceForUser(UserId userId, PlaceId placeId) {
+            return ownedIds.contains(placeId);
+        }
+
+        @Override
+        public Set<PlaceId> findOwnedPlaceIds(UserId userId, List<PlaceId> placeIds) {
+            return placeIds.stream().filter(ownedIds::contains).collect(Collectors.toSet());
+        }
+
+        @Override
+        public void upsertVisitStates(List<PlaceVisitState> updatedStates) {
+            updatedStates.forEach(state -> states.put(state.placeId(), state));
+        }
+    }
+}

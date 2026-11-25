@@ -3,6 +3,7 @@ package com.meanderatlas.atlas.domain;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
+import com.meanderatlas.shared.VisitStatus;
 import java.time.Instant;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;

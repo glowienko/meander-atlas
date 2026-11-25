@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
+import com.meanderatlas.shared.VisitStatus;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;

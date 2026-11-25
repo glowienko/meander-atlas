@@ -6,4 +6,6 @@
 |_Services_
 
 * `c.m.a.AtlasFacade`
+|Bean references
+|* `c.m.s.CurrentUserProvider` (in Shared)
 |===

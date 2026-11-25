@@ -20,7 +20,7 @@
 
 | Module | Owns (tables) | Public API (root package only) | Phase |
 | --- | --- | --- | --- |
-| `shared` | none | `UserId`, `PlaceId`, `GeoPoint`, `VisitSource`, `PlaceCategory`, `CategorySource`, `ListKind`, `CurrentUserProvider` (interface) | Phase 0 / v0.1 |
+| `shared` | none | `UserId`, `PlaceId`, `GeoPoint`, `VisitSource`, `VisitStatus`, `DerivedRole`, `CoordSource`, `PlaceCategory`, `CategorySource`, `ListKind`, `CurrentUserProvider` (interface) | Phase 0 / v0.1 |
 | `atlas` | `places`, `place_visit_state`, `place_memberships`, `region_boundaries` | `AtlasFacade`, `AtlasHealthView`, event `PlacesChanged` | Phase 0 / v0.1 |
 | `ingestion` | `import_batches`, `import_records`, `resolution_jobs` | `ImportFacade` | v0.1 |
 | `memories` | `location_visits`, `trips`, `home_bases`, `reviews` | `MemoriesFacade` | v0.2 |
