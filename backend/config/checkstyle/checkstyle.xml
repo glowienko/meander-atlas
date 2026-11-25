@@ -10,5 +10,9 @@
       <property name="query" value="//SINGLE_LINE_COMMENT | //BLOCK_COMMENT_BEGIN"/>
       <message key="matchxpath.match" value="Code comments are prohibited in src/. Put design rationale in docs/adr/."/>
     </module>
+    <module name="MatchXpath">
+      <property name="query" value="//LITERAL_CONTINUE"/>
+      <message key="matchxpath.match" value="Prefer functional Stream/Optional pipelines over continue statements."/>
+    </module>
   </module>
 </module>

@@ -1,5 +1,7 @@
 package com.meanderatlas.atlas.domain;
 
+import com.meanderatlas.shared.ListKind;
+import com.meanderatlas.shared.PlaceCategory;
 import java.util.Collection;
 import java.util.Objects;
 
