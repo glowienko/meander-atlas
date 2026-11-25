@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/v1/atlas/boundaries/seed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["seedBoundaries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/atlas/health": {
         parameters: {
             query?: never;
@@ -12,6 +28,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/atlas/tiles/regions/{level}/{z}/{x}/{y}.mvt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["regionTile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -29,6 +61,15 @@ export interface components {
             postgisVersion: string;
             status: string;
         };
+        BoundarySeedResultView: {
+            /** Format: int32 */
+            admin1Upserted?: number;
+            /** Format: int32 */
+            countriesUpserted?: number;
+            /** Format: int32 */
+            placesTagged?: number;
+            skipped?: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -38,6 +79,28 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    seedBoundaries: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoundarySeedResultView"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -54,6 +117,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AtlasHealthView"];
+                };
+            };
+        };
+    };
+    regionTile: {
+        parameters: {
+            query?: {
+                countryCode?: string | null;
+            };
+            header?: never;
+            path: {
+                level: "COUNTRY" | "ADMIN1";
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.mapbox-vector-tile": string;
                 };
             };
         };

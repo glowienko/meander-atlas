@@ -34,8 +34,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-meander_local_dev}
       APP_DEFAULT_USER_ID: ${APP_DEFAULT_USER_ID:-00000000-0000-0000-0000-000000000001}
       APP_IMPORTS_DIR: /data/imports
+      APP_BOUNDARIES_DIR: /data/boundaries
     volumes:
       - "${APP_IMPORTS_DIR:-${HOME}/meander-atlas-data/imports}:/data/imports:ro"
+      - "${APP_BOUNDARIES_DIR:-${HOME}/meander-atlas-data/boundaries}:/data/boundaries:ro"
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
 

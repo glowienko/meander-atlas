@@ -8,6 +8,33 @@
     "url" : "/"
   } ],
   "paths" : {
+    "/api/v1/atlas/boundaries/seed" : {
+      "post" : {
+        "operationId" : "seedBoundaries",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "force",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BoundarySeedResultView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-boundaries-controller" ]
+      }
+    },
     "/api/v1/atlas/health" : {
       "get" : {
         "operationId" : "health",
@@ -24,6 +51,65 @@
           }
         },
         "tags" : [ "atlas-health-controller" ]
+      }
+    },
+    "/api/v1/atlas/tiles/regions/{level}/{z}/{x}/{y}.mvt" : {
+      "get" : {
+        "operationId" : "regionTile",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "level",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "COUNTRY", "ADMIN1" ]
+          }
+        }, {
+          "in" : "path",
+          "name" : "z",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "in" : "path",
+          "name" : "x",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "in" : "path",
+          "name" : "y",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "in" : "query",
+          "name" : "countryCode",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/vnd.mapbox-vector-tile" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "byte"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-boundaries-controller" ]
       }
     }
   },
@@ -43,6 +129,26 @@
           }
         },
         "required" : [ "database", "postgisVersion", "status" ]
+      },
+      "BoundarySeedResultView" : {
+        "type" : "object",
+        "properties" : {
+          "admin1Upserted" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "countriesUpserted" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "placesTagged" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "skipped" : {
+            "type" : "boolean"
+          }
+        }
       }
     }
   }
