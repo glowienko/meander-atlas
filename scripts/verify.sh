@@ -74,7 +74,17 @@ format_checks() {
   printf '%s' "${CHECKS[*]}"
 }
 
+check_no_ignored_sources() {
+  local ignored
+  ignored="$(git ls-files --others --ignored --exclude-standard -- 'backend/src/**/*.java' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx')"
+  if [[ -n "$ignored" ]]; then
+    printf 'Source files are silently ignored by .gitignore:\n%s\n' "$ignored" >&2
+    return 1
+  fi
+}
+
 run_step "privacy" ./scripts/check-privacy.sh
+run_step "no-ignored-sources" check_no_ignored_sources
 run_step "docs-budget" ./scripts/check-docs-budget.sh
 run_step "guardrail-tests" ./scripts/test-guardrails.sh
 

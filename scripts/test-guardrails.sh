@@ -78,3 +78,26 @@ printf 'tiny\n' > "$TMP_REPO/blob.bin"
 assert_fail "staged blob over 500 KB even if working tree was shrunk"
 git -C "$TMP_REPO" reset -q -- blob.bin
 rm -f "$TMP_REPO/blob.bin"
+
+cp "$REPO_ROOT/.gitignore" "$TMP_REPO/.gitignore"
+git -C "$TMP_REPO" config core.ignorecase true
+for unignored_src in \
+  "backend/src/main/java/com/meanderatlas/ingestion/domain/takeout/CsvRecordReader.java" \
+  "backend/src/main/java/com/meanderatlas/ingestion/domain/takeout/package-info.java" \
+  "backend/src/main/java/com/meanderatlas/ingestion/domain/timeline/package-info.java" \
+  "frontend/src/features/timeline/TimelinePanel.tsx"; do
+  if git -C "$TMP_REPO" check-ignore -q "$unignored_src"; then
+    printf 'FAIL: .gitignore must not ignore source file %s\n' "$unignored_src" >&2
+    exit 1
+  fi
+done
+for ignored_data in \
+  "backend/src/test/resources/Timeline.json" \
+  "backend/src/main/resources/Takeout.csv" \
+  "Takeout.zip" \
+  "Timeline.json"; do
+  if ! git -C "$TMP_REPO" check-ignore -q "$ignored_data"; then
+    printf 'FAIL: .gitignore must ignore export/data file %s\n' "$ignored_data" >&2
+    exit 1
+  fi
+done
