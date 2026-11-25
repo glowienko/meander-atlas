@@ -1,17 +1,90 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { CheckCircle2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  AtlasPlaceView,
+  RegionLevel,
+  VisitStateSnapshotView,
+  VisitStatus,
+} from "./api/client";
+import { AtlasFilterBar } from "./features/atlas/AtlasFilterBar";
 import { AtlasHealthPill } from "./features/atlas/AtlasHealthPill";
-import { AtlasMapView } from "./features/atlas/AtlasMapView";
+import {
+  AtlasMapView,
+  type FitBoundsTarget,
+  type MapViewport,
+} from "./features/atlas/AtlasMapView";
+import { BulkVisitDialog } from "./features/atlas/BulkVisitDialog";
+import { PlaceDetailCard } from "./features/atlas/PlaceDetailCard";
+import { RegionDossierDrawer } from "./features/atlas/RegionDossierDrawer";
+import { TravelStatsPanel } from "./features/atlas/TravelStatsPanel";
+import { UndoToast } from "./features/atlas/UndoToast";
 import { useAtlasHealth } from "./features/atlas/useAtlasHealth";
 import {
+  toFilterParams,
+  useAtlasPlaces,
+  useAtlasStats,
+  useBulkUpdateVisitStatus,
+  useRegionDossier,
+  useRegionSummaries,
+  useRestoreVisitStates,
+  useUpdatePlaceVisitStatus,
+} from "./features/atlas/useAtlasQueries";
+import {
   type AtlasProjection,
+  clearAtlasFilters,
   readAtlasViewState,
   writeAtlasViewState,
 } from "./features/atlas/viewState";
 
+interface UndoToastState {
+  message: string;
+  snapshots: VisitStateSnapshotView[];
+}
+
+interface BulkDialogState {
+  title: string;
+  places: AtlasPlaceView[];
+}
+
+const VIEWPORT_BULK_MIN_ZOOM = 9;
+const VIEWPORT_BULK_MAX_PLACES = 200;
+
 function AtlasShell() {
   const [viewState, setViewState] = useState(() => readAtlasViewState(window.location.search));
-  const { data, isLoading, isError } = useAtlasHealth();
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [viewport, setViewport] = useState<MapViewport | null>(null);
+  const [bulkDialog, setBulkDialog] = useState<BulkDialogState | null>(null);
+  const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
+
+  const filterParams = useMemo(() => toFilterParams(viewState), [viewState]);
+
+  const healthQuery = useAtlasHealth();
+  const placesQuery = useAtlasPlaces(filterParams);
+  const statsQuery = useAtlasStats();
+  const countrySummariesQuery = useRegionSummaries("COUNTRY", undefined, filterParams);
+  const dossierQuery = useRegionDossier(viewState.regionLevel, viewState.regionCode);
+
+  const selectedCountryCode = useMemo(() => {
+    if (viewState.regionLevel === "COUNTRY") {
+      return viewState.regionCode;
+    }
+    if (viewState.regionLevel === "ADMIN1") {
+      return dossierQuery.data?.region.countryCode ?? "";
+    }
+    return "";
+  }, [viewState.regionLevel, viewState.regionCode, dossierQuery.data]);
+
+  const admin1SummariesQuery = useRegionSummaries(
+    "ADMIN1",
+    selectedCountryCode,
+    filterParams,
+    selectedCountryCode.length > 0,
+  );
+
+  const updateVisitMutation = useUpdatePlaceVisitStatus();
+  const bulkVisitMutation = useBulkUpdateVisitStatus();
+  const restoreVisitMutation = useRestoreVisitStates();
 
   useEffect(() => {
     const nextSearch = writeAtlasViewState(viewState, window.location.search);
@@ -24,20 +97,211 @@ function AtlasShell() {
     }
   }, [viewState]);
 
+  const places = placesQuery.data?.places ?? [];
+  const selectedPlace = useMemo(
+    () => (selectedPlaceId ? (places.find((p) => p.id === selectedPlaceId) ?? null) : null),
+    [places, selectedPlaceId],
+  );
+
+  const fitBoundsTarget: FitBoundsTarget | null = useMemo(() => {
+    const region = dossierQuery.data?.region;
+    if (!region) {
+      return null;
+    }
+    return {
+      key: `${region.level}:${region.code}`,
+      minLng: region.minLng,
+      minLat: region.minLat,
+      maxLng: region.maxLng,
+      maxLat: region.maxLat,
+    };
+  }, [dossierQuery.data]);
+
+  const visibleUnvisitedPlaces = useMemo(() => {
+    if (!viewport || viewport.zoom < VIEWPORT_BULK_MIN_ZOOM) {
+      return [];
+    }
+    return places.filter(
+      (place) =>
+        place.visitStatus !== "VISITED" &&
+        place.lng >= viewport.minLng &&
+        place.lng <= viewport.maxLng &&
+        place.lat >= viewport.minLat &&
+        place.lat <= viewport.maxLat,
+    );
+  }, [places, viewport]);
+
   const handleProjectionChange = (projection: AtlasProjection) => {
-    setViewState({ projection });
+    setViewState((prev) => ({ ...prev, projection }));
   };
+
+  const handleSelectRegion = useCallback((level: RegionLevel, code: string) => {
+    setSelectedPlaceId(null);
+    setViewState((prev) => ({
+      ...prev,
+      regionLevel: level,
+      regionCode: code,
+    }));
+  }, []);
+
+  const handleToggleSingleVisit = (place: AtlasPlaceView, nextStatus: VisitStatus) => {
+    updateVisitMutation.mutate(
+      { placeId: place.id, status: nextStatus },
+      {
+        onSuccess: (result) => {
+          setUndoToast({
+            message: `Marked ${place.canonicalName} as ${nextStatus === "VISITED" ? "visited" : "unvisited"}`,
+            snapshots: [result.previousState],
+          });
+        },
+      },
+    );
+  };
+
+  const handleConfirmBulkVisit = (selectedIds: string[]) => {
+    bulkVisitMutation.mutate(
+      { placeIds: selectedIds, targetStatus: "VISITED" },
+      {
+        onSuccess: (result) => {
+          setBulkDialog(null);
+          setUndoToast({
+            message: `Marked ${result.updatedCount} place${result.updatedCount === 1 ? "" : "s"} as visited`,
+            snapshots: result.previousStates,
+          });
+        },
+      },
+    );
+  };
+
+  const handleUndo = () => {
+    if (!undoToast || undoToast.snapshots.length === 0) {
+      return;
+    }
+    restoreVisitMutation.mutate(undoToast.snapshots, {
+      onSuccess: () => {
+        setUndoToast(null);
+      },
+    });
+  };
+
+  const isMutating =
+    updateVisitMutation.isPending || bulkVisitMutation.isPending || restoreVisitMutation.isPending;
 
   return (
     <main className="relative h-full w-full">
-      <AtlasMapView projection={viewState.projection} />
-      <AtlasHealthPill
-        health={data}
-        isLoading={isLoading}
-        isError={isError}
+      <AtlasMapView
         projection={viewState.projection}
-        onProjectionChange={handleProjectionChange}
+        places={places}
+        countrySummaries={countrySummariesQuery.data ?? []}
+        admin1Summaries={admin1SummariesQuery.data ?? []}
+        selectedCountryCode={selectedCountryCode}
+        selectedRegionLevel={viewState.regionLevel}
+        selectedRegionCode={viewState.regionCode}
+        selectedPlaceId={selectedPlaceId}
+        fitBoundsTarget={fitBoundsTarget}
+        onSelectPlace={(placeId) => setSelectedPlaceId(placeId)}
+        onSelectRegion={handleSelectRegion}
+        onViewportChange={setViewport}
       />
+
+      <header className="pointer-events-none fixed inset-x-0 top-3 z-10 flex flex-col items-center gap-2 px-4">
+        <AtlasHealthPill
+          health={healthQuery.data}
+          isLoading={healthQuery.isLoading}
+          isError={healthQuery.isError}
+          projection={viewState.projection}
+          onProjectionChange={handleProjectionChange}
+          statsOpen={viewState.statsOpen}
+          onToggleStats={() => setViewState((prev) => ({ ...prev, statsOpen: !prev.statsOpen }))}
+        />
+
+        <AtlasFilterBar
+          viewState={viewState}
+          accountLists={statsQuery.data?.accountLists ?? []}
+          totalCount={placesQuery.data?.totalCount}
+          onChange={setViewState}
+          onClear={() => setViewState((prev) => clearAtlasFilters(prev))}
+        />
+      </header>
+
+      {viewState.statsOpen && (
+        <TravelStatsPanel
+          stats={statsQuery.data}
+          isLoading={statsQuery.isLoading}
+          isError={statsQuery.isError}
+          onClose={() => setViewState((prev) => ({ ...prev, statsOpen: false }))}
+          onFilterCategory={(category) => setViewState((prev) => ({ ...prev, category }))}
+        />
+      )}
+
+      {viewState.regionLevel !== "" && viewState.regionCode.length > 0 && (
+        <RegionDossierDrawer
+          dossier={dossierQuery.data}
+          isLoading={dossierQuery.isLoading}
+          isError={dossierQuery.isError}
+          isMutating={isMutating}
+          onClose={() => setViewState((prev) => ({ ...prev, regionLevel: "", regionCode: "" }))}
+          onSelectRegion={handleSelectRegion}
+          onSelectPlace={(place) => setSelectedPlaceId(place.id)}
+          onToggleVisitStatus={handleToggleSingleVisit}
+          onOpenBulkVisit={(targetPlaces, title) => setBulkDialog({ title, places: targetPlaces })}
+        />
+      )}
+
+      {selectedPlace && (
+        <PlaceDetailCard
+          place={selectedPlace}
+          isMutating={isMutating}
+          offsetForStats={viewState.statsOpen}
+          onClose={() => setSelectedPlaceId(null)}
+          onUpdateVisitStatus={handleToggleSingleVisit}
+        />
+      )}
+
+      {visibleUnvisitedPlaces.length > 0 &&
+        visibleUnvisitedPlaces.length <= VIEWPORT_BULK_MAX_PLACES && (
+          <div className="pointer-events-none fixed inset-x-0 bottom-5 z-10 flex justify-center px-4">
+            <button
+              type="button"
+              data-testid="bulk-viewport-button"
+              disabled={isMutating}
+              onClick={() =>
+                setBulkDialog({
+                  title: "Mark visible places as visited",
+                  places: visibleUnvisitedPlaces,
+                })
+              }
+              className="pointer-events-auto inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold text-white shadow-lg transition-opacity hover:opacity-95 disabled:opacity-50"
+              style={{
+                backgroundColor: "var(--atlas-accent)",
+                borderColor: "rgba(255, 255, 255, 0.25)",
+              }}
+            >
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+              Mark {visibleUnvisitedPlaces.length} visible as visited
+            </button>
+          </div>
+        )}
+
+      {bulkDialog && (
+        <BulkVisitDialog
+          title={bulkDialog.title}
+          places={bulkDialog.places}
+          isSubmitting={bulkVisitMutation.isPending}
+          onClose={() => setBulkDialog(null)}
+          onConfirm={handleConfirmBulkVisit}
+        />
+      )}
+
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          canUndo={undoToast.snapshots.length > 0}
+          isRestoring={restoreVisitMutation.isPending}
+          onUndo={handleUndo}
+          onDismiss={() => setUndoToast(null)}
+        />
+      )}
     </main>
   );
 }

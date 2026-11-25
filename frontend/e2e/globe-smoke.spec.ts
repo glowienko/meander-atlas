@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 
-test("renders MapLibre globe with live PostGIS health and zero runtime errors", async ({
+test("renders Living Atlas shell with live PostGIS health, filters, stats, and zero runtime errors", async ({
   page,
 }) => {
   const consoleErrors: string[] = [];
@@ -27,7 +27,7 @@ test("renders MapLibre globe with live PostGIS health and zero runtime errors", 
     }
   });
 
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto("/#slice6-proof", { waitUntil: "domcontentloaded" });
 
   const healthStatus = page.getByTestId("atlas-health-status");
   await expect(healthStatus).toContainText("UP · PostGIS 3.", { timeout: 15_000 });
@@ -35,6 +35,17 @@ test("renders MapLibre globe with live PostGIS health and zero runtime errors", 
   const mapContainer = page.getByTestId("atlas-map-canvas");
   await expect(mapContainer).toHaveAttribute("data-map-loaded", "true", { timeout: 25_000 });
   await expect(mapContainer).toHaveAttribute("data-projection", "globe");
+
+  await expect(page.getByTestId("atlas-filter-bar")).toBeVisible();
+  await expect(page.getByTestId("places-count-badge")).toContainText("pins");
+
+  await page.getByTestId("toggle-stats-button").click();
+  await expect(page.getByTestId("travel-stats-panel")).toBeVisible();
+  await expect(page).toHaveURL(/stats=1/);
+  await expect(page).toHaveURL(/#slice6-proof$/);
+
+  await page.getByTestId("filter-status").selectOption("VISITED");
+  await expect(page).toHaveURL(/status=VISITED/);
 
   const canvas = page.locator(".maplibregl-canvas");
   await expect(canvas).toBeVisible();
@@ -48,6 +59,9 @@ test("renders MapLibre globe with live PostGIS health and zero runtime errors", 
   const proofPath = path.join(proofDir, "phase0-globe.png");
   await page.screenshot({ path: proofPath, fullPage: false });
   expect(fs.statSync(proofPath).size).toBeGreaterThan(5_000);
+
+  await page.getByTestId("clear-filters-button").click();
+  await expect(page).not.toHaveURL(/status=/);
 
   await page.getByRole("button", { name: "2D Map" }).click();
   await expect(page).toHaveURL(/view=map/);
