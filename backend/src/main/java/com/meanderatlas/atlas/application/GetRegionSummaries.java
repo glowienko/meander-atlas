@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class GetRegionSummaries {
@@ -24,6 +25,7 @@ public class GetRegionSummaries {
         this.currentUserProvider = currentUserProvider;
     }
 
+    @Transactional(readOnly = true)
     public List<RegionSummaryView> execute(
             RegionScope scope, @Nullable String countryCode, RegionFilterQuery query) {
         Objects.requireNonNull(scope, "scope must not be null");

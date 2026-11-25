@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class GetRegionDossier {
@@ -34,6 +35,7 @@ public class GetRegionDossier {
         this.currentUserProvider = currentUserProvider;
     }
 
+    @Transactional(readOnly = true)
     public RegionDossierView execute(RegionScope scope, String code) {
         Objects.requireNonNull(scope, "scope must not be null");
         String normalizedCode =

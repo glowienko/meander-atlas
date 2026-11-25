@@ -27,7 +27,8 @@ class UpsertImportedPlaceTest {
     @Test
     void createsPlaceMergesByCidUpgradesUncategorizedAndPreservesManualEdits() {
         FakeAtlasPlaceRepository repo = new FakeAtlasPlaceRepository();
-        UpsertImportedPlace useCase = new UpsertImportedPlace(repo, () -> USER_ID);
+        UpsertImportedPlace useCase =
+                new UpsertImportedPlace(repo, () -> USER_ID, new ImportedPlaceMerger(repo));
         Instant savedAt = Instant.parse("2026-05-01T10:00:00Z");
 
         UpsertedPlaceView created =

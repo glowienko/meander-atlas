@@ -7,6 +7,7 @@ import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
 import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate;
+import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate.MatchConfidence;
 import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
@@ -225,48 +226,49 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
     }
 
     @Override
-    public Optional<TimelineMatchCandidate> findExactOrNearTimelineMatch(
+    public Optional<TimelineMatchCandidate> findTimelineMatchCandidate(
             UserId userId,
             @Nullable String googlePlaceId,
             GeoPoint coordinates,
-            double exactRadiusMeters) {
+            double exactRadiusMeters,
+            double triageMaxRadiusMeters) {
         if (googlePlaceId != null) {
             Optional<TimelineMatchCandidate> byPlaceId =
                     places.values().stream()
                             .filter(p -> p.userId.equals(userId))
                             .filter(p -> googlePlaceId.equals(p.googlePlaceId))
-                            .map(this::toTimelineCandidate)
+                            .map(p -> toTimelineCandidate(p, MatchConfidence.EXACT))
                             .findFirst();
             if (byPlaceId.isPresent()) {
                 return byPlaceId;
             }
         }
-        return places.values().stream()
-                .filter(p -> p.userId.equals(userId))
-                .filter(p -> distanceMeters(p.coordinates, coordinates) <= exactRadiusMeters)
-                .sorted((a, b) ->
-                        Double.compare(
-                                distanceMeters(a.coordinates, coordinates),
-                                distanceMeters(b.coordinates, coordinates)))
-                .map(this::toTimelineCandidate)
-                .findFirst();
-    }
-
-    @Override
-    public Optional<PlaceId> findUnvisitedTriageCandidate(
-            UserId userId, GeoPoint coordinates, double minRadiusMeters, double maxRadiusMeters) {
+        Optional<TimelineMatchCandidate> exact =
+                places.values().stream()
+                        .filter(p -> p.userId.equals(userId))
+                        .filter(p ->
+                                distanceMeters(p.coordinates, coordinates) <= exactRadiusMeters)
+                        .sorted((a, b) ->
+                                Double.compare(
+                                        distanceMeters(a.coordinates, coordinates),
+                                        distanceMeters(b.coordinates, coordinates)))
+                        .map(p -> toTimelineCandidate(p, MatchConfidence.EXACT))
+                        .findFirst();
+        if (exact.isPresent()) {
+            return exact;
+        }
         return places.values().stream()
                 .filter(p -> p.userId.equals(userId))
                 .filter(p -> currentStatus(p.id) == VisitStatus.UNVISITED)
                 .filter(p -> {
                     double d = distanceMeters(p.coordinates, coordinates);
-                    return d >= minRadiusMeters && d <= maxRadiusMeters;
+                    return d > exactRadiusMeters && d <= triageMaxRadiusMeters;
                 })
                 .sorted((a, b) ->
                         Double.compare(
                                 distanceMeters(a.coordinates, coordinates),
                                 distanceMeters(b.coordinates, coordinates)))
-                .map(p -> p.id)
+                .map(p -> toTimelineCandidate(p, MatchConfidence.TRIAGE))
                 .findFirst();
     }
 
@@ -278,9 +280,12 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         }
     }
 
-    private TimelineMatchCandidate toTimelineCandidate(MutablePlaceRecord record) {
-        return new TimelineMatchCandidate(
-                record.id, record.googlePlaceId, currentStatus(record.id));
+    private TimelineMatchCandidate toTimelineCandidate(
+            MutablePlaceRecord record, MatchConfidence confidence) {
+        PlaceVisitState state =
+                visitStates.getOrDefault(
+                        record.id, PlaceVisitState.unvisited(record.id, record.userId));
+        return new TimelineMatchCandidate(record.id, record.googlePlaceId, state, confidence);
     }
 
     private VisitStatus currentStatus(PlaceId id) {

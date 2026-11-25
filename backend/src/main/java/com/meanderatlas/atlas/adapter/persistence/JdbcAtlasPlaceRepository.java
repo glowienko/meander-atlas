@@ -8,6 +8,7 @@ import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
 import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate;
+import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate.MatchConfidence;
 import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -37,61 +39,16 @@ import org.springframework.stereotype.Repository;
 @Repository
 class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
 
-    private static final String FIND_PLACES_SQL =
-            """
-            SELECT
-                p.id,
-                p.canonical_name,
-                ST_Y(p.geom) AS lat,
-                ST_X(p.geom) AS lng,
-                p.category,
-                p.subcategory,
-                p.category_source,
-                p.derived_role,
-                COALESCE(pvs.status, 'UNVISITED') AS visit_status,
-                pvs.source AS visit_source,
-                COALESCE(pvs.visit_count, 0) AS visit_count,
-                pvs.first_visited_at,
-                pvs.last_visited_at,
-                p.country_code,
-                p.admin1_id,
-                rb.code AS admin1_code,
-                rb.name AS admin1_name,
-                p.city_name
-            FROM places p
-            LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
-            LEFT JOIN region_boundaries rb ON rb.id = p.admin1_id
-            WHERE p.user_id = CAST(:userId AS uuid)
-              AND p.geom IS NOT NULL
-              %s
-              AND (CAST(:visitStatus AS TEXT) IS NULL
-                  OR COALESCE(pvs.status, 'UNVISITED') = CAST(:visitStatus AS TEXT))
-              AND (CAST(:countryCode AS TEXT) IS NULL
-                  OR p.country_code = CAST(:countryCode AS TEXT))
-              AND (CAST(:admin1Id AS uuid) IS NULL
-                  OR p.admin1_id = CAST(:admin1Id AS uuid))
-              AND (:hasBbox = false
-                  OR (:crossesAntimeridian = false
-                      AND p.geom && ST_MakeEnvelope(:minLng, :minLat, :maxLng, :maxLat, 4326))
-                  OR (:crossesAntimeridian = true
-                      AND (p.geom && ST_MakeEnvelope(:minLng, :minLat, 180.0, :maxLat, 4326)
-                          OR p.geom && ST_MakeEnvelope(-180.0, :minLat, :maxLng, :maxLat, 4326))))
-            ORDER BY p.canonical_name ASC, p.id ASC
-            """
-                    .formatted(AtlasPlaceFilterSql.COMMON_PLACE_PREDICATES);
-
     private static final String INSERT_IMPORTED_PLACE_SQL =
             """
             WITH pt AS (
                 SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) AS geom
             ),
             resolved_country AS (
-                SELECT COALESCE(%s, CAST(:fallbackCountryCode AS TEXT)) AS country_code
+                SELECT
+                    pt.geom,
+                    COALESCE(%s, CAST(:fallbackCountryCode AS TEXT)) AS country_code
                 FROM pt
-            ),
-            resolved_admin1 AS (
-                SELECT %s AS admin1_id
-                FROM pt, resolved_country rc
             )
             INSERT INTO places (
                 id,
@@ -113,7 +70,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 CAST(:id AS uuid),
                 CAST(:userId AS uuid),
                 :canonicalName,
-                pt.geom,
+                rc.geom,
                 :coordSource,
                 CAST(:googlePlaceId AS TEXT),
                 CAST(:googleCid AS BIGINT),
@@ -122,40 +79,29 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 :categorySource,
                 :derivedRole,
                 rc.country_code,
-                ra.admin1_id,
+                %s,
                 CAST(:cityName AS TEXT)
-            FROM pt, resolved_country rc, resolved_admin1 ra
+            FROM resolved_country rc
             """
                     .formatted(
                             SpatialRegionSql.countryLookupSql("pt.geom"),
-                            SpatialRegionSql.admin1LookupSql("pt.geom", "rc.country_code"));
+                            SpatialRegionSql.admin1LookupSql("rc.geom", "rc.country_code"));
 
     private static final String UPDATE_PLACE_AFTER_MERGE_SQL =
             """
-            WITH target_place AS (
-                SELECT p.id, p.geom, p.country_code, p.admin1_id
-                FROM places p
-                WHERE p.id = CAST(:placeId AS uuid)
-                  AND p.user_id = CAST(:userId AS uuid)
-            ),
-            resolved_country AS (
+            WITH resolved_country AS (
                 SELECT
-                    tp.id,
-                    tp.geom,
-                    tp.admin1_id,
+                    p.id,
+                    p.geom,
+                    p.admin1_id,
                     COALESCE(
-                        tp.country_code,
+                        p.country_code,
                         %s,
                         CAST(:fallbackCountryCode AS TEXT)
                     ) AS next_country_code
-                FROM target_place tp
-            ),
-            resolved AS (
-                SELECT
-                    rc.id,
-                    rc.next_country_code,
-                    COALESCE(rc.admin1_id, %s) AS next_admin1_id
-                FROM resolved_country rc
+                FROM places p
+                WHERE p.id = CAST(:placeId AS uuid)
+                  AND p.user_id = CAST(:userId AS uuid)
             )
             UPDATE places p
             SET derived_role = :derivedRole,
@@ -188,14 +134,14 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         THEN CAST(:googleCid AS BIGINT)
                     ELSE p.google_cid
                 END,
-                country_code = resolved.next_country_code,
-                admin1_id = resolved.next_admin1_id,
+                country_code = rc.next_country_code,
+                admin1_id = COALESCE(rc.admin1_id, %s),
                 updated_at = now()
-            FROM resolved
-            WHERE p.id = resolved.id
+            FROM resolved_country rc
+            WHERE p.id = rc.id
             """
                     .formatted(
-                            SpatialRegionSql.countryLookupSql("tp.geom"),
+                            SpatialRegionSql.countryLookupSql("p.geom"),
                             SpatialRegionSql.admin1LookupSql("rc.geom", "rc.next_country_code"));
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -206,65 +152,50 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
 
     @Override
     public List<StoredPlace> findPlaces(UserId userId, PlaceQueryFilter filter) {
-        BoundingBox bbox = filter.bbox();
-        MapSqlParameterSource params =
-                AtlasPlaceFilterSql.addCommonFilterParams(
-                        new MapSqlParameterSource()
-                                .addValue("userId", userId.value())
-                                .addValue(
-                                        "visitStatus",
-                                        filter.visitStatus() == null
-                                                ? null
-                                                : filter.visitStatus().name(),
-                                        Types.VARCHAR)
-                                .addValue("countryCode", filter.countryCode(), Types.VARCHAR)
-                                .addValue("admin1Id", filter.admin1Id(), Types.OTHER)
-                                .addValue("hasBbox", bbox != null)
-                                .addValue(
-                                        "crossesAntimeridian",
-                                        bbox != null && bbox.crossesAntimeridian())
-                                .addValue("minLng", bbox == null ? 0.0 : bbox.minLng())
-                                .addValue("minLat", bbox == null ? 0.0 : bbox.minLat())
-                                .addValue("maxLng", bbox == null ? 0.0 : bbox.maxLng())
-                                .addValue("maxLat", bbox == null ? 0.0 : bbox.maxLat()),
-                        filter.q(),
-                        filter.derivedRole(),
-                        filter.category(),
-                        filter.account(),
-                        filter.list());
+        MapSqlParameterSource params = new MapSqlParameterSource("userId", userId.value());
+        Stream.Builder<String> predicates = Stream.builder();
+        predicates.add("p.user_id = :userId");
+        predicates.add("p.geom IS NOT NULL");
+        AtlasPlaceFilterSql.appendCommonPredicates(
+                predicates,
+                params,
+                filter.q(),
+                filter.derivedRole(),
+                filter.category(),
+                filter.account(),
+                filter.list());
+        appendPlaceSpecificPredicates(predicates, params, filter);
 
+        String sql =
+                """
+                SELECT
+                    p.id,
+                    p.canonical_name,
+                    ST_Y(p.geom) AS lat,
+                    ST_X(p.geom) AS lng,
+                    p.category,
+                    p.subcategory,
+                    p.category_source,
+                    p.derived_role,
+                    COALESCE(pvs.status, 'UNVISITED') AS visit_status,
+                    pvs.source AS visit_source,
+                    COALESCE(pvs.visit_count, 0) AS visit_count,
+                    pvs.first_visited_at,
+                    pvs.last_visited_at,
+                    p.country_code,
+                    p.admin1_id,
+                    rb.code AS admin1_code,
+                    rb.name AS admin1_name,
+                    p.city_name
+                FROM places p
+                LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+                LEFT JOIN region_boundaries rb ON rb.id = p.admin1_id
+                WHERE %s
+                ORDER BY p.canonical_name ASC, p.id ASC
+                """
+                        .formatted(predicates.build().collect(Collectors.joining("\n  AND ")));
         List<StoredPlace> rows =
-                jdbcTemplate.query(
-                        FIND_PLACES_SQL,
-                        params,
-                        (rs, _) -> {
-                            String rawVisitSource = rs.getString("visit_source");
-                            return new StoredPlace(
-                                    new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
-                                    JdbcRowReaders.requiredString(rs, "canonical_name"),
-                                    new GeoPoint(rs.getDouble("lat"), rs.getDouble("lng")),
-                                    PlaceCategory.valueOf(
-                                            JdbcRowReaders.requiredString(rs, "category")),
-                                    rs.getString("subcategory"),
-                                    CategorySource.valueOf(
-                                            JdbcRowReaders.requiredString(rs, "category_source")),
-                                    DerivedRole.valueOf(
-                                            JdbcRowReaders.requiredString(rs, "derived_role")),
-                                    VisitStatus.valueOf(
-                                            JdbcRowReaders.requiredString(rs, "visit_status")),
-                                    rawVisitSource == null
-                                            ? null
-                                            : VisitSource.valueOf(rawVisitSource),
-                                    rs.getInt("visit_count"),
-                                    JdbcRowReaders.nullableInstant(rs, "first_visited_at"),
-                                    JdbcRowReaders.nullableInstant(rs, "last_visited_at"),
-                                    rs.getString("country_code"),
-                                    rs.getObject("admin1_id", UUID.class),
-                                    rs.getString("admin1_code"),
-                                    rs.getString("admin1_name"),
-                                    rs.getString("city_name"),
-                                    List.of());
-                        });
+                jdbcTemplate.query(sql, params, JdbcAtlasPlaceRepository::mapStoredPlace);
         if (rows.isEmpty()) {
             return List.of();
         }
@@ -292,20 +223,16 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 """
                 SELECT place_id, user_id, status, source, visit_count, first_visited_at, last_visited_at
                 FROM place_visit_state
-                WHERE user_id = CAST(:userId AS uuid)
-                  AND place_id IN (:placeIds)
+                WHERE user_id = :userId
+                  AND place_id = ANY(:placeIds)
                 """,
-                Map.of("userId", userId.value(), "placeIds", rawIds),
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue("placeIds", JdbcRowReaders.uuidArray(rawIds)),
                 (rs, _) -> {
-                    String rawSource = rs.getString("source");
-                    return new PlaceVisitState(
-                            new PlaceId(JdbcRowReaders.requiredUuid(rs, "place_id")),
-                            new UserId(JdbcRowReaders.requiredUuid(rs, "user_id")),
-                            VisitStatus.valueOf(JdbcRowReaders.requiredString(rs, "status")),
-                            rawSource == null ? null : VisitSource.valueOf(rawSource),
-                            rs.getInt("visit_count"),
-                            JdbcRowReaders.nullableInstant(rs, "first_visited_at"),
-                            JdbcRowReaders.nullableInstant(rs, "last_visited_at"));
+                    PlaceId placeId = new PlaceId(JdbcRowReaders.requiredUuid(rs, "place_id"));
+                    UserId rowUserId = new UserId(JdbcRowReaders.requiredUuid(rs, "user_id"));
+                    return mapVisitStateColumns(rs, placeId, rowUserId);
                 });
     }
 
@@ -316,8 +243,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         """
                         SELECT EXISTS(
                             SELECT 1 FROM places
-                            WHERE id = CAST(:placeId AS uuid)
-                              AND user_id = CAST(:userId AS uuid)
+                            WHERE id = :placeId
+                              AND user_id = :userId
                         )
                         """,
                         Map.of("placeId", placeId.value(), "userId", userId.value()),
@@ -335,10 +262,12 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 .query(
                         """
                         SELECT id FROM places
-                        WHERE user_id = CAST(:userId AS uuid)
-                          AND id IN (:placeIds)
+                        WHERE user_id = :userId
+                          AND id = ANY(:placeIds)
                         """,
-                        Map.of("userId", userId.value(), "placeIds", rawIds),
+                        new MapSqlParameterSource()
+                                .addValue("userId", userId.value())
+                                .addValue("placeIds", JdbcRowReaders.uuidArray(rawIds)),
                         (rs, _) -> new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")))
                 .stream()
                 .collect(Collectors.toUnmodifiableSet());
@@ -388,6 +317,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                     first_visited_at = EXCLUDED.first_visited_at,
                     last_visited_at = EXCLUDED.last_visited_at,
                     updated_at = now()
+                WHERE place_visit_state.user_id = EXCLUDED.user_id
                 """,
                 params);
     }
@@ -401,64 +331,17 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
             String canonicalName,
             double radiusMeters,
             double minTrigramSimilarity) {
-        if (googlePlaceId != null) {
-            Optional<MatchedPlace> byPlaceId =
-                    jdbcTemplate
-                            .query(
-                                    """
-                                    SELECT id, category, category_source, google_place_id, google_cid,
-                                           country_code, admin1_id
-                                    FROM places
-                                    WHERE user_id = CAST(:userId AS uuid)
-                                      AND google_place_id = :googlePlaceId
-                                    LIMIT 1
-                                    """,
-                                    Map.of(
-                                            "userId",
-                                            userId.value(),
-                                            "googlePlaceId",
-                                            googlePlaceId),
-                                    JdbcAtlasPlaceRepository::mapMatchedPlace)
-                            .stream()
-                            .findFirst();
-            if (byPlaceId.isPresent()) {
-                return byPlaceId;
-            }
-        }
-        if (googleCid != null) {
-            Optional<MatchedPlace> byCid = findByGoogleCid(userId, googleCid);
-            if (byCid.isPresent()) {
-                return byCid;
-            }
-        }
-        return jdbcTemplate
-                .query(
-                        """
-                        SELECT id, category, category_source, google_place_id, google_cid,
-                               country_code, admin1_id
-                        FROM places
-                        WHERE user_id = CAST(:userId AS uuid)
-                          AND geom IS NOT NULL
-                          AND ST_DWithin(
-                              geom::geography,
-                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                              :radiusMeters)
-                          AND similarity(canonical_name, :canonicalName) >= :minSimilarity
-                        ORDER BY ST_Distance(
-                            geom::geography,
-                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) ASC
-                        LIMIT 1
-                        """,
-                        new MapSqlParameterSource()
-                                .addValue("userId", userId.value())
-                                .addValue("lng", coordinates.longitude())
-                                .addValue("lat", coordinates.latitude())
-                                .addValue("radiusMeters", radiusMeters)
-                                .addValue("canonicalName", canonicalName)
-                                .addValue("minSimilarity", minTrigramSimilarity),
-                        JdbcAtlasPlaceRepository::mapMatchedPlace)
-                .stream()
-                .findFirst();
+        return Optional.ofNullable(googlePlaceId)
+                .flatMap(id -> findByGooglePlaceId(userId, id))
+                .or(() ->
+                        Optional.ofNullable(googleCid).flatMap(cid -> findByGoogleCid(userId, cid)))
+                .or(() ->
+                        findBySpatialSimilarity(
+                                userId,
+                                coordinates,
+                                canonicalName,
+                                radiusMeters,
+                                minTrigramSimilarity));
     }
 
     @Override
@@ -469,7 +352,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         SELECT id, category, category_source, google_place_id, google_cid,
                                country_code, admin1_id
                         FROM places
-                        WHERE user_id = CAST(:userId AS uuid)
+                        WHERE user_id = :userId
                           AND google_cid = :googleCid
                         LIMIT 1
                         """,
@@ -555,6 +438,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                     tags = COALESCE(EXCLUDED.tags, place_memberships.tags),
                     source_url = COALESCE(EXCLUDED.source_url, place_memberships.source_url),
                     saved_at = COALESCE(EXCLUDED.saved_at, place_memberships.saved_at)
+                WHERE place_memberships.user_id = EXCLUDED.user_id
                 """,
                 new MapSqlParameterSource()
                         .addValue("id", UUID.randomUUID())
@@ -578,7 +462,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 """
                 SELECT DISTINCT list_kind
                 FROM place_memberships
-                WHERE place_id = CAST(:placeId AS uuid)
+                WHERE place_id = :placeId
                 """,
                 Map.of("placeId", placeId.value()),
                 (rs, _) -> ListKind.valueOf(JdbcRowReaders.requiredString(rs, "list_kind")));
@@ -620,106 +504,17 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
     }
 
     @Override
-    public Optional<TimelineMatchCandidate> findExactOrNearTimelineMatch(
+    public Optional<TimelineMatchCandidate> findTimelineMatchCandidate(
             UserId userId,
             @Nullable String googlePlaceId,
             GeoPoint coordinates,
-            double exactRadiusMeters) {
-        if (googlePlaceId != null) {
-            Optional<TimelineMatchCandidate> byPlaceId =
-                    jdbcTemplate
-                            .query(
-                                    """
-                                    SELECT p.id, p.google_place_id,
-                                           COALESCE(pvs.status, 'UNVISITED') AS visit_status
-                                    FROM places p
-                                    LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
-                                    WHERE p.user_id = CAST(:userId AS uuid)
-                                      AND p.google_place_id = :googlePlaceId
-                                    LIMIT 1
-                                    """,
-                                    Map.of(
-                                            "userId",
-                                            userId.value(),
-                                            "googlePlaceId",
-                                            googlePlaceId),
-                                    JdbcAtlasPlaceRepository::mapTimelineCandidate)
-                            .stream()
-                            .findFirst();
-            if (byPlaceId.isPresent()) {
-                return byPlaceId;
-            }
-        }
-        return jdbcTemplate
-                .query(
-                        """
-                        SELECT p.id, p.google_place_id,
-                               COALESCE(pvs.status, 'UNVISITED') AS visit_status
-                        FROM places p
-                        LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
-                        WHERE p.user_id = CAST(:userId AS uuid)
-                          AND p.geom IS NOT NULL
-                          AND ST_DWithin(
-                              p.geom::geography,
-                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                              :radiusMeters)
-                        ORDER BY ST_Distance(
-                            p.geom::geography,
-                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) ASC
-                        LIMIT 1
-                        """,
-                        Map.of(
-                                "userId",
-                                userId.value(),
-                                "lng",
-                                coordinates.longitude(),
-                                "lat",
-                                coordinates.latitude(),
-                                "radiusMeters",
-                                exactRadiusMeters),
-                        JdbcAtlasPlaceRepository::mapTimelineCandidate)
-                .stream()
-                .findFirst();
-    }
-
-    @Override
-    public Optional<PlaceId> findUnvisitedTriageCandidate(
-            UserId userId, GeoPoint coordinates, double minRadiusMeters, double maxRadiusMeters) {
-        return jdbcTemplate
-                .query(
-                        """
-                        SELECT p.id
-                        FROM places p
-                        LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
-                        WHERE p.user_id = CAST(:userId AS uuid)
-                          AND p.geom IS NOT NULL
-                          AND COALESCE(pvs.status, 'UNVISITED') = 'UNVISITED'
-                          AND ST_DWithin(
-                              p.geom::geography,
-                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                              :maxRadiusMeters)
-                          AND ST_Distance(
-                              p.geom::geography,
-                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) >= :minRadiusMeters
-                        ORDER BY ST_Distance(
-                            p.geom::geography,
-                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) ASC
-                        LIMIT 1
-                        """,
-                        Map.of(
-                                "userId",
-                                userId.value(),
-                                "lng",
-                                coordinates.longitude(),
-                                "lat",
-                                coordinates.latitude(),
-                                "minRadiusMeters",
-                                minRadiusMeters,
-                                "maxRadiusMeters",
-                                maxRadiusMeters),
-                        (rs, _) -> new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")))
-                .stream()
-                .findFirst();
+            double exactRadiusMeters,
+            double triageMaxRadiusMeters) {
+        return Optional.ofNullable(googlePlaceId)
+                .flatMap(id -> findTimelineCandidateByGooglePlaceId(userId, id))
+                .or(() ->
+                        findTimelineCandidateByDistance(
+                                userId, coordinates, exactRadiusMeters, triageMaxRadiusMeters));
     }
 
     @Override
@@ -729,8 +524,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 UPDATE places p
                 SET google_place_id = :googlePlaceId,
                     updated_at = now()
-                WHERE p.id = CAST(:placeId AS uuid)
-                  AND p.user_id = CAST(:userId AS uuid)
+                WHERE p.id = :placeId
+                  AND p.user_id = :userId
                   AND p.google_place_id IS NULL
                   AND NOT EXISTS (
                       SELECT 1 FROM places o
@@ -747,6 +542,141 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         googlePlaceId));
     }
 
+    private Optional<MatchedPlace> findByGooglePlaceId(UserId userId, String googlePlaceId) {
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT id, category, category_source, google_place_id, google_cid,
+                               country_code, admin1_id
+                        FROM places
+                        WHERE user_id = :userId
+                          AND google_place_id = :googlePlaceId
+                        LIMIT 1
+                        """,
+                        Map.of("userId", userId.value(), "googlePlaceId", googlePlaceId),
+                        JdbcAtlasPlaceRepository::mapMatchedPlace)
+                .stream()
+                .findFirst();
+    }
+
+    private Optional<MatchedPlace> findBySpatialSimilarity(
+            UserId userId,
+            GeoPoint coordinates,
+            String canonicalName,
+            double radiusMeters,
+            double minTrigramSimilarity) {
+        return jdbcTemplate
+                .query(
+                        """
+                        WITH target AS (
+                            SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography AS geog
+                        )
+                        SELECT p.id, p.category, p.category_source, p.google_place_id, p.google_cid,
+                               p.country_code, p.admin1_id
+                        FROM places p
+                        CROSS JOIN target
+                        WHERE p.user_id = :userId
+                          AND p.geom IS NOT NULL
+                          AND ST_DWithin(p.geom::geography, target.geog, :radiusMeters)
+                          AND similarity(p.canonical_name, :canonicalName) >= :minSimilarity
+                        ORDER BY ST_Distance(p.geom::geography, target.geog) ASC,
+                                 similarity(p.canonical_name, :canonicalName) DESC,
+                                 p.id ASC
+                        LIMIT 1
+                        """,
+                        new MapSqlParameterSource()
+                                .addValue("userId", userId.value())
+                                .addValue("lng", coordinates.longitude())
+                                .addValue("lat", coordinates.latitude())
+                                .addValue("radiusMeters", radiusMeters)
+                                .addValue("canonicalName", canonicalName)
+                                .addValue("minSimilarity", minTrigramSimilarity),
+                        JdbcAtlasPlaceRepository::mapMatchedPlace)
+                .stream()
+                .findFirst();
+    }
+
+    private Optional<TimelineMatchCandidate> findTimelineCandidateByGooglePlaceId(
+            UserId userId, String googlePlaceId) {
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT p.id, p.google_place_id,
+                               pvs.status, pvs.source, pvs.visit_count,
+                               pvs.first_visited_at, pvs.last_visited_at
+                        FROM places p
+                        LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+                        WHERE p.user_id = :userId
+                          AND p.google_place_id = :googlePlaceId
+                        LIMIT 1
+                        """,
+                        Map.of("userId", userId.value(), "googlePlaceId", googlePlaceId),
+                        (rs, _) -> mapTimelineCandidate(rs, userId, MatchConfidence.EXACT))
+                .stream()
+                .findFirst();
+    }
+
+    private Optional<TimelineMatchCandidate> findTimelineCandidateByDistance(
+            UserId userId,
+            GeoPoint coordinates,
+            double exactRadiusMeters,
+            double triageMaxRadiusMeters) {
+        return jdbcTemplate
+                .query(
+                        """
+                        WITH target AS (
+                            SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography AS geog
+                        ),
+                        candidates AS (
+                            SELECT
+                                p.id,
+                                p.google_place_id,
+                                pvs.status,
+                                pvs.source,
+                                pvs.visit_count,
+                                pvs.first_visited_at,
+                                pvs.last_visited_at,
+                                ST_Distance(p.geom::geography, target.geog) AS distance_meters
+                            FROM places p
+                            CROSS JOIN target
+                            LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+                            WHERE p.user_id = :userId
+                              AND p.geom IS NOT NULL
+                              AND ST_DWithin(p.geom::geography, target.geog, :triageMaxRadiusMeters)
+                        )
+                        SELECT id, google_place_id, status, source, visit_count,
+                               first_visited_at, last_visited_at, distance_meters
+                        FROM candidates
+                        WHERE distance_meters <= :exactRadiusMeters
+                           OR COALESCE(status, 'UNVISITED') = 'UNVISITED'
+                        ORDER BY (distance_meters <= :exactRadiusMeters) DESC,
+                                 distance_meters ASC,
+                                 id ASC
+                        LIMIT 1
+                        """,
+                        Map.of(
+                                "userId",
+                                userId.value(),
+                                "lng",
+                                coordinates.longitude(),
+                                "lat",
+                                coordinates.latitude(),
+                                "exactRadiusMeters",
+                                exactRadiusMeters,
+                                "triageMaxRadiusMeters",
+                                triageMaxRadiusMeters),
+                        (rs, _) -> {
+                            double distanceMeters = rs.getDouble("distance_meters");
+                            MatchConfidence confidence =
+                                    distanceMeters <= exactRadiusMeters
+                                            ? MatchConfidence.EXACT
+                                            : MatchConfidence.TRIAGE;
+                            return mapTimelineCandidate(rs, userId, confidence);
+                        })
+                .stream()
+                .findFirst();
+    }
+
     private Map<PlaceId, List<StoredMembership>> loadMemberships(List<UUID> placeIds) {
         List<StoredMembership> memberships =
                 jdbcTemplate.query(
@@ -761,10 +691,10 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                             source_url,
                             saved_at
                         FROM place_memberships
-                        WHERE place_id IN (:placeIds)
+                        WHERE place_id = ANY(:placeIds)
                         ORDER BY saved_at DESC NULLS LAST, account_label ASC, list_name ASC
                         """,
-                        Map.of("placeIds", placeIds),
+                        new MapSqlParameterSource("placeIds", JdbcRowReaders.uuidArray(placeIds)),
                         (rs, _) ->
                                 new StoredMembership(
                                         new PlaceId(JdbcRowReaders.requiredUuid(rs, "place_id")),
@@ -782,6 +712,62 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                 StoredMembership::placeId, Collectors.toUnmodifiableList()));
     }
 
+    private static void appendPlaceSpecificPredicates(
+            Stream.Builder<String> predicates,
+            MapSqlParameterSource params,
+            PlaceQueryFilter filter) {
+        VisitStatus visitStatus = filter.visitStatus();
+        if (visitStatus == VisitStatus.UNVISITED) {
+            predicates.add("(pvs.status IS NULL OR pvs.status = 'UNVISITED')");
+        } else if (visitStatus != null) {
+            params.addValue("visitStatus", visitStatus.name());
+            predicates.add("pvs.status = :visitStatus");
+        }
+        if (filter.countryCode() != null) {
+            params.addValue("countryCode", filter.countryCode());
+            predicates.add("p.country_code = :countryCode");
+        }
+        if (filter.admin1Id() != null) {
+            params.addValue("admin1Id", filter.admin1Id());
+            predicates.add("p.admin1_id = :admin1Id");
+        }
+        BoundingBox bbox = filter.bbox();
+        if (bbox != null) {
+            params.addValue("minLng", bbox.minLng())
+                    .addValue("minLat", bbox.minLat())
+                    .addValue("maxLng", bbox.maxLng())
+                    .addValue("maxLat", bbox.maxLat());
+            predicates.add(
+                    bbox.crossesAntimeridian()
+                            ? "(p.geom && ST_MakeEnvelope(:minLng, :minLat, 180.0, :maxLat, 4326)"
+                                    + " OR p.geom && ST_MakeEnvelope(-180.0, :minLat, :maxLng, :maxLat, 4326))"
+                            : "p.geom && ST_MakeEnvelope(:minLng, :minLat, :maxLng, :maxLat, 4326)");
+        }
+    }
+
+    private static StoredPlace mapStoredPlace(ResultSet rs, int rowNum) throws SQLException {
+        String rawVisitSource = rs.getString("visit_source");
+        return new StoredPlace(
+                new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
+                JdbcRowReaders.requiredString(rs, "canonical_name"),
+                new GeoPoint(rs.getDouble("lat"), rs.getDouble("lng")),
+                PlaceCategory.valueOf(JdbcRowReaders.requiredString(rs, "category")),
+                rs.getString("subcategory"),
+                CategorySource.valueOf(JdbcRowReaders.requiredString(rs, "category_source")),
+                DerivedRole.valueOf(JdbcRowReaders.requiredString(rs, "derived_role")),
+                VisitStatus.valueOf(JdbcRowReaders.requiredString(rs, "visit_status")),
+                rawVisitSource == null ? null : VisitSource.valueOf(rawVisitSource),
+                rs.getInt("visit_count"),
+                JdbcRowReaders.nullableInstant(rs, "first_visited_at"),
+                JdbcRowReaders.nullableInstant(rs, "last_visited_at"),
+                rs.getString("country_code"),
+                rs.getObject("admin1_id", UUID.class),
+                rs.getString("admin1_code"),
+                rs.getString("admin1_name"),
+                rs.getString("city_name"),
+                List.of());
+    }
+
     private static MatchedPlace mapMatchedPlace(ResultSet rs, int rowNum) throws SQLException {
         return new MatchedPlace(
                 new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
@@ -793,11 +779,28 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 rs.getObject("admin1_id", UUID.class));
     }
 
-    private static TimelineMatchCandidate mapTimelineCandidate(ResultSet rs, int rowNum)
-            throws SQLException {
+    private static TimelineMatchCandidate mapTimelineCandidate(
+            ResultSet rs, UserId userId, MatchConfidence confidence) throws SQLException {
+        PlaceId placeId = new PlaceId(JdbcRowReaders.requiredUuid(rs, "id"));
+        PlaceVisitState visitState = mapVisitStateColumns(rs, placeId, userId);
         return new TimelineMatchCandidate(
-                new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
-                rs.getString("google_place_id"),
-                VisitStatus.valueOf(JdbcRowReaders.requiredString(rs, "visit_status")));
+                placeId, rs.getString("google_place_id"), visitState, confidence);
+    }
+
+    private static PlaceVisitState mapVisitStateColumns(
+            ResultSet rs, PlaceId placeId, UserId userId) throws SQLException {
+        String rawStatus = rs.getString("status");
+        if (rawStatus == null) {
+            return PlaceVisitState.unvisited(placeId, userId);
+        }
+        String rawSource = rs.getString("source");
+        return new PlaceVisitState(
+                placeId,
+                userId,
+                VisitStatus.valueOf(rawStatus),
+                rawSource == null ? null : VisitSource.valueOf(rawSource),
+                rs.getInt("visit_count"),
+                JdbcRowReaders.nullableInstant(rs, "first_visited_at"),
+                JdbcRowReaders.nullableInstant(rs, "last_visited_at"));
     }
 }

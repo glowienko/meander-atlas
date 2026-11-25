@@ -5,7 +5,10 @@ import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 
 public record PlaceVisitState(
@@ -53,6 +56,10 @@ public record PlaceVisitState(
     public static PlaceVisitState unvisited(PlaceId placeId, UserId userId) {
         return new PlaceVisitState(
                 placeId, userId, VisitStatus.UNVISITED, null, ZERO_VISITS, null, null);
+    }
+
+    public boolean isManual() {
+        return source != null && source.isManual();
     }
 
     public PlaceVisitState apply(
@@ -125,23 +132,19 @@ public record PlaceVisitState(
 
     private static @Nullable Instant earliest(
             @Nullable Instant current, @Nullable Instant candidate) {
-        if (current == null) {
-            return candidate;
-        }
-        if (candidate == null) {
-            return current;
-        }
-        return candidate.isBefore(current) ? candidate : current;
+        return Stream.concat(
+                        Optional.ofNullable(current).stream(),
+                        Optional.ofNullable(candidate).stream())
+                .min(Comparator.naturalOrder())
+                .orElse(null);
     }
 
     private static @Nullable Instant latest(
             @Nullable Instant current, @Nullable Instant candidate) {
-        if (current == null) {
-            return candidate;
-        }
-        if (candidate == null) {
-            return current;
-        }
-        return candidate.isAfter(current) ? candidate : current;
+        return Stream.concat(
+                        Optional.ofNullable(current).stream(),
+                        Optional.ofNullable(candidate).stream())
+                .max(Comparator.naturalOrder())
+                .orElse(null);
     }
 }

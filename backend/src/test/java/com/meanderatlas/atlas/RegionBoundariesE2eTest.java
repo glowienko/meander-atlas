@@ -64,11 +64,13 @@ class RegionBoundariesE2eTest {
         UUID coastalId = UUID.randomUUID();
         UUID offshoreId = UUID.randomUUID();
         UUID corsicaCoastalId = UUID.randomUUID();
+        UUID monacoId = UUID.randomUUID();
 
         insertPlace(krakowId, "Wawel Castle", 19.9354, 50.0540, null, null);
         insertPlace(coastalId, "Gdansk Pier", 18.67, 54.44, null, null);
         insertPlace(offshoreId, "Baltic Deep Buoy", 18.0, 56.5, null, null);
         insertPlace(corsicaCoastalId, "Corsica Coast Pin", 9.63, 42.5, null, null);
+        insertPlace(monacoId, "Monaco Harbor Pin", 9.62, 42.02, null, null);
 
         RestClient client =
                 RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
@@ -81,9 +83,9 @@ class RegionBoundariesE2eTest {
 
         assertThat(seeded.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(seeded.getBody()).isNotNull();
-        assertThat(seeded.getBody().countriesUpserted()).isEqualTo(4);
+        assertThat(seeded.getBody().countriesUpserted()).isEqualTo(5);
         assertThat(seeded.getBody().admin1Upserted()).isEqualTo(4);
-        assertThat(seeded.getBody().placesTagged()).isEqualTo(3);
+        assertThat(seeded.getBody().placesTagged()).isEqualTo(4);
         assertThat(seeded.getBody().skipped()).isFalse();
 
         Map<String, @Nullable Object> krakowRow =
@@ -116,6 +118,13 @@ class RegionBoundariesE2eTest {
         assertThat(corsicaPinRow.get("admin1_code")).isEqualTo("FRA-1001");
         assertThat(corsicaPinRow.get("admin1_country")).isEqualTo("FR");
 
+        Map<String, @Nullable Object> monacoRow =
+                jdbc.queryForMap(
+                        "SELECT country_code, admin1_id FROM places WHERE id = :id",
+                        Map.of("id", monacoId));
+        assertThat(monacoRow.get("country_code")).isEqualTo("MC");
+        assertThat(monacoRow.get("admin1_id")).isNull();
+
         UUID tuscanyId =
                 jdbc.queryForObject(
                         "SELECT id FROM region_boundaries WHERE region_level = 'ADMIN1' AND code = 'IT-52'",
@@ -140,7 +149,7 @@ class RegionBoundariesE2eTest {
                         .toEntity(BoundarySeedResultView.class);
         assertThat(forcedSeed.getBody()).isNotNull();
         assertThat(forcedSeed.getBody().skipped()).isFalse();
-        assertThat(forcedSeed.getBody().countriesUpserted()).isEqualTo(4);
+        assertThat(forcedSeed.getBody().countriesUpserted()).isEqualTo(5);
         assertThat(forcedSeed.getBody().placesTagged()).isZero();
 
         UUID krakowAdmin1AfterForce =
@@ -258,6 +267,14 @@ class RegionBoundariesE2eTest {
                       "geometry": {
                         "type": "Polygon",
                         "coordinates": [[[-180.0, -89.9], [180.0, -89.9], [180.0, -70.0], [-180.0, -70.0], [-180.0, -89.9]]]
+                      }
+                    },
+                    {
+                      "type": "Feature",
+                      "properties": {"ISO_A2_EH": "MC", "ADMIN": "Monaco"},
+                      "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[[9.605, 42.0], [9.63, 42.0], [9.63, 42.05], [9.605, 42.05], [9.605, 42.0]]]
                       }
                     }
                   ]

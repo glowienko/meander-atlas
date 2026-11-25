@@ -43,6 +43,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.LongFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -302,69 +303,72 @@ public class ImportLocalDirectory {
 
     private MatchOutcome reconcileCoordlessReview(String accountLabel, ReviewEntry entry) {
         ParsedReview review = entry.review();
-        GoogleCid cid = review.googleCid();
-        if (cid == null) {
-            return new MatchOutcome(
-                    new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
-        }
-        String canonicalName = resolveReviewName(review);
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(canonicalName, review.reviewText(), null);
-        boolean matched =
-                atlasFacade.attachCsvMembershipByCid(
-                        new AttachCsvMembershipCommand(
-                                cid.unsignedBits(),
-                                canonicalName,
-                                classification.category(),
-                                classification.subcategory(),
-                                classification.source(),
-                                accountLabel,
-                                LIST_NAME_REVIEWS,
-                                ListKind.REVIEW,
-                                review.reviewText(),
-                                null,
-                                review.googleMapsUrl(),
-                                review.reviewedAt(),
-                                VisitStatus.VISITED,
-                                VisitSource.REVIEW,
-                                review.reviewedAt()));
-        if (matched) {
-            return new MatchOutcome(null, true);
-        }
-        return new MatchOutcome(new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
+        return reconcileByCid(
+                entry.recordId(),
+                review.googleCid(),
+                cid -> {
+                    String canonicalName = resolveReviewName(review);
+                    PlaceClassification classification =
+                            PlaceCategoryClassifier.classify(
+                                    canonicalName, review.reviewText(), null);
+                    return new AttachCsvMembershipCommand(
+                            cid,
+                            canonicalName,
+                            classification.category(),
+                            classification.subcategory(),
+                            classification.source(),
+                            accountLabel,
+                            LIST_NAME_REVIEWS,
+                            ListKind.REVIEW,
+                            review.reviewText(),
+                            null,
+                            review.googleMapsUrl(),
+                            review.reviewedAt(),
+                            VisitStatus.VISITED,
+                            VisitSource.REVIEW,
+                            review.reviewedAt());
+                });
     }
 
     private MatchOutcome reconcileCsvRow(String accountLabel, CsvRowEntry entry) {
         ParsedSavedCsvRow row = entry.row();
-        GoogleCid cid = row.googleCid();
+        return reconcileByCid(
+                entry.recordId(),
+                row.googleCid(),
+                cid -> {
+                    PlaceClassification classification =
+                            PlaceCategoryClassifier.classify(row.title(), row.note(), row.tags());
+                    return new AttachCsvMembershipCommand(
+                            cid,
+                            row.title(),
+                            classification.category(),
+                            classification.subcategory(),
+                            classification.source(),
+                            accountLabel,
+                            row.listName(),
+                            row.listKind(),
+                            row.note(),
+                            row.tags(),
+                            row.url(),
+                            null,
+                            null,
+                            null,
+                            null);
+                });
+    }
+
+    private MatchOutcome reconcileByCid(
+            UUID recordId,
+            @Nullable GoogleCid cid,
+            LongFunction<AttachCsvMembershipCommand> commandFactory) {
         if (cid == null) {
-            return new MatchOutcome(
-                    new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
+            return new MatchOutcome(new NewResolutionJob(UUID.randomUUID(), recordId), false);
         }
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(row.title(), row.note(), row.tags());
         boolean matched =
-                atlasFacade.attachCsvMembershipByCid(
-                        new AttachCsvMembershipCommand(
-                                cid.unsignedBits(),
-                                row.title(),
-                                classification.category(),
-                                classification.subcategory(),
-                                classification.source(),
-                                accountLabel,
-                                row.listName(),
-                                row.listKind(),
-                                row.note(),
-                                row.tags(),
-                                row.url(),
-                                null,
-                                null,
-                                null,
-                                null));
-        if (matched) {
-            return new MatchOutcome(null, true);
-        }
-        return new MatchOutcome(new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
+                atlasFacade.attachCsvMembershipByCid(commandFactory.apply(cid.unsignedBits()));
+        return matched
+                ? new MatchOutcome(null, true)
+                : new MatchOutcome(new NewResolutionJob(UUID.randomUUID(), recordId), false);
     }
 
     private static String resolveReviewName(ParsedReview review) {

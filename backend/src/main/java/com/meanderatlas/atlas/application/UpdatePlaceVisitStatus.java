@@ -11,7 +11,6 @@ import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
 import java.time.Instant;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -35,9 +34,7 @@ public class UpdatePlaceVisitStatus {
         Objects.requireNonNull(request, "request must not be null");
         UserId userId = currentUserProvider.currentUserId();
         PlaceId placeId = new PlaceId(rawPlaceId);
-        if (!placeRepository.existsPlaceForUser(userId, placeId)) {
-            throw new NoSuchElementException("Place not found: " + rawPlaceId);
-        }
+        placeRepository.requireOwned(userId, placeId);
 
         PlaceVisitState current =
                 placeRepository

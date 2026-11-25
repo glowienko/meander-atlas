@@ -23,18 +23,17 @@ public record BoundingBox(double minLng, double minLat, double maxLng, double ma
             minLng = MIN_LNG;
             maxLng = MAX_LNG;
         } else if (minLng < MIN_LNG || maxLng > MAX_LNG) {
-            double wrappedMin = wrapLongitude(minLng);
-            double wrappedMax = wrapLongitude(maxLng);
-            if (wrappedMax == MIN_LNG && wrappedMin > MIN_LNG) {
-                wrappedMax = MAX_LNG;
-            }
-            minLng = wrappedMin;
-            maxLng = wrappedMax;
+            minLng = wrapLongitude(minLng);
+            maxLng = normalizeMaxLongitude(minLng, wrapLongitude(maxLng));
         }
     }
 
     public boolean crossesAntimeridian() {
         return minLng > maxLng;
+    }
+
+    private static double normalizeMaxLongitude(double wrappedMin, double wrappedMax) {
+        return wrappedMax == MIN_LNG && wrappedMin > MIN_LNG ? MAX_LNG : wrappedMax;
     }
 
     private static double wrapLongitude(double lng) {

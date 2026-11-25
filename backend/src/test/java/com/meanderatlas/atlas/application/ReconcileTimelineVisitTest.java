@@ -123,4 +123,68 @@ class ReconcileTimelineVisitTest {
         assertThat(useCase.execute(new TimelineVisitSignal(null, new GeoPoint(52.0, 21.0), t2)))
                 .isEqualTo(TimelineReconciliationOutcome.UNMATCHED);
     }
+
+    @Test
+    void triageCandidateIsNotMaskedByCloserVisitedPlaceWithinTriageRadius() {
+        FakeAtlasPlaceRepository repo = new FakeAtlasPlaceRepository();
+        ReconcileTimelineVisit useCase = new ReconcileTimelineVisit(repo, () -> USER_ID);
+
+        PlaceId visitedCloser =
+                repo.insertImportedPlace(
+                        USER_ID,
+                        "Closer Visited Bistro",
+                        new GeoPoint(50.06000, 19.95000),
+                        CoordSource.TAKEOUT,
+                        null,
+                        333L,
+                        PlaceCategory.RESTAURANT,
+                        "bistro",
+                        CategorySource.HEURISTIC,
+                        DerivedRole.BACKLOG,
+                        "PL",
+                        "Krakow");
+        Instant reviewAt = Instant.parse("2026-07-15T12:00:00Z");
+        repo.upsertVisitStates(
+                List.of(
+                        new PlaceVisitState(
+                                visitedCloser,
+                                USER_ID,
+                                VisitStatus.VISITED,
+                                VisitSource.REVIEW,
+                                1,
+                                reviewAt,
+                                reviewAt)));
+
+        PlaceId unvisitedFurther =
+                repo.insertImportedPlace(
+                        USER_ID,
+                        "Further Unvisited Cafe",
+                        new GeoPoint(50.06126, 19.95000),
+                        CoordSource.TAKEOUT,
+                        null,
+                        444L,
+                        PlaceCategory.CAFE_BAR,
+                        "cafe",
+                        CategorySource.HEURISTIC,
+                        DerivedRole.BACKLOG,
+                        "PL",
+                        "Krakow");
+
+        Instant visitAt = Instant.parse("2026-08-20T14:00:00Z");
+        assertThat(
+                        useCase.execute(
+                                new TimelineVisitSignal(
+                                        null, new GeoPoint(50.06054, 19.95000), visitAt)))
+                .isEqualTo(TimelineReconciliationOutcome.MARKED_NEEDS_TRIAGE);
+        assertThat(repo.visitState(unvisitedFurther).status()).isEqualTo(VisitStatus.NEEDS_TRIAGE);
+        assertThat(repo.visitState(visitedCloser).status()).isEqualTo(VisitStatus.VISITED);
+        assertThat(repo.visitState(visitedCloser).source()).isEqualTo(VisitSource.REVIEW);
+
+        assertThat(
+                        useCase.execute(
+                                new TimelineVisitSignal(
+                                        null, new GeoPoint(50.06000, 19.95000), visitAt)))
+                .isEqualTo(TimelineReconciliationOutcome.MATCHED_VISITED);
+        assertThat(repo.visitState(visitedCloser).source()).isEqualTo(VisitSource.REVIEW);
+    }
 }

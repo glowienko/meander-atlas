@@ -3,20 +3,8 @@ package com.meanderatlas.ingestion.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meanderatlas.atlas.AtlasFacade;
-import com.meanderatlas.atlas.application.AttachCsvMembershipByCid;
-import com.meanderatlas.atlas.application.BulkUpdatePlaceVisitStatus;
+import com.meanderatlas.atlas.application.AtlasFacadeTestSupport;
 import com.meanderatlas.atlas.application.FakeAtlasPlaceRepository;
-import com.meanderatlas.atlas.application.GetAtlasHealth;
-import com.meanderatlas.atlas.application.GetAtlasStats;
-import com.meanderatlas.atlas.application.GetRegionDossier;
-import com.meanderatlas.atlas.application.GetRegionMvtTile;
-import com.meanderatlas.atlas.application.GetRegionSummaries;
-import com.meanderatlas.atlas.application.QueryAtlasPlaces;
-import com.meanderatlas.atlas.application.ReconcileTimelineVisit;
-import com.meanderatlas.atlas.application.RestorePlaceVisitStates;
-import com.meanderatlas.atlas.application.SeedRegionBoundaries;
-import com.meanderatlas.atlas.application.UpdatePlaceVisitStatus;
-import com.meanderatlas.atlas.application.UpsertImportedPlace;
 import com.meanderatlas.atlas.domain.RegionLevel;
 import com.meanderatlas.atlas.domain.boundaries.BoundaryFeature;
 import com.meanderatlas.atlas.domain.boundaries.RegionBoundaryRepository;
@@ -189,23 +177,8 @@ class ImportLocalDirectoryTest {
         RegionBoundaryRepository boundaryRepo = new NoOpRegionBoundaryRepository();
         AtlasStatsRepository statsRepo = new NoOpAtlasStatsRepository();
         AtlasFacade atlasFacade =
-                new AtlasFacade(
-                        new GetAtlasHealth(() -> "3.5.3"),
-                        new SeedRegionBoundaries(
-                                boundaryRepo,
-                                tempDir.toString(),
-                                TransactionOperations.withoutTransaction()),
-                        new GetRegionMvtTile(boundaryRepo),
-                        new QueryAtlasPlaces(placeRepo, userProvider),
-                        new GetRegionSummaries(statsRepo, userProvider),
-                        new GetRegionDossier(statsRepo, placeRepo, userProvider),
-                        new GetAtlasStats(statsRepo, userProvider),
-                        new UpdatePlaceVisitStatus(placeRepo, userProvider),
-                        new BulkUpdatePlaceVisitStatus(placeRepo, userProvider),
-                        new RestorePlaceVisitStates(placeRepo, userProvider),
-                        new UpsertImportedPlace(placeRepo, userProvider),
-                        new AttachCsvMembershipByCid(placeRepo, userProvider),
-                        new ReconcileTimelineVisit(placeRepo, userProvider));
+                AtlasFacadeTestSupport.create(
+                        placeRepo, boundaryRepo, statsRepo, tempDir, userProvider);
         return new ImportLocalDirectory(
                 sourcePort,
                 importRepo,

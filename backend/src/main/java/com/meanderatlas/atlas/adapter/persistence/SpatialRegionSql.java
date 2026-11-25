@@ -14,8 +14,8 @@ final class SpatialRegionSql {
                 FROM region_boundaries rb
                 WHERE rb.region_level = 'COUNTRY'
                   AND %1$s IS NOT NULL
-                  AND rb.geom && %1$s
                   AND ST_Covers(rb.geom, %1$s)
+                ORDER BY rb.code ASC
                 LIMIT 1
             ),
             (
@@ -27,7 +27,8 @@ final class SpatialRegionSql {
                       rb.geom::geography,
                       (%1$s)::geography,
                       :coastalFallbackMeters)
-                ORDER BY ST_Distance(rb.geom::geography, (%1$s)::geography) ASC
+                ORDER BY ST_Distance(rb.geom::geography, (%1$s)::geography) ASC,
+                         rb.code ASC
                 LIMIT 1
             )
         )
@@ -43,9 +44,9 @@ final class SpatialRegionSql {
                 FROM region_boundaries rb
                 WHERE rb.region_level = 'ADMIN1'
                   AND %1$s IS NOT NULL
-                  AND rb.geom && %1$s
                   AND ST_Covers(rb.geom, %1$s)
-                ORDER BY (%2$s IS NOT NULL AND rb.country_code = %2$s) DESC
+                ORDER BY (%2$s IS NOT NULL AND rb.country_code = %2$s) DESC,
+                         rb.code ASC
                 LIMIT 1
             ),
             (
@@ -53,12 +54,13 @@ final class SpatialRegionSql {
                 FROM region_boundaries rb
                 WHERE rb.region_level = 'ADMIN1'
                   AND %1$s IS NOT NULL
+                  AND (%2$s IS NULL OR rb.country_code = %2$s)
                   AND ST_DWithin(
                       rb.geom::geography,
                       (%1$s)::geography,
                       :coastalFallbackMeters)
-                ORDER BY (%2$s IS NOT NULL AND rb.country_code = %2$s) DESC,
-                         ST_Distance(rb.geom::geography, (%1$s)::geography) ASC
+                ORDER BY ST_Distance(rb.geom::geography, (%1$s)::geography) ASC,
+                         rb.code ASC
                 LIMIT 1
             )
         )

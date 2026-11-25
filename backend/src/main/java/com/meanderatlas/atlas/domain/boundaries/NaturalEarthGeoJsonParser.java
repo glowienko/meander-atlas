@@ -1,5 +1,6 @@
 package com.meanderatlas.atlas.domain.boundaries;
 
+import com.meanderatlas.atlas.domain.RegionCodeNormalizer;
 import com.meanderatlas.atlas.domain.RegionLevel;
 import java.io.IOException;
 import java.io.Reader;
@@ -101,7 +102,7 @@ public final class NaturalEarthGeoJsonParser {
                         COUNTRY_CODE_KEYS,
                         NaturalEarthGeoJsonParser::normalizeValidCode);
         String name =
-                firstProperty(properties, COUNTRY_NAME_KEYS, NaturalEarthGeoJsonParser::trimToNull);
+                firstProperty(properties, COUNTRY_NAME_KEYS, RegionCodeNormalizer::trimToNull);
         if (code == null || name == null) {
             return Optional.empty();
         }
@@ -123,8 +124,7 @@ public final class NaturalEarthGeoJsonParser {
         String rawIso3166_2 = findProperty(properties, "iso_3166_2");
         String iso3166_2 = normalizeValidIso3166(rawIso3166_2);
         String adm1Code = normalizeValidCode(findProperty(properties, "adm1_code"));
-        String name =
-                firstProperty(properties, ADMIN1_NAME_KEYS, NaturalEarthGeoJsonParser::trimToNull);
+        String name = firstProperty(properties, ADMIN1_NAME_KEYS, RegionCodeNormalizer::trimToNull);
         if (name == null || (iso3166_2 == null && adm1Code == null)) {
             return Optional.empty();
         }
@@ -143,15 +143,12 @@ public final class NaturalEarthGeoJsonParser {
 
     private static @Nullable String resolveAdmin1CountryCode(
             JsonNode properties, @Nullable String rawIso3166_2) {
-        String isoA2 = normalizeValidCode(findProperty(properties, "iso_a2"));
-        if (isoA2 != null) {
-            return isoA2;
-        }
-        String derivedIso2 = deriveCountryCodeFromIso(rawIso3166_2);
-        if (derivedIso2 != null) {
-            return derivedIso2;
-        }
-        return normalizeValidCode(findProperty(properties, "adm0_a3"));
+        return Optional.ofNullable(normalizeValidCode(findProperty(properties, "iso_a2")))
+                .or(() -> Optional.ofNullable(deriveCountryCodeFromIso(rawIso3166_2)))
+                .or(() ->
+                        Optional.ofNullable(
+                                normalizeValidCode(findProperty(properties, "adm0_a3"))))
+                .orElse(null);
     }
 
     private static Optional<BoundaryFeature> resolveAdmin1(
@@ -232,7 +229,7 @@ public final class NaturalEarthGeoJsonParser {
     }
 
     private static @Nullable String normalizeValidCode(@Nullable String raw) {
-        String trimmed = trimToNull(raw);
+        String trimmed = RegionCodeNormalizer.trimToNull(raw);
         if (trimmed == null || INVALID_CODE_SENTINEL.equals(trimmed)) {
             return null;
         }
@@ -253,14 +250,6 @@ public final class NaturalEarthGeoJsonParser {
                 prefix.length() == ISO_ALPHA2_LENGTH
                         && prefix.chars().allMatch(Character::isLetter);
         return isTwoLetterIso ? prefix : null;
-    }
-
-    private static @Nullable String trimToNull(@Nullable String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static <T> T withFeatureStream(Reader reader, Function<Stream<JsonNode>, T> fn) {

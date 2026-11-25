@@ -25,7 +25,8 @@ class AttachCsvMembershipByCidTest {
     @Test
     void returnsFalseOnMissingCidAndAttachesCsvOrReviewWhenMatched() {
         FakeAtlasPlaceRepository repo = new FakeAtlasPlaceRepository();
-        AttachCsvMembershipByCid useCase = new AttachCsvMembershipByCid(repo, () -> USER_ID);
+        AttachCsvMembershipByCid useCase =
+                new AttachCsvMembershipByCid(repo, () -> USER_ID, new ImportedPlaceMerger(repo));
 
         boolean missing =
                 useCase.execute(

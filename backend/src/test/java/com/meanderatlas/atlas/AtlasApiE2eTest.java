@@ -201,6 +201,42 @@ class AtlasApiE2eTest {
         assertThat(byAdmin1Id.places())
                 .extracting(AtlasPlaceView::canonicalName)
                 .containsExactlyInAnyOrder("Wawel Royal Castle", "Hala Targowa");
+
+        AtlasPlacesResponse literalWildcardPercent =
+                client.get()
+                        .uri("/api/v1/atlas/places?q={q}", "%")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(literalWildcardPercent).isNotNull();
+        assertThat(literalWildcardPercent.totalCount()).isZero();
+
+        AtlasPlacesResponse literalWildcardUnderscore =
+                client.get()
+                        .uri("/api/v1/atlas/places?q={q}", "_")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(literalWildcardUnderscore).isNotNull();
+        assertThat(literalWildcardUnderscore.totalCount()).isZero();
+
+        AtlasPlacesResponse visitedOnly =
+                client.get()
+                        .uri("/api/v1/atlas/places?visitStatus=VISITED")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(visitedOnly).isNotNull();
+        assertThat(visitedOnly.places())
+                .extracting(AtlasPlaceView::canonicalName)
+                .containsExactly("Wawel Royal Castle");
+
+        AtlasPlacesResponse triageOnly =
+                client.get()
+                        .uri("/api/v1/atlas/places?visitStatus=NEEDS_TRIAGE")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(triageOnly).isNotNull();
+        assertThat(triageOnly.places())
+                .extracting(AtlasPlaceView::canonicalName)
+                .containsExactly("Fushimi Inari Taisha");
     }
 
     private static void verifyRegionsAndDossiers(RestClient client) {
@@ -228,6 +264,14 @@ class AtlasApiE2eTest {
                         .body(new ParameterizedTypeReference<>() {});
         assertThat(plAdmin1Regions).isNotNull().hasSize(1);
         assertThat(plAdmin1Regions.getFirst().code()).isEqualTo("PL-12-API");
+
+        List<RegionSummaryView> sacralAdmin1Regions =
+                client.get()
+                        .uri("/api/v1/atlas/regions?level=ADMIN1&category=SACRAL")
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<>() {});
+        assertThat(sacralAdmin1Regions).isNotNull().hasSize(1);
+        assertThat(sacralAdmin1Regions.getFirst().code()).isEqualTo("JP-26-API");
 
         RegionDossierView polandDossier =
                 client.get()

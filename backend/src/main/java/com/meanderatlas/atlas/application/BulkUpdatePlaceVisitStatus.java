@@ -35,7 +35,7 @@ public class BulkUpdatePlaceVisitStatus {
         Objects.requireNonNull(request, "request must not be null");
         List<PlaceId> placeIds = request.placeIds().stream().distinct().map(PlaceId::new).toList();
         UserId userId = currentUserProvider.currentUserId();
-        PlaceOwnershipGuard.ensureOwned(placeRepository, userId, placeIds);
+        placeRepository.requireAllOwned(userId, placeIds);
 
         Map<PlaceId, PlaceVisitState> existingByPlaceId =
                 placeRepository.findVisitStates(userId, placeIds).stream()

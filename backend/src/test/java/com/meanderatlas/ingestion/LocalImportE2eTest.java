@@ -83,6 +83,14 @@ class LocalImportE2eTest {
         stagePersonalSyntheticTakeout();
         RestClient client = restClient();
 
+        ImportStatusView initialStatus =
+                client.get().uri("/api/v1/imports/status").retrieve().body(ImportStatusView.class);
+        assertThat(initialStatus).isNotNull();
+        assertThat(initialStatus.pendingResolutionCount()).isZero();
+        assertThat(initialStatus.completedBatches()).isZero();
+        assertThat(initialStatus.accounts()).isEmpty();
+        assertThat(initialStatus.lastImportedAt()).isNull();
+
         seedSyntheticPolandBoundary(client);
         verifyPersonalInitialImport(client);
         verifyImportStatusEndpoint(client);
@@ -97,6 +105,29 @@ class LocalImportE2eTest {
                 triageDir.resolve("Saved Places.json"),
                 TakeoutTestData.savedPlaceGeoJson(
                         "Nearby Triage Landmark", 19.935412, 50.054049, 536870919L, "PL"),
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                triageDir.resolve("Reviews.json"),
+                """
+                {
+                  "type": "FeatureCollection",
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "geometry": {
+                        "type": "Point",
+                        "coordinates": [19.935412, 50.054230]
+                      },
+                      "properties": {
+                        "date": "2026-07-01T10:00:00Z",
+                        "google_maps_url": "http://maps.google.com/?cid=536870920",
+                        "review_text_published": "Closer visited spot",
+                        "location": { "name": "Closer Visited Spot", "country_code": "PL" }
+                      }
+                    }
+                  ]
+                }
+                """,
                 StandardCharsets.UTF_8);
         Files.writeString(
                 triageDir.resolve("Timeline.json"),
@@ -115,11 +146,13 @@ class LocalImportE2eTest {
                         .body(LocalImportSummaryView.class);
 
         assertThat(summary).isNotNull();
-        assertThat(summary.totalPlacesCreated()).isEqualTo(1);
+        assertThat(summary.totalPlacesCreated()).isEqualTo(2);
         assertThat(summary.totalTimelineMarkedTriage()).isEqualTo(1);
-        assertThat(fetchAllPlaces(restClient()))
-                .extracting(AtlasPlaceView::visitStatus)
-                .containsExactly(VisitStatus.NEEDS_TRIAGE);
+        List<AtlasPlaceView> triageRunPlaces = fetchAllPlaces(restClient());
+        assertThat(findPlaceByName(triageRunPlaces, "Nearby Triage Landmark").visitStatus())
+                .isEqualTo(VisitStatus.NEEDS_TRIAGE);
+        assertThat(findPlaceByName(triageRunPlaces, "Closer Visited Spot").visitStatus())
+                .isEqualTo(VisitStatus.VISITED);
     }
 
     @Test

@@ -4,7 +4,6 @@ import com.meanderatlas.atlas.domain.RegionLevel;
 import com.meanderatlas.atlas.domain.boundaries.BoundaryFeature;
 import com.meanderatlas.atlas.domain.boundaries.RegionBoundaryRepository;
 import java.sql.Statement;
-import java.sql.Types;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -27,13 +26,8 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
             WITH mercator_bounds AS (
                 SELECT ST_MakeEnvelope(-180.0, -85.05112878, 180.0, 85.05112878, 4326) AS env
             ),
-            parsed AS (
+            validated AS (
                 SELECT
-                    CAST(:id AS uuid) AS id,
-                    :regionLevel AS region_level,
-                    :code AS code,
-                    :countryCode AS country_code,
-                    :name AS name,
                     ST_Multi(
                         ST_CollectionExtract(
                             ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(:geometryJson), 4326)),
@@ -41,51 +35,51 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                         )
                     ) AS valid_geom
             ),
+            clamped AS (
+                SELECT
+                    v.valid_geom,
+                    CASE
+                        WHEN ST_YMin(v.valid_geom) < -85.05112878
+                          OR ST_YMax(v.valid_geom) > 85.05112878
+                          OR ST_XMin(v.valid_geom) < -180.0
+                          OR ST_XMax(v.valid_geom) > 180.0
+                            THEN ST_Multi(
+                                ST_CollectionExtract(
+                                    ST_Intersection(v.valid_geom, mb.env),
+                                    3
+                                )
+                            )
+                        ELSE v.valid_geom
+                    END AS mercator_geom
+                FROM validated v
+                CROSS JOIN mercator_bounds mb
+                WHERE v.valid_geom IS NOT NULL AND NOT ST_IsEmpty(v.valid_geom)
+            ),
             simplified AS (
                 SELECT
-                    p.id,
-                    p.region_level,
-                    p.code,
-                    p.country_code,
-                    p.name,
-                    p.valid_geom,
+                    c.valid_geom,
+                    c.mercator_geom,
                     ST_Multi(
                         ST_CollectionExtract(
-                            ST_Intersection(p.valid_geom, mb.env),
-                            3
-                        )
-                    ) AS clamped_valid_geom,
-                    ST_Multi(
-                        ST_CollectionExtract(
-                            ST_Intersection(
-                                ST_Multi(
-                                    ST_CollectionExtract(
-                                        ST_SimplifyPreserveTopology(p.valid_geom, :tolerance),
-                                        3
-                                    )
-                                ),
-                                mb.env
-                            ),
+                            ST_SimplifyPreserveTopology(c.mercator_geom, :tolerance),
                             3
                         )
                     ) AS candidate_simplified
-                FROM parsed p
-                CROSS JOIN mercator_bounds mb
-                WHERE p.valid_geom IS NOT NULL AND NOT ST_IsEmpty(p.valid_geom)
+                FROM clamped c
             )
             INSERT INTO region_boundaries (id, region_level, code, country_code, name, geom, simplified_geom)
             SELECT
-                id,
-                region_level,
-                code,
-                country_code,
-                name,
+                CAST(:id AS uuid),
+                :regionLevel,
+                :code,
+                :countryCode,
+                :name,
                 valid_geom,
                 CASE
                     WHEN candidate_simplified IS NOT NULL AND NOT ST_IsEmpty(candidate_simplified)
                         THEN candidate_simplified
-                    WHEN clamped_valid_geom IS NOT NULL AND NOT ST_IsEmpty(clamped_valid_geom)
-                        THEN clamped_valid_geom
+                    WHEN mercator_geom IS NOT NULL AND NOT ST_IsEmpty(mercator_geom)
+                        THEN mercator_geom
                     ELSE valid_geom
                 END
             FROM simplified
@@ -116,8 +110,8 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                 FROM resolved_country rc
             )
             UPDATE places p
-            SET country_code = COALESCE(resolved.next_country_code, p.country_code),
-                admin1_id = COALESCE(resolved.next_admin1_id, p.admin1_id),
+            SET country_code = resolved.next_country_code,
+                admin1_id = resolved.next_admin1_id,
                 updated_at = now()
             FROM resolved
             WHERE p.id = resolved.id
@@ -178,8 +172,11 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                         .addValue("regionLevel", level.name())
                         .addValue("z", z)
                         .addValue("x", x)
-                        .addValue("y", y)
-                        .addValue("countryCode", countryCode, Types.VARCHAR);
+                        .addValue("y", y);
+        String countryFilter = countryCode == null ? "" : "AND rb.country_code = :countryCode";
+        if (countryCode != null) {
+            params.addValue("countryCode", countryCode);
+        }
         byte[] tile =
                 jdbcTemplate.queryForObject(
                         """
@@ -211,15 +208,14 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                             FROM region_boundaries rb
                             CROSS JOIN bounds
                             WHERE rb.region_level = :regionLevel
-                              AND (CAST(:countryCode AS TEXT) IS NULL
-                                  OR rb.country_code = CAST(:countryCode AS TEXT))
-                              AND rb.simplified_geom && bounds.filter_geom
+                              %s
                               AND ST_Intersects(rb.simplified_geom, bounds.filter_geom)
                         )
                         SELECT COALESCE(ST_AsMVT(mvtgeom.*, 'regions', 4096, 'geom'), ''::bytea)
                         FROM mvtgeom
                         WHERE geom IS NOT NULL
-                        """,
+                        """
+                                .formatted(countryFilter),
                         params,
                         byte[].class);
         return Objects.requireNonNullElseGet(tile, () -> new byte[0]);

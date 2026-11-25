@@ -47,7 +47,7 @@ public class RestorePlaceVisitStates {
                 request.snapshots().stream()
                         .map(snapshot -> new PlaceId(snapshot.placeId()))
                         .toList();
-        PlaceOwnershipGuard.ensureOwned(placeRepository, userId, placeIds);
+        placeRepository.requireAllOwned(userId, placeIds);
 
         List<PlaceVisitState> restoredStates =
                 placeIds.stream()

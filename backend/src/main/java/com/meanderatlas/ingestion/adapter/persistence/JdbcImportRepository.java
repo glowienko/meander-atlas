@@ -6,6 +6,7 @@ import com.meanderatlas.ingestion.domain.source.NewImportRecord;
 import com.meanderatlas.ingestion.domain.source.NewResolutionJob;
 import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.UserId;
+import java.sql.Array;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -38,7 +39,7 @@ class JdbcImportRepository implements ImportRepository {
                         """
                         SELECT EXISTS(
                             SELECT 1 FROM import_batches
-                            WHERE user_id = CAST(:userId AS uuid)
+                            WHERE user_id = :userId
                               AND account_label = :accountLabel
                               AND content_sha256 = :contentSha256
                               AND status = 'COMPLETED'
@@ -75,7 +76,8 @@ class JdbcImportRepository implements ImportRepository {
                                     0
                                 )
                                 ON CONFLICT (user_id, account_label, content_sha256) DO UPDATE
-                                SET status = 'RUNNING',
+                                SET source_type = EXCLUDED.source_type,
+                                    status = 'RUNNING',
                                     record_count = 0,
                                     started_at = now(),
                                     completed_at = NULL
@@ -94,8 +96,7 @@ class JdbcImportRepository implements ImportRepository {
                                         sourceType),
                                 UUID.class));
         jdbcTemplate.update(
-                "DELETE FROM import_records WHERE batch_id = CAST(:batchId AS uuid)",
-                Map.of("batchId", batchId));
+                "DELETE FROM import_records WHERE batch_id = :batchId", Map.of("batchId", batchId));
         return batchId;
     }
 
@@ -129,60 +130,50 @@ class JdbcImportRepository implements ImportRepository {
                 SET status = 'COMPLETED',
                     record_count = :recordCount,
                     completed_at = now()
-                WHERE id = CAST(:batchId AS uuid)
+                WHERE id = :batchId
                 """,
                 Map.of("batchId", batchId, "recordCount", recordCount));
     }
 
     @Override
     public ImportStatusSummary fetchStatus(UserId userId) {
-        Integer pendingCount =
+        return Objects.requireNonNull(
                 jdbcTemplate.queryForObject(
                         """
-                        SELECT COUNT(*)::int
-                        FROM resolution_jobs
-                        WHERE user_id = CAST(:userId AS uuid)
-                          AND status = 'PENDING'
-                        """,
-                        Map.of("userId", userId.value()),
-                        Integer.class);
-        Integer completedBatches =
-                jdbcTemplate.queryForObject(
-                        """
-                        SELECT COUNT(*)::int
+                        SELECT
+                            (SELECT COUNT(*)::int
+                             FROM resolution_jobs
+                             WHERE user_id = :userId
+                               AND status = 'PENDING') AS pending_count,
+                            COUNT(*)::int AS completed_batches,
+                            COALESCE(
+                                ARRAY_AGG(DISTINCT account_label ORDER BY account_label ASC),
+                                ARRAY[]::text[]
+                            ) AS accounts,
+                            MAX(completed_at) AS last_imported_at
                         FROM import_batches
-                        WHERE user_id = CAST(:userId AS uuid)
+                        WHERE user_id = :userId
                           AND status = 'COMPLETED'
                         """,
                         Map.of("userId", userId.value()),
-                        Integer.class);
-        List<String> accounts =
-                jdbcTemplate.query(
-                        """
-                        SELECT DISTINCT account_label
-                        FROM import_batches
-                        WHERE user_id = CAST(:userId AS uuid)
-                          AND status = 'COMPLETED'
-                        ORDER BY account_label ASC
-                        """,
-                        Map.of("userId", userId.value()),
-                        (rs, _) -> Objects.requireNonNull(rs.getString("account_label")));
-        OffsetDateTime lastImportedOdt =
-                jdbcTemplate.queryForObject(
-                        """
-                        SELECT MAX(completed_at)
-                        FROM import_batches
-                        WHERE user_id = CAST(:userId AS uuid)
-                          AND status = 'COMPLETED'
-                        """,
-                        Map.of("userId", userId.value()),
-                        OffsetDateTime.class);
-        Instant lastImportedAt = lastImportedOdt == null ? null : lastImportedOdt.toInstant();
-        return new ImportStatusSummary(
-                pendingCount == null ? 0 : pendingCount,
-                completedBatches == null ? 0 : completedBatches,
-                accounts,
-                lastImportedAt);
+                        (rs, _) -> {
+                            Array accountsArray = rs.getArray("accounts");
+                            List<String> accounts =
+                                    accountsArray != null
+                                                    && accountsArray.getArray()
+                                                            instanceof String[] names
+                                            ? List.of(names)
+                                            : List.of();
+                            OffsetDateTime lastImportedOdt =
+                                    rs.getObject("last_imported_at", OffsetDateTime.class);
+                            Instant lastImportedAt =
+                                    lastImportedOdt == null ? null : lastImportedOdt.toInstant();
+                            return new ImportStatusSummary(
+                                    rs.getInt("pending_count"),
+                                    rs.getInt("completed_batches"),
+                                    accounts,
+                                    lastImportedAt);
+                        }));
     }
 
     private void insertRecordChunk(

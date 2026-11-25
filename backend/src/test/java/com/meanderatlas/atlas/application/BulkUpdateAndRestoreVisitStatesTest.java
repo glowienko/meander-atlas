@@ -153,6 +153,13 @@ class BulkUpdateAndRestoreVisitStatesTest {
                         ownedId, new UpdatePlaceVisitStatusRequest(VisitStatus.NEEDS_TRIAGE));
         assertThat(singleNoOp.status()).isEqualTo(VisitStatus.VISITED);
         assertThat(repo.upsertCallCount).isEqualTo(upsertsBeforeNoOp);
+
+        BulkVisitStatusResultView duplicateIdsResult =
+                bulkUpdate.execute(
+                        new BulkVisitStatusRequest(
+                                List.of(ownedId, ownedId), VisitStatus.UNVISITED));
+        assertThat(duplicateIdsResult.updatedCount()).isEqualTo(1);
+        repo.requireAllOwned(USER_ID, List.of());
     }
 
     private static final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
@@ -260,20 +267,12 @@ class BulkUpdateAndRestoreVisitStatesTest {
                 @Nullable String fallbackCountryCode) {}
 
         @Override
-        public Optional<TimelineMatchCandidate> findExactOrNearTimelineMatch(
+        public Optional<TimelineMatchCandidate> findTimelineMatchCandidate(
                 UserId userId,
                 @Nullable String googlePlaceId,
                 GeoPoint coordinates,
-                double exactRadiusMeters) {
-            return Optional.empty();
-        }
-
-        @Override
-        public Optional<PlaceId> findUnvisitedTriageCandidate(
-                UserId userId,
-                GeoPoint coordinates,
-                double minRadiusMeters,
-                double maxRadiusMeters) {
+                double exactRadiusMeters,
+                double triageMaxRadiusMeters) {
             return Optional.empty();
         }
 
