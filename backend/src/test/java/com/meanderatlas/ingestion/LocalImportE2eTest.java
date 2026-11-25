@@ -10,6 +10,7 @@ import com.meanderatlas.atlas.BoundarySeedResultView;
 import com.meanderatlas.atlas.PlaceVisitStateView;
 import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
 import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
+import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
 import java.io.IOException;
@@ -252,6 +253,65 @@ class LocalImportE2eTest {
         assertThat(places).isNotNull();
         assertThat(places.places()).hasSize(1);
         assertThat(places.places().getFirst().visitStatus()).isEqualTo(VisitStatus.NEEDS_TRIAGE);
+    }
+
+    @Test
+    void upgradesUncategorizedPlaceCategoryViaCsvCidMatchAndHandlesMissingAccount()
+            throws IOException {
+        Path upgradeDir = tempRoot.resolve("imports/upgrade");
+        Files.createDirectories(upgradeDir);
+        Files.writeString(
+                upgradeDir.resolve("Saved Places.json"),
+                """
+                {
+                  "type": "FeatureCollection",
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "geometry": {"type": "Point", "coordinates": [19.94, 50.06]},
+                      "properties": {
+                        "date": "2025-05-01T10:00:00Z",
+                        "google_maps_url": "http://maps.google.com/?cid=536870945",
+                        "location": {"country_code": "   ", "name": "Old Brick Building"}
+                      }
+                    }
+                  ]
+                }
+                """,
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                upgradeDir.resolve("Want to go.csv"),
+                """
+                Title,Note,URL,Tags,Comment
+                Old Brick Building,Great history museum,https://www.google.com/maps/place/Old+Brick+Building/data=!4m2!3m1!1s0x10000021:0x20000021,history,
+                """,
+                StandardCharsets.UTF_8);
+
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        LocalImportSummaryView emptySummary =
+                client.post()
+                        .uri("/api/v1/imports/local?account=nonexistent")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(emptySummary).isNotNull();
+        assertThat(emptySummary.accounts()).isEmpty();
+
+        LocalImportSummaryView upgradeSummary =
+                client.post()
+                        .uri("/api/v1/imports/local?account=upgrade")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(upgradeSummary).isNotNull();
+        assertThat(upgradeSummary.totalPlacesCreated()).isEqualTo(1);
+        assertThat(upgradeSummary.totalCsvCidMatched()).isEqualTo(1);
+
+        AtlasPlacesResponse places =
+                client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
+        assertThat(places).isNotNull();
+        assertThat(places.places()).hasSize(1);
+        assertThat(places.places().getFirst().category()).isEqualTo(PlaceCategory.MUSEUM);
+        assertThat(places.places().getFirst().subcategory()).isEqualTo("museum");
     }
 
     private static void writeSyntheticPolandBoundary() throws IOException {

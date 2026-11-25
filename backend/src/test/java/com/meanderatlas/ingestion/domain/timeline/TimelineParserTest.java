@@ -95,5 +95,24 @@ class TimelineParserTest {
         assertThat(TimelineParser.parseDegreeLatLng("95.0°, 10.0°")).isEmpty();
         assertThat(TimelineParser.parseDegreeLatLng("not-a-coord")).isEmpty();
         assertThat(TimelineParser.parseDegreeLatLng(null)).isEmpty();
+        assertThat(TimelineParser.parse("Timeline.json", "{}")).isEmpty();
+
+        String badDatesJson =
+                """
+                {
+                  "semanticSegments": [
+                    {
+                      "startTime": "bad-ts",
+                      "endTime": "2026-09-02T11:00:00Z",
+                      "visit": { "topCandidate": { "placeLocation": { "latLng": "50.0°, 19.9°" } } }
+                    },
+                    {
+                      "endTime": "2026-09-02T11:00:00Z",
+                      "visit": { "topCandidate": { "placeLocation": { "latLng": "50.0°, 19.9°" } } }
+                    }
+                  ]
+                }
+                """;
+        assertThat(TimelineParser.parse("Timeline.json", badDatesJson)).isEmpty();
     }
 }

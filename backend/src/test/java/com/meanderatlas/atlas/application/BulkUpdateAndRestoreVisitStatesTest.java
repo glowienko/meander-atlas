@@ -9,6 +9,7 @@ import com.meanderatlas.atlas.PlaceVisitStateView;
 import com.meanderatlas.atlas.RestoreVisitStatesRequest;
 import com.meanderatlas.atlas.RestoreVisitStatesResultView;
 import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
+import com.meanderatlas.atlas.VisitStateSnapshotView;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
@@ -117,6 +118,19 @@ class BulkUpdateAndRestoreVisitStatesTest {
                         bulkUpdate.execute(
                                 new BulkVisitStatusRequest(
                                         List.of(ownedId, missingId), VisitStatus.VISITED)))
+                .isInstanceOf(NoSuchElementException.class);
+
+        RestorePlaceVisitStates restore = new RestorePlaceVisitStates(repo, userProvider);
+        VisitStateSnapshotView snapshotA =
+                new VisitStateSnapshotView(ownedId, VisitStatus.UNVISITED, null, 0, null, null);
+        VisitStateSnapshotView missingSnapshot =
+                new VisitStateSnapshotView(missingId, VisitStatus.UNVISITED, null, 0, null, null);
+        assertThatThrownBy(() ->
+                        restore.execute(
+                                new RestoreVisitStatesRequest(List.of(snapshotA, snapshotA))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() ->
+                        restore.execute(new RestoreVisitStatesRequest(List.of(missingSnapshot))))
                 .isInstanceOf(NoSuchElementException.class);
 
         PlaceVisitStateView view =

@@ -172,4 +172,65 @@ class NaturalEarthGeoJsonParserTest {
                         org.assertj.core.groups.Tuple.tuple(
                                 RegionLevel.ADMIN1, "FRA-5261", "FR", "Paris Outer"));
     }
+
+    @Test
+    void derivesAdmin1CountryFromIso3166AndRejectsBlankBoundaryFields(@TempDir Path tempDir)
+            throws IOException {
+        String countryJson =
+                """
+                {
+                  "type": "FeatureCollection",
+                  "ignored": [1, 2],
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "properties": {"ISO_A2": "-99", "ADM0_A3": "-99"},
+                      "geometry": {"type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,1],[0,0]]]}
+                    }
+                  ]
+                }
+                """;
+        assertThat(NaturalEarthGeoJsonParser.parseCountries(countryJson)).isEmpty();
+        assertThat(NaturalEarthGeoJsonParser.parseCountries("{}")).isEmpty();
+        assertThat(NaturalEarthGeoJsonParser.parseAdmin1("[]")).isEmpty();
+
+        Path admin1File = tempDir.resolve("admin1.geojson");
+        Files.writeString(
+                admin1File,
+                """
+                {
+                  "type": "FeatureCollection",
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "properties": {"iso_3166_2": "GB-ENG", "iso_a2": "-99", "name": "England"},
+                      "geometry": {"type": "Polygon", "coordinates": [[[-2,51],[1,51],[1,54],[-2,54],[-2,51]]]}
+                    },
+                    {
+                      "type": "Feature",
+                      "properties": {"iso_3166_2": "GB-SCT", "iso_a2": "-99", "name": "   "},
+                      "geometry": {"type": "Polygon", "coordinates": [[[-4,55],[-2,55],[-2,58],[-4,58],[-4,55]]]}
+                    }
+                  ]
+                }
+                """,
+                StandardCharsets.UTF_8);
+
+        List<BoundaryFeature> admin1 = NaturalEarthGeoJsonParser.parseAdmin1(admin1File);
+        assertThat(admin1).hasSize(1);
+        assertThat(admin1.getFirst().code()).isEqualTo("GB-ENG");
+        assertThat(admin1.getFirst().countryCode()).isEqualTo("GB");
+
+        assertThatThrownBy(
+                        () -> new BoundaryFeature(RegionLevel.COUNTRY, " ", "PL", "Poland", "{}"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(
+                        () -> new BoundaryFeature(RegionLevel.COUNTRY, "PL", " ", "Poland", "{}"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new BoundaryFeature(RegionLevel.COUNTRY, "PL", "PL", " ", "{}"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(
+                        () -> new BoundaryFeature(RegionLevel.COUNTRY, "PL", "PL", "Poland", " "))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

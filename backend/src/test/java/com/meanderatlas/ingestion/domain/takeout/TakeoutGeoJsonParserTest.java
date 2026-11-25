@@ -117,4 +117,81 @@ class TakeoutGeoJsonParserTest {
         assertThat(TakeoutGeoJsonParser.isReviewsFile("Reviews.json")).isTrue();
         assertThat(TakeoutGeoJsonParser.isReviewsFile("Zapisane miejsca.json")).isFalse();
     }
+
+    @Test
+    void skipsMalformedSavedFeaturesAndHandlesLegacyKeysOutOfRangeRatingsAndBadDates() {
+        assertThat(TakeoutGeoJsonParser.parseSavedPlaces("Saved Places.json", "{}")).isEmpty();
+        assertThat(TakeoutGeoJsonParser.parseReviews("Reviews.json", "{}")).isEmpty();
+
+        String edgeSavedJson =
+                """
+                {
+                  "type": "FeatureCollection",
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "geometry": { "type": "Point", "coordinates": ["bad", 50.0] },
+                      "properties": { "Title": "Bad X" }
+                    },
+                    {
+                      "type": "Feature",
+                      "geometry": { "type": "Point", "coordinates": [19.0, 95.0] },
+                      "properties": { "Title": "Bad Lat" }
+                    },
+                    {
+                      "type": "Feature",
+                      "geometry": { "type": "Point", "coordinates": [19.9, 50.0] },
+                      "properties": { "date": "2025-05-01T10:00:00Z" }
+                    },
+                    {
+                      "type": "Feature",
+                      "geometry": { "type": "Point", "coordinates": [19.9354, 50.0540] },
+                      "properties": {
+                        "Published": "not-an-instant",
+                        "Google Maps URL": "http://maps.google.com/?cid=536870920",
+                        "Title": "Legacy Keys Spot"
+                      }
+                    }
+                  ]
+                }
+                """;
+        List<ParsedSavedPlace> saved =
+                TakeoutGeoJsonParser.parseSavedPlaces("Saved Places.json", edgeSavedJson);
+        assertThat(saved).hasSize(1);
+        assertThat(saved.getFirst().name()).isEqualTo("Legacy Keys Spot");
+        assertThat(saved.getFirst().savedAt()).isNull();
+
+        String edgeReviewsJson =
+                """
+                {
+                  "type": "FeatureCollection",
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "geometry": { "type": "Point", "coordinates": [19.9, 50.0] },
+                      "properties": {
+                        "date": "not-an-instant",
+                        "five_star_rating_published": 9,
+                        "location": { "name": "Invalid Rating Cafe" }
+                      }
+                    },
+                    {
+                      "type": "Feature",
+                      "geometry": { "type": "Point", "coordinates": [19.9] },
+                      "properties": {
+                        "five_star_rating_published": "5",
+                        "location": { "name": "Short Coords" }
+                      }
+                    }
+                  ]
+                }
+                """;
+        List<ParsedReview> reviews =
+                TakeoutGeoJsonParser.parseReviews("Reviews.json", edgeReviewsJson);
+        assertThat(reviews).hasSize(2);
+        assertThat(reviews.getFirst().starRating()).isNull();
+        assertThat(reviews.getFirst().reviewedAt()).isNull();
+        assertThat(reviews.get(1).coordinates()).isNull();
+        assertThat(reviews.get(1).starRating()).isNull();
+    }
 }

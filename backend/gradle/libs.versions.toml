@@ -10,6 +10,7 @@ nullaway = "0.14.4"
 spotless = "8.12.0"
 google-java-format = "2.0.0"
 checkstyle = "14.4.0"
+jacoco = "0.8.16"
 postgis-image = "postgis/postgis:17-3.5"
 postgis-major-prefix = "3."
 

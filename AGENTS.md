@@ -11,7 +11,7 @@
 
 ## Commands
 - Fast loop (privacy + doc budget + guardrails + unit + compile + NullAway + Checkstyle + FE lint/AST/typecheck/unit): `./scripts/verify.sh --fast`
-- Full gate (+ gitleaks + Spotless + PostGIS Testcontainers + OpenAPI/doc drift + FE build + Playwright visual proof): `./scripts/verify.sh`
+- Full gate (+ gitleaks + Spotless + PostGIS Testcontainers + JaCoCo 85% coverage gate + OpenAPI/doc drift + FE build + Playwright visual proof): `./scripts/verify.sh`
 - Full + containerized stack smoke (`compose --profile app` build, healthchecks, Caddy proxy): `./scripts/verify.sh --docker` (or `./scripts/verify-docker.sh`)
 - Format backend / frontend: `./backend/gradlew -p backend spotlessApply` / `pnpm --dir frontend run format`
 - Local PostGIS / hooks: `docker compose up -d` / `./scripts/install-hooks.sh`

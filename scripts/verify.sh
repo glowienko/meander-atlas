@@ -123,9 +123,9 @@ run_step "gitleaks-tree" scan_working_tree_secrets
 
 BEFORE_HASH="$(hash_paths contracts/openapi.json docs/modules)"
 if [[ "${CI:-}" == "true" ]]; then
-  run_step "backend-full" ./backend/gradlew -p backend --console=plain spotlessCheck checkstyleMain checkstyleTest test --rerun
+  run_step "backend-full" ./backend/gradlew -p backend --console=plain spotlessCheck checkstyleMain checkstyleTest test jacocoTestReport jacocoTestCoverageVerification --rerun
 else
-  run_step "backend-full" ./backend/gradlew -p backend --console=plain spotlessCheck checkstyleMain checkstyleTest test
+  run_step "backend-full" ./backend/gradlew -p backend --console=plain spotlessCheck checkstyleMain checkstyleTest test jacocoTestReport jacocoTestCoverageVerification
 fi
 AFTER_HASH="$(hash_paths contracts/openapi.json docs/modules)"
 

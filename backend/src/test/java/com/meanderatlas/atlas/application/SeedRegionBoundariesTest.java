@@ -55,6 +55,40 @@ class SeedRegionBoundariesTest {
         assertThat(forced.admin1Upserted()).isEqualTo(1);
     }
 
+    @Test
+    void seedsMissingAdmin1WhenCountriesAlreadyPresentAndWrapsDirectoryReadFailure(
+            @TempDir Path tempDir) throws IOException {
+        writeSampleBoundaryFiles(tempDir);
+        FakeRegionBoundaryRepository fakeRepo = new FakeRegionBoundaryRepository();
+        fakeRepo.upsertBoundaries(
+                List.of(
+                        new BoundaryFeature(
+                                RegionLevel.COUNTRY,
+                                "PL",
+                                "PL",
+                                "Poland",
+                                "{\"type\":\"Polygon\",\"coordinates\":[]}")),
+                0.02);
+
+        SeedRegionBoundaries useCase = new SeedRegionBoundaries(fakeRepo, tempDir.toString());
+        BoundarySeedResultView partial = useCase.execute(false);
+        assertThat(partial.skipped()).isFalse();
+        assertThat(partial.countriesUpserted()).isZero();
+        assertThat(partial.admin1Upserted()).isEqualTo(1);
+
+        Path missingCountriesDir = tempDir.resolve("only-admin1");
+        Files.createDirectories(missingCountriesDir);
+        Files.copy(
+                tempDir.resolve("ne_10m_admin_1_states_provinces.geojson"),
+                missingCountriesDir.resolve("ne_10m_admin_1_states_provinces.geojson"));
+        FakeRegionBoundaryRepository admin1OnlyRepo = new FakeRegionBoundaryRepository();
+        BoundarySeedResultView admin1OnlyResult =
+                new SeedRegionBoundaries(admin1OnlyRepo, missingCountriesDir.toString())
+                        .execute(false);
+        assertThat(admin1OnlyResult.countriesUpserted()).isZero();
+        assertThat(admin1OnlyResult.admin1Upserted()).isEqualTo(1);
+    }
+
     private static void writeSampleBoundaryFiles(Path dir) throws IOException {
         Files.writeString(
                 dir.resolve("ne_10m_admin_0_countries.geojson"),

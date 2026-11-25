@@ -85,4 +85,20 @@ class LocalDirectoryImportAdapterTest {
         assertThat(adapter.discoverAccounts(null).getFirst().contentSha256())
                 .isNotEqualTo(initialHash);
     }
+
+    @Test
+    void returnsEmptyWhenImportsRootMissingOrAccountHasNoSupportedFiles() throws IOException {
+        LocalDirectoryImportAdapter missingRootAdapter =
+                new LocalDirectoryImportAdapter(importsDir.resolve("does-not-exist").toString());
+        assertThat(missingRootAdapter.discoverAccounts(null)).isEmpty();
+
+        Path emptyAccount = importsDir.resolve("empty");
+        Files.createDirectories(emptyAccount);
+        Files.writeString(emptyAccount.resolve("archive.zip"), "zip", StandardCharsets.UTF_8);
+        Files.writeString(emptyAccount.resolve("other.json"), "{}", StandardCharsets.UTF_8);
+
+        LocalDirectoryImportAdapter adapter =
+                new LocalDirectoryImportAdapter(importsDir.toString());
+        assertThat(adapter.discoverAccounts(null)).isEmpty();
+    }
 }
