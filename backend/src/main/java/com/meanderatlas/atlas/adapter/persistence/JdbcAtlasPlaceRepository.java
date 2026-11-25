@@ -38,6 +38,8 @@ import org.springframework.stereotype.Repository;
 class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
 
     private static final double COASTAL_FALLBACK_METERS = 15_000.0;
+    private static final double COASTAL_BBOX_EXPAND_DEGREES = 0.6;
+    private static final double NEARBY_BBOX_EXPAND_DEGREES = 0.01;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -351,6 +353,9 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         FROM places
                         WHERE user_id = CAST(:userId AS uuid)
                           AND geom IS NOT NULL
+                          AND geom && ST_Expand(
+                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
+                              :nearbyExpandDegrees)
                           AND ST_DWithin(
                               geom::geography,
                               ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
@@ -366,6 +371,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                 .addValue("lng", coordinates.longitude())
                                 .addValue("lat", coordinates.latitude())
                                 .addValue("radiusMeters", radiusMeters)
+                                .addValue("nearbyExpandDegrees", NEARBY_BBOX_EXPAND_DEGREES)
                                 .addValue("canonicalName", canonicalName)
                                 .addValue("minSimilarity", minTrigramSimilarity),
                         JdbcAtlasPlaceRepository::mapMatchedPlace)
@@ -426,7 +432,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         .addValue("derivedRole", derivedRole.name())
                         .addValue("fallbackCountryCode", fallbackCountryCode, Types.VARCHAR)
                         .addValue("cityName", cityName, Types.VARCHAR)
-                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS);
+                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS)
+                        .addValue("coastalExpandDegrees", COASTAL_BBOX_EXPAND_DEGREES);
         jdbcTemplate.update(
                 """
                 WITH pt AS (
@@ -438,37 +445,51 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                             SELECT rb.country_code
                             FROM region_boundaries rb, pt
                             WHERE rb.region_level = 'COUNTRY'
-                              AND (
-                                  ST_Covers(rb.geom, pt.geom)
-                                  OR ST_DWithin(
-                                      rb.geom::geography,
-                                      pt.geom::geography,
-                                      :coastalFallbackMeters)
-                              )
-                            ORDER BY ST_Covers(rb.geom, pt.geom) DESC,
-                                     ST_Distance(rb.geom::geography, pt.geom::geography) ASC
+                              AND rb.geom && pt.geom
+                              AND ST_Covers(rb.geom, pt.geom)
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT rb.country_code
+                            FROM region_boundaries rb, pt
+                            WHERE rb.region_level = 'COUNTRY'
+                              AND rb.geom && ST_Expand(pt.geom, :coastalExpandDegrees)
+                              AND ST_DWithin(
+                                  rb.geom::geography,
+                                  pt.geom::geography,
+                                  :coastalFallbackMeters)
+                            ORDER BY ST_Distance(rb.geom::geography, pt.geom::geography) ASC
                             LIMIT 1
                         ),
                         CAST(:fallbackCountryCode AS TEXT)
                     ) AS country_code
                 ),
                 resolved_admin1 AS (
-                    SELECT (
-                        SELECT rb.id
-                        FROM region_boundaries rb, pt, resolved_country rc
-                        WHERE rb.region_level = 'ADMIN1'
-                          AND (
-                              ST_Covers(rb.geom, pt.geom)
-                              OR ST_DWithin(
+                    SELECT COALESCE(
+                        (
+                            SELECT rb.id
+                            FROM region_boundaries rb, pt, resolved_country rc
+                            WHERE rb.region_level = 'ADMIN1'
+                              AND rb.geom && pt.geom
+                              AND ST_Covers(rb.geom, pt.geom)
+                            ORDER BY (rc.country_code IS NOT NULL
+                                         AND rb.country_code = rc.country_code) DESC
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT rb.id
+                            FROM region_boundaries rb, pt, resolved_country rc
+                            WHERE rb.region_level = 'ADMIN1'
+                              AND rb.geom && ST_Expand(pt.geom, :coastalExpandDegrees)
+                              AND ST_DWithin(
                                   rb.geom::geography,
                                   pt.geom::geography,
                                   :coastalFallbackMeters)
-                          )
-                        ORDER BY ST_Covers(rb.geom, pt.geom) DESC,
-                                 (rc.country_code IS NOT NULL
-                                     AND rb.country_code = rc.country_code) DESC,
-                                 ST_Distance(rb.geom::geography, pt.geom::geography) ASC
-                        LIMIT 1
+                            ORDER BY (rc.country_code IS NOT NULL
+                                         AND rb.country_code = rc.country_code) DESC,
+                                     ST_Distance(rb.geom::geography, pt.geom::geography) ASC
+                            LIMIT 1
+                        )
                     ) AS admin1_id
                 )
                 INSERT INTO places (
@@ -623,15 +644,21 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                             FROM region_boundaries rb
                             WHERE rb.region_level = 'COUNTRY'
                               AND p.geom IS NOT NULL
-                              AND (
-                                  ST_Covers(rb.geom, p.geom)
-                                  OR ST_DWithin(
-                                      rb.geom::geography,
-                                      p.geom::geography,
-                                      :coastalFallbackMeters)
-                              )
-                            ORDER BY ST_Covers(rb.geom, p.geom) DESC,
-                                     ST_Distance(rb.geom::geography, p.geom::geography) ASC
+                              AND rb.geom && p.geom
+                              AND ST_Covers(rb.geom, p.geom)
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT rb.country_code
+                            FROM region_boundaries rb
+                            WHERE rb.region_level = 'COUNTRY'
+                              AND p.geom IS NOT NULL
+                              AND rb.geom && ST_Expand(p.geom, :coastalExpandDegrees)
+                              AND ST_DWithin(
+                                  rb.geom::geography,
+                                  p.geom::geography,
+                                  :coastalFallbackMeters)
+                            ORDER BY ST_Distance(rb.geom::geography, p.geom::geography) ASC
                             LIMIT 1
                         ),
                         CAST(:fallbackCountryCode AS TEXT)
@@ -643,15 +670,21 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                             FROM region_boundaries rb
                             WHERE rb.region_level = 'ADMIN1'
                               AND p.geom IS NOT NULL
-                              AND (
-                                  ST_Covers(rb.geom, p.geom)
-                                  OR ST_DWithin(
-                                      rb.geom::geography,
-                                      p.geom::geography,
-                                      :coastalFallbackMeters)
-                              )
-                            ORDER BY ST_Covers(rb.geom, p.geom) DESC,
-                                     ST_Distance(rb.geom::geography, p.geom::geography) ASC
+                              AND rb.geom && p.geom
+                              AND ST_Covers(rb.geom, p.geom)
+                            LIMIT 1
+                        ),
+                        (
+                            SELECT rb.id
+                            FROM region_boundaries rb
+                            WHERE rb.region_level = 'ADMIN1'
+                              AND p.geom IS NOT NULL
+                              AND rb.geom && ST_Expand(p.geom, :coastalExpandDegrees)
+                              AND ST_DWithin(
+                                  rb.geom::geography,
+                                  p.geom::geography,
+                                  :coastalFallbackMeters)
+                            ORDER BY ST_Distance(rb.geom::geography, p.geom::geography) ASC
                             LIMIT 1
                         )
                     ),
@@ -677,7 +710,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         .addValue("googlePlaceId", googlePlaceIdToBackfill, Types.VARCHAR)
                         .addValue("googleCid", googleCidToBackfill, Types.BIGINT)
                         .addValue("fallbackCountryCode", fallbackCountryCode, Types.VARCHAR)
-                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS));
+                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS)
+                        .addValue("coastalExpandDegrees", COASTAL_BBOX_EXPAND_DEGREES));
     }
 
     @Override
@@ -720,6 +754,9 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
                         WHERE p.user_id = CAST(:userId AS uuid)
                           AND p.geom IS NOT NULL
+                          AND p.geom && ST_Expand(
+                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
+                              :nearbyExpandDegrees)
                           AND ST_DWithin(
                               p.geom::geography,
                               ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
@@ -737,7 +774,9 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                 "lat",
                                 coordinates.latitude(),
                                 "radiusMeters",
-                                exactRadiusMeters),
+                                exactRadiusMeters,
+                                "nearbyExpandDegrees",
+                                NEARBY_BBOX_EXPAND_DEGREES),
                         JdbcAtlasPlaceRepository::mapTimelineCandidate)
                 .stream()
                 .findFirst();
@@ -755,6 +794,9 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         WHERE p.user_id = CAST(:userId AS uuid)
                           AND p.geom IS NOT NULL
                           AND COALESCE(pvs.status, 'UNVISITED') = 'UNVISITED'
+                          AND p.geom && ST_Expand(
+                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
+                              :nearbyExpandDegrees)
                           AND ST_DWithin(
                               p.geom::geography,
                               ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
@@ -777,7 +819,9 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                 "minRadiusMeters",
                                 minRadiusMeters,
                                 "maxRadiusMeters",
-                                maxRadiusMeters),
+                                maxRadiusMeters,
+                                "nearbyExpandDegrees",
+                                NEARBY_BBOX_EXPAND_DEGREES),
                         (rs, _) -> new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")))
                 .stream()
                 .findFirst();

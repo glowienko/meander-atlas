@@ -22,6 +22,7 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
 
     private static final int UPSERT_BATCH_SIZE = 250;
     private static final double COASTAL_FALLBACK_METERS = 15_000.0;
+    private static final double COASTAL_BBOX_EXPAND_DEGREES = 0.6;
 
     private static final String UPSERT_SQL =
             """
@@ -123,15 +124,20 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                                 SELECT rb.country_code
                                 FROM region_boundaries rb
                                 WHERE rb.region_level = 'COUNTRY'
-                                  AND (
-                                      ST_Covers(rb.geom, p.geom)
-                                      OR ST_DWithin(
-                                          rb.geom::geography,
-                                          p.geom::geography,
-                                          :coastalFallbackMeters)
-                                  )
-                                ORDER BY ST_Covers(rb.geom, p.geom) DESC,
-                                         ST_Distance(rb.geom::geography, p.geom::geography) ASC
+                                  AND rb.geom && p.geom
+                                  AND ST_Covers(rb.geom, p.geom)
+                                LIMIT 1
+                            ),
+                            (
+                                SELECT rb.country_code
+                                FROM region_boundaries rb
+                                WHERE rb.region_level = 'COUNTRY'
+                                  AND rb.geom && ST_Expand(p.geom, :coastalExpandDegrees)
+                                  AND ST_DWithin(
+                                      rb.geom::geography,
+                                      p.geom::geography,
+                                      :coastalFallbackMeters)
+                                ORDER BY ST_Distance(rb.geom::geography, p.geom::geography) ASC
                                 LIMIT 1
                             )
                         ) AS next_country_code,
@@ -141,15 +147,22 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                                 SELECT rb.id
                                 FROM region_boundaries rb
                                 WHERE rb.region_level = 'ADMIN1'
-                                  AND (
-                                      ST_Covers(rb.geom, p.geom)
-                                      OR ST_DWithin(
-                                          rb.geom::geography,
-                                          p.geom::geography,
-                                          :coastalFallbackMeters)
-                                  )
-                                ORDER BY ST_Covers(rb.geom, p.geom) DESC,
-                                         (p.country_code IS NOT NULL
+                                  AND rb.geom && p.geom
+                                  AND ST_Covers(rb.geom, p.geom)
+                                ORDER BY (p.country_code IS NOT NULL
+                                             AND rb.country_code = p.country_code) DESC
+                                LIMIT 1
+                            ),
+                            (
+                                SELECT rb.id
+                                FROM region_boundaries rb
+                                WHERE rb.region_level = 'ADMIN1'
+                                  AND rb.geom && ST_Expand(p.geom, :coastalExpandDegrees)
+                                  AND ST_DWithin(
+                                      rb.geom::geography,
+                                      p.geom::geography,
+                                      :coastalFallbackMeters)
+                                ORDER BY (p.country_code IS NOT NULL
                                              AND rb.country_code = p.country_code) DESC,
                                          ST_Distance(rb.geom::geography, p.geom::geography) ASC
                                 LIMIT 1
@@ -170,7 +183,11 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                       OR p.admin1_id IS DISTINCT FROM resolved.next_admin1_id
                   )
                 """,
-                Map.of("coastalFallbackMeters", COASTAL_FALLBACK_METERS));
+                Map.of(
+                        "coastalFallbackMeters",
+                        COASTAL_FALLBACK_METERS,
+                        "coastalExpandDegrees",
+                        COASTAL_BBOX_EXPAND_DEGREES));
     }
 
     @Override
