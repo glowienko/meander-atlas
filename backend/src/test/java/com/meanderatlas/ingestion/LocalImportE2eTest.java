@@ -10,15 +10,22 @@ import com.meanderatlas.atlas.BoundarySeedResultView;
 import com.meanderatlas.atlas.PlaceVisitStateView;
 import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
 import com.meanderatlas.atlas.domain.boundaries.BoundaryTestData;
+import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
 import com.meanderatlas.ingestion.domain.TakeoutTestData;
+import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.CoordSource;
+import com.meanderatlas.shared.DerivedRole;
+import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.PlaceCategory;
+import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +56,8 @@ class LocalImportE2eTest {
     @LocalServerPort private int port;
 
     @Autowired private NamedParameterJdbcTemplate jdbc;
+
+    @Autowired private AtlasPlaceRepository placeRepository;
 
     @DynamicPropertySource
     static void registerImportProperties(DynamicPropertyRegistry registry) {
@@ -148,8 +157,99 @@ class LocalImportE2eTest {
         assertThat(upgradeSummary.totalPlacesCreated()).isEqualTo(1);
         assertThat(upgradeSummary.totalCsvCidMatched()).isEqualTo(1);
 
-        ListPlaceAssertions.assertSingleCategory(
-                fetchAllPlaces(client), PlaceCategory.MUSEUM, "museum");
+        assertSingleCategory(fetchAllPlaces(client), PlaceCategory.MUSEUM, "museum");
+    }
+
+    @Test
+    void crossMatchesAcrossAccountsHandlesCoordlessReviewsAndRejectsGoogleTempWithoutExpiry()
+            throws IOException {
+        Path accountADir = tempRoot.resolve("imports/account-a");
+        Path accountBDir = tempRoot.resolve("imports/account-b");
+        Files.createDirectories(accountADir);
+        Files.createDirectories(accountBDir);
+
+        Files.writeString(
+                accountADir.resolve("Want to go.csv"),
+                TakeoutTestData.savedCsv(
+                        "Shared Castle,Great view,"
+                                + "https://www.google.com/maps/place/Shared+Castle/data=!4m2!3m1!1s0x1:0x20000012,castle,"),
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                accountADir.resolve("Reviews.json"),
+                """
+                {
+                  "type": "FeatureCollection",
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "geometry": null,
+                      "properties": {
+                        "date": "2026-07-01T10:00:00Z",
+                        "google_maps_url": "http://maps.google.com/?cid=536870930",
+                        "review_text_published": "Coordless CID review",
+                        "location": { "name": "Shared Castle" }
+                      }
+                    },
+                    {
+                      "type": "Feature",
+                      "geometry": null,
+                      "properties": {
+                        "date": "2026-07-02T10:00:00Z",
+                        "review_text_published": "Coordless unresolved review",
+                        "location": { "name": "Unresolved Spot" }
+                      }
+                    }
+                  ]
+                }
+                """,
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                accountBDir.resolve("Saved Places.json"),
+                TakeoutTestData.savedPlaceGeoJson(
+                        "Shared Castle", 19.9354, 50.0540, 536870930L, "PL"),
+                StandardCharsets.UTF_8);
+
+        LocalImportSummaryView summary =
+                restClient()
+                        .post()
+                        .uri("/api/v1/imports/local")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(summary).isNotNull();
+        assertThat(summary.totalPlacesCreated()).isEqualTo(1);
+        assertThat(summary.totalPlacesMerged()).isEqualTo(1);
+        assertThat(summary.totalCsvCidMatched()).isEqualTo(1);
+        assertThat(summary.totalQueuedResolutionJobs()).isEqualTo(1);
+
+        List<AtlasPlaceView> places = fetchAllPlaces(restClient());
+        assertThat(places).hasSize(1);
+        AtlasPlaceView shared = places.getFirst();
+        assertThat(shared.visitStatus()).isEqualTo(VisitStatus.VISITED);
+        assertThat(shared.visitSource()).isEqualTo(VisitSource.REVIEW);
+        assertThat(shared.memberships()).hasSize(3);
+
+        Integer pendingJobs =
+                jdbc.queryForObject(
+                        "SELECT COUNT(*)::int FROM resolution_jobs WHERE place_id IS NULL AND job_type = 'COORDINATE_LOOKUP'",
+                        Map.of(),
+                        Integer.class);
+        assertThat(pendingJobs).isEqualTo(1);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        placeRepository.insertImportedPlace(
+                                new UserId(USER_ID),
+                                "Ephemeral Place",
+                                new GeoPoint(50.0, 19.9),
+                                CoordSource.GOOGLE_TEMP,
+                                null,
+                                null,
+                                PlaceCategory.LANDMARK,
+                                null,
+                                CategorySource.HEURISTIC,
+                                DerivedRole.BACKLOG,
+                                "PL",
+                                null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private RestClient restClient() {
@@ -214,7 +314,7 @@ class LocalImportE2eTest {
     }
 
     private static void verifyManualPrecedenceOnForceReimport(RestClient client) {
-        java.util.List<AtlasPlaceView> places = fetchAllPlaces(client);
+        List<AtlasPlaceView> places = fetchAllPlaces(client);
         assertThat(places).hasSize(5);
 
         AtlasPlaceView wawel = findPlaceByName(places, "Wawel Royal Castle");
@@ -226,6 +326,19 @@ class LocalImportE2eTest {
         AtlasPlaceView eiffel = findPlaceByName(places, "Eiffel Tower");
         assertThat(eiffel.visitStatus()).isEqualTo(VisitStatus.VISITED);
         assertThat(eiffel.visitSource()).isEqualTo(VisitSource.TIMELINE);
+        assertThat(eiffel.visitCount()).isEqualTo(1);
+
+        LocalImportSummaryView forcedIdempotentRun =
+                client.post()
+                        .uri("/api/v1/imports/local?force=true")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(forcedIdempotentRun).isNotNull();
+        assertThat(forcedIdempotentRun.totalTimelineMatchedVisited()).isEqualTo(5);
+
+        AtlasPlaceView eiffelAfterIdempotentForce =
+                findPlaceByName(fetchAllPlaces(client), "Eiffel Tower");
+        assertThat(eiffelAfterIdempotentForce.visitCount()).isEqualTo(1);
 
         LocalImportSummaryView skippedRun =
                 client.post()
@@ -252,6 +365,7 @@ class LocalImportE2eTest {
                         .body(LocalImportSummaryView.class);
         assertThat(forcedRun).isNotNull();
         assertThat(forcedRun.accounts().getFirst().skipped()).isFalse();
+        assertThat(forcedRun.totalTimelineMatchedVisited()).isEqualTo(4);
 
         AtlasPlaceView eiffelAfterForce =
                 fetchAllPlaces(client).stream()
@@ -262,15 +376,14 @@ class LocalImportE2eTest {
         assertThat(eiffelAfterForce.visitSource()).isEqualTo(VisitSource.MANUAL_SINGLE);
     }
 
-    private static java.util.List<AtlasPlaceView> fetchAllPlaces(RestClient client) {
+    private static List<AtlasPlaceView> fetchAllPlaces(RestClient client) {
         AtlasPlacesResponse response =
                 client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
         assertThat(response).isNotNull();
         return response.places();
     }
 
-    private static AtlasPlaceView findPlaceByName(
-            java.util.List<AtlasPlaceView> places, String name) {
+    private static AtlasPlaceView findPlaceByName(List<AtlasPlaceView> places, String name) {
         return places.stream()
                 .filter(p -> p.canonicalName().equals(name))
                 .findFirst()
@@ -294,13 +407,10 @@ class LocalImportE2eTest {
         }
     }
 
-    private static final class ListPlaceAssertions {
-
-        private static void assertSingleCategory(
-                java.util.List<AtlasPlaceView> places, PlaceCategory category, String subcategory) {
-            assertThat(places).hasSize(1);
-            assertThat(places.getFirst().category()).isEqualTo(category);
-            assertThat(places.getFirst().subcategory()).isEqualTo(subcategory);
-        }
+    private static void assertSingleCategory(
+            List<AtlasPlaceView> places, PlaceCategory category, String subcategory) {
+        assertThat(places).hasSize(1);
+        assertThat(places.getFirst().category()).isEqualTo(category);
+        assertThat(places.getFirst().subcategory()).isEqualTo(subcategory);
     }
 }

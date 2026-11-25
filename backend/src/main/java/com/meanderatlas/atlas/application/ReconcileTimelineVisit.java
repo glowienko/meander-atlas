@@ -44,6 +44,10 @@ public class ReconcileTimelineVisit {
                         EXACT_MATCH_RADIUS_METERS);
         if (exactMatch.isPresent()) {
             TimelineMatchCandidate candidate = exactMatch.get();
+            if (candidate.googlePlaceId() == null && signal.googlePlaceId() != null) {
+                placeRepository.backfillGooglePlaceId(
+                        userId, candidate.id(), signal.googlePlaceId());
+            }
             PlaceVisitState current =
                     placeRepository
                             .findVisitState(userId, candidate.id())
@@ -53,9 +57,8 @@ public class ReconcileTimelineVisit {
             if (!updated.equals(current)) {
                 placeRepository.upsertVisitStates(List.of(updated));
             }
-            if (candidate.googlePlaceId() == null && signal.googlePlaceId() != null) {
-                placeRepository.backfillGooglePlaceId(
-                        userId, candidate.id(), signal.googlePlaceId());
+            if (updated.status() != VisitStatus.VISITED) {
+                return TimelineReconciliationOutcome.SKIPPED_MANUAL_OVERRIDE;
             }
             return TimelineReconciliationOutcome.MATCHED_VISITED;
         }
@@ -77,6 +80,11 @@ public class ReconcileTimelineVisit {
                             VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, signal.observedAt());
             if (!updated.equals(current)) {
                 placeRepository.upsertVisitStates(List.of(updated));
+            }
+            if (updated.status() != VisitStatus.NEEDS_TRIAGE) {
+                return updated.source() != null && updated.source().isManual()
+                        ? TimelineReconciliationOutcome.SKIPPED_MANUAL_OVERRIDE
+                        : TimelineReconciliationOutcome.UNMATCHED;
             }
             return TimelineReconciliationOutcome.MARKED_NEEDS_TRIAGE;
         }

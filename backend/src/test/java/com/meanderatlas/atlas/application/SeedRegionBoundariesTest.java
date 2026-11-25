@@ -1,6 +1,7 @@
 package com.meanderatlas.atlas.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meanderatlas.atlas.BoundarySeedResultView;
 import com.meanderatlas.atlas.domain.RegionLevel;
@@ -14,13 +15,16 @@ import java.util.List;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.transaction.support.TransactionOperations;
 
 class SeedRegionBoundariesTest {
 
     @Test
     void skipsWhenFilesDoNotExist(@TempDir Path tempDir) {
         FakeRegionBoundaryRepository fakeRepo = new FakeRegionBoundaryRepository();
-        SeedRegionBoundaries useCase = new SeedRegionBoundaries(fakeRepo, tempDir.toString());
+        SeedRegionBoundaries useCase =
+                new SeedRegionBoundaries(
+                        fakeRepo, tempDir.toString(), TransactionOperations.withoutTransaction());
 
         BoundarySeedResultView result = useCase.execute(false);
 
@@ -35,7 +39,9 @@ class SeedRegionBoundariesTest {
         BoundaryTestData.writePolandOnly(tempDir);
         FakeRegionBoundaryRepository fakeRepo = new FakeRegionBoundaryRepository();
         fakeRepo.placesTaggedToReturn = 3;
-        SeedRegionBoundaries useCase = new SeedRegionBoundaries(fakeRepo, tempDir.toString());
+        SeedRegionBoundaries useCase =
+                new SeedRegionBoundaries(
+                        fakeRepo, tempDir.toString(), TransactionOperations.withoutTransaction());
 
         BoundarySeedResultView first = useCase.execute(false);
         assertThat(first.skipped()).isFalse();
@@ -71,7 +77,11 @@ class SeedRegionBoundariesTest {
                 0.02);
 
         BoundarySeedResultView partial =
-                new SeedRegionBoundaries(fakeRepo, bothDir.toString()).execute(false);
+                new SeedRegionBoundaries(
+                                fakeRepo,
+                                bothDir.toString(),
+                                TransactionOperations.withoutTransaction())
+                        .execute(false);
         assertThat(partial.skipped()).isFalse();
         assertThat(partial.countriesUpserted()).isZero();
         assertThat(partial.admin1Upserted()).isEqualTo(1);
@@ -83,9 +93,25 @@ class SeedRegionBoundariesTest {
                 BoundaryTestData.singleMalopolskieAdmin1GeoJson());
         FakeRegionBoundaryRepository admin1OnlyRepo = new FakeRegionBoundaryRepository();
         BoundarySeedResultView admin1OnlyResult =
-                new SeedRegionBoundaries(admin1OnlyRepo, admin1OnlyDir.toString()).execute(false);
+                new SeedRegionBoundaries(
+                                admin1OnlyRepo,
+                                admin1OnlyDir.toString(),
+                                TransactionOperations.withoutTransaction())
+                        .execute(false);
         assertThat(admin1OnlyResult.countriesUpserted()).isZero();
         assertThat(admin1OnlyResult.admin1Upserted()).isEqualTo(1);
+
+        Path invalidPathDir = tempDir.resolve("broken-path");
+        BoundaryTestData.writeGeoJson(
+                invalidPathDir, "ne_10m_admin_0_countries.geojson", "{not-json");
+        SeedRegionBoundaries brokenUseCase =
+                new SeedRegionBoundaries(
+                        new FakeRegionBoundaryRepository(),
+                        invalidPathDir.toString(),
+                        TransactionOperations.withoutTransaction());
+        assertThatThrownBy(() -> brokenUseCase.execute(false))
+                .isInstanceOf(RuntimeException.class)
+                .isNotInstanceOf(IllegalArgumentException.class);
     }
 
     private static final class FakeRegionBoundaryRepository implements RegionBoundaryRepository {

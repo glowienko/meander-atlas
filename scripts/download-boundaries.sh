@@ -15,7 +15,7 @@ done
 BOUNDARIES_DIR="${APP_BOUNDARIES_DIR:-${HOME}/meander-atlas-data/boundaries}"
 mkdir -p "$BOUNDARIES_DIR"
 
-BASE_URL="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson"
+BASE_URL="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson"
 COUNTRIES_FILE="ne_10m_admin_0_countries.geojson"
 ADMIN1_FILE="ne_10m_admin_1_states_provinces.geojson"
 
@@ -42,6 +42,11 @@ download_if_needed() {
   CURRENT_TMP_FILE="$(mktemp "${BOUNDARIES_DIR}/.${filename}.XXXXXX")"
   printf 'Downloading %s -> %s\n' "$url" "$target"
   curl -fsSL --retry 3 --retry-delay 2 "$url" -o "$CURRENT_TMP_FILE"
+  if [[ ! -s "$CURRENT_TMP_FILE" ]]; then
+    printf 'FAIL: downloaded empty file from %s\n' "$url" >&2
+    exit 1
+  fi
+  chmod 0644 "$CURRENT_TMP_FILE"
   mv -f "$CURRENT_TMP_FILE" "$target"
   CURRENT_TMP_FILE=""
 

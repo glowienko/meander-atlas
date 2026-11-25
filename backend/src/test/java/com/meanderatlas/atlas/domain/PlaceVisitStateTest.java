@@ -15,12 +15,8 @@ class PlaceVisitStateTest {
 
     private static final UserId USER_ID =
             new UserId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
-    private static final UserId OTHER_USER_ID =
-            new UserId(UUID.fromString("00000000-0000-0000-0000-000000000002"));
     private static final PlaceId PLACE_ID =
             new PlaceId(UUID.fromString("10000000-0000-0000-0000-000000000001"));
-    private static final PlaceId OTHER_PLACE_ID =
-            new PlaceId(UUID.fromString("10000000-0000-0000-0000-000000000002"));
     private static final Instant EARLIER_TIME = Instant.parse("2025-05-01T10:00:00Z");
     private static final Instant LATER_TIME = Instant.parse("2025-08-15T14:30:00Z");
     private static final Instant LATEST_TIME = Instant.parse("2026-01-10T09:00:00Z");
@@ -104,21 +100,26 @@ class PlaceVisitStateTest {
     }
 
     @Test
-    void restoresExactPreviousSnapshotAndRejectsMismatchedIdentity() {
-        PlaceVisitState previous =
-                PlaceVisitState.unvisited(PLACE_ID, USER_ID)
-                        .apply(VisitStatus.NEEDS_TRIAGE, VisitSource.TIMELINE, EARLIER_TIME);
-        PlaceVisitState bulkMarked =
-                previous.apply(VisitStatus.VISITED, VisitSource.MANUAL_BULK, LATER_TIME);
+    void deduplicatesRepeatedTimelineVisitsWithinObservedRangeAndTracksNewBounds() {
+        PlaceVisitState initial = PlaceVisitState.unvisited(PLACE_ID, USER_ID);
 
-        assertThat(bulkMarked.restoreFrom(previous)).isEqualTo(previous);
+        PlaceVisitState first =
+                initial.apply(VisitStatus.VISITED, VisitSource.TIMELINE, EARLIER_TIME);
+        PlaceVisitState repeatedSame =
+                first.apply(VisitStatus.VISITED, VisitSource.TIMELINE, EARLIER_TIME);
+        PlaceVisitState second =
+                repeatedSame.apply(VisitStatus.VISITED, VisitSource.TIMELINE, LATEST_TIME);
+        PlaceVisitState repeatedInside =
+                second.apply(VisitStatus.VISITED, VisitSource.TIMELINE, LATER_TIME);
+        PlaceVisitState repeatedNull =
+                repeatedInside.apply(VisitStatus.VISITED, VisitSource.TIMELINE, null);
 
-        PlaceVisitState otherPlace = PlaceVisitState.unvisited(OTHER_PLACE_ID, USER_ID);
-        PlaceVisitState otherUser = PlaceVisitState.unvisited(PLACE_ID, OTHER_USER_ID);
-        assertThatThrownBy(() -> bulkMarked.restoreFrom(otherPlace))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> bulkMarked.restoreFrom(otherUser))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(repeatedSame).isEqualTo(first);
+        assertThat(second.visitCount()).isEqualTo(TWO_VISITS);
+        assertThat(second.firstVisitedAt()).isEqualTo(EARLIER_TIME);
+        assertThat(second.lastVisitedAt()).isEqualTo(LATEST_TIME);
+        assertThat(repeatedInside).isEqualTo(second);
+        assertThat(repeatedNull).isEqualTo(second);
     }
 
     @Test

@@ -30,8 +30,6 @@ public record PlaceVisitState(
             "visitCount must be at least 1 when status is VISITED";
     private static final String INVALID_UNVISITED_STATE_MESSAGE =
             "UNVISITED state must have zero visits and no visit timestamps";
-    private static final String SNAPSHOT_IDENTITY_MISMATCH_MESSAGE =
-            "Snapshot placeId and userId must match current visit state";
 
     public PlaceVisitState {
         Objects.requireNonNull(placeId, NULL_PLACE_ID_MESSAGE);
@@ -92,15 +90,13 @@ public record PlaceVisitState(
         };
     }
 
-    public PlaceVisitState restoreFrom(PlaceVisitState snapshot) {
-        Objects.requireNonNull(snapshot, SNAPSHOT_IDENTITY_MISMATCH_MESSAGE);
-        if (!placeId.equals(snapshot.placeId) || !userId.equals(snapshot.userId)) {
-            throw new IllegalArgumentException(SNAPSHOT_IDENTITY_MISMATCH_MESSAGE);
-        }
-        return snapshot;
-    }
-
     private PlaceVisitState applyVisited(VisitSource incomingSource, @Nullable Instant observedAt) {
+        if (status == VisitStatus.VISITED
+                && incomingSource == VisitSource.TIMELINE
+                && source == VisitSource.TIMELINE
+                && isAlreadyObserved(observedAt)) {
+            return this;
+        }
         int nextCount =
                 incomingSource.isManual()
                         ? Math.max(SINGLE_VISIT, visitCount)
@@ -115,6 +111,16 @@ public record PlaceVisitState(
                 nextCount,
                 nextFirst,
                 nextLast);
+    }
+
+    private boolean isAlreadyObserved(@Nullable Instant observedAt) {
+        if (observedAt == null) {
+            return true;
+        }
+        if (firstVisitedAt == null || lastVisitedAt == null) {
+            return false;
+        }
+        return !observedAt.isBefore(firstVisitedAt) && !observedAt.isAfter(lastVisitedAt);
     }
 
     private static @Nullable Instant earliest(

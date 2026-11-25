@@ -54,7 +54,7 @@ export function AtlasHealthPill({
         />
         <span
           data-testid="atlas-health-status"
-          className="inline-flex items-center gap-1.5 text-xs font-medium"
+          className="inline-flex items-center gap-1.5 text-[13px] font-medium"
           style={{ color: "var(--atlas-muted)" }}
         >
           <span
@@ -67,7 +67,7 @@ export function AtlasHealthPill({
       </div>
 
       <fieldset
-        className="m-0 flex items-center rounded-full border p-0.5 text-xs"
+        className="m-0 flex items-center rounded-full border p-0.5 text-[13px]"
         style={{ borderColor: "var(--atlas-border)" }}
         aria-label="Map projection"
       >
@@ -105,7 +105,7 @@ export function AtlasHealthPill({
           data-testid="toggle-stats-button"
           onClick={onToggleStats}
           aria-pressed={statsOpen}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors"
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-medium transition-colors"
           style={{
             borderColor: "var(--atlas-border)",
             backgroundColor: statsOpen ? "var(--atlas-accent-soft)" : "transparent",

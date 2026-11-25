@@ -10,9 +10,7 @@ import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -49,35 +47,21 @@ public class RestorePlaceVisitStates {
                 request.snapshots().stream()
                         .map(snapshot -> new PlaceId(snapshot.placeId()))
                         .toList();
-        Set<PlaceId> ownedIds = placeRepository.findOwnedPlaceIds(userId, placeIds);
-        if (ownedIds.size() != placeIds.size()) {
-            throw new NoSuchElementException("One or more places were not found");
-        }
-
-        Map<PlaceId, PlaceVisitState> currentByPlaceId =
-                placeRepository.findVisitStates(userId, placeIds).stream()
-                        .collect(
-                                Collectors.toUnmodifiableMap(
-                                        PlaceVisitState::placeId, Function.identity()));
+        PlaceOwnershipGuard.ensureOwned(placeRepository, userId, placeIds);
 
         List<PlaceVisitState> restoredStates =
                 placeIds.stream()
                         .map(id -> {
                             VisitStateSnapshotView snapshot =
                                     Objects.requireNonNull(snapshotsById.get(id));
-                            PlaceVisitState target =
-                                    new PlaceVisitState(
-                                            id,
-                                            userId,
-                                            snapshot.status(),
-                                            snapshot.source(),
-                                            snapshot.visitCount(),
-                                            snapshot.firstVisitedAt(),
-                                            snapshot.lastVisitedAt());
-                            PlaceVisitState current =
-                                    currentByPlaceId.getOrDefault(
-                                            id, PlaceVisitState.unvisited(id, userId));
-                            return current.restoreFrom(target);
+                            return new PlaceVisitState(
+                                    id,
+                                    userId,
+                                    snapshot.status(),
+                                    snapshot.source(),
+                                    snapshot.visitCount(),
+                                    snapshot.firstVisitedAt(),
+                                    snapshot.lastVisitedAt());
                         })
                         .toList();
         placeRepository.upsertVisitStates(restoredStates);

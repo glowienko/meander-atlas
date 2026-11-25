@@ -35,7 +35,9 @@ class LivingAtlasSchemaE2eTest {
             List.of(
                     "idx_region_boundaries_geom",
                     "idx_region_boundaries_simplified_geom",
+                    "idx_region_boundaries_geog",
                     "idx_places_geom",
+                    "idx_places_geog",
                     "idx_places_canonical_name_trgm",
                     "uq_places_user_google_place_id",
                     "uq_places_user_google_cid",

@@ -1,6 +1,6 @@
 # MeanderAtlas — Agent & Engineering Guide
 
-> **Status:** Phase 0 (PRs #1–#4) and v0.1 Slice 1 (PR #7) merged on `master`. MVP v0.1 `/grill-me` decisions locked (see `docs/adr/0004-v01-living-atlas-schema-and-resolution.md` and Google Drive Architecture Plan Section 8); Slice 2 in progress.
+> **Status:** Phase 0 (PRs #1–#4) & v0.1 Slice 1 (PR #7) merged on `master`; v0.1 Slices 2–6, Coverage Gate & Review Fixes stacked (PRs #9–#14). Decisions locked in `docs/adr/0004-v01-living-atlas-schema-and-resolution.md` and Google Drive Architecture Plan Section 8.
 
 ## Pinned Toolchain & Stack
 - **Java:** 25 LTS (pure Java, no Lombok; records + JSpecify `@NullMarked` / `@Nullable`; extract `static final` constants for reused values, thresholds, and pinned versions in `libs.versions.toml` → `TestEnvironment`, but inline single-use error/validation messages and field names)
@@ -21,8 +21,8 @@
 | Module | Owns (tables) | Public API (root package only) | Phase |
 | --- | --- | --- | --- |
 | `shared` | none | `UserId`, `PlaceId`, `GeoPoint`, `VisitSource`, `VisitStatus`, `DerivedRole`, `CoordSource`, `PlaceCategory`, `CategorySource`, `ListKind`, `CurrentUserProvider` (interface) | Phase 0 / v0.1 |
-| `atlas` | `places`, `place_visit_state`, `place_memberships`, `region_boundaries` | `AtlasFacade`, `AtlasHealthView`, event `PlacesChanged` | Phase 0 / v0.1 |
-| `ingestion` | `import_batches`, `import_records`, `resolution_jobs` | `ImportFacade` | v0.1 |
+| `atlas` | `places`, `place_visit_state`, `place_memberships`, `region_boundaries` | `AtlasFacade`, `*View`/`*Response`/`*Query`/`*Request`/`*Command` DTOs, `RegionScope`, `TimelineVisitSignal`, `TimelineReconciliationOutcome` | Phase 0 / v0.1 |
+| `ingestion` | `import_batches`, `import_records`, `resolution_jobs` | `ImportFacade`, `ImportStatusView`, `LocalImportSummaryView`, `AccountImportSummaryView` | v0.1 |
 | `memories` | `location_visits`, `trips`, `home_bases`, `reviews` | `MemoriesFacade` | v0.2 |
 | `planning` | `trip_plans`, `trip_chat_sessions`, chat memory | `PlanningFacade` | v0.3–v0.4 |
 
@@ -32,7 +32,7 @@
 - Frontend mirrors modules under `frontend/src/features/<module>/`.
 - One use case per class named verb + noun (e.g., `GetAtlasHealth`, `MarkPlacesVisited`).
 - Module direction: `ingestion -> atlas`, `memories -> atlas`, `planning -> atlas`; `atlas` depends only on `shared`.
-- Facades only accept/return `shared` types, JDK types, and root-package DTO records — never `..domain..`, `..application..`, or `..adapter..` types (including inside generics like `List<T>`).
+- Facades only accept/return `shared` types, JDK types, and root-package DTO records/enums — never `..domain..`, `..application..`, or `..adapter..` types (including inside generics like `List<T>`).
 - `..domain..` must not import `org.springframework..` or `java.sql..`.
 - Enforced deterministically by `ArchitectureTest` (`ApplicationModules.verify()`, ArchUnit forbidden-stack & no-Mockito rules, and `Documenter -> docs/modules/`).
 

@@ -12,9 +12,7 @@ import com.meanderatlas.shared.VisitSource;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -37,10 +35,7 @@ public class BulkUpdatePlaceVisitStatus {
         Objects.requireNonNull(request, "request must not be null");
         List<PlaceId> placeIds = request.placeIds().stream().distinct().map(PlaceId::new).toList();
         UserId userId = currentUserProvider.currentUserId();
-        Set<PlaceId> ownedIds = placeRepository.findOwnedPlaceIds(userId, placeIds);
-        if (ownedIds.size() != placeIds.size()) {
-            throw new NoSuchElementException("One or more places were not found");
-        }
+        PlaceOwnershipGuard.ensureOwned(placeRepository, userId, placeIds);
 
         Map<PlaceId, PlaceVisitState> existingByPlaceId =
                 placeRepository.findVisitStates(userId, placeIds).stream()
@@ -48,22 +43,38 @@ public class BulkUpdatePlaceVisitStatus {
                                 Collectors.toUnmodifiableMap(
                                         PlaceVisitState::placeId, Function.identity()));
 
-        List<PlaceVisitState> currentStates =
+        Instant now = Instant.now();
+        List<StateTransition> changedTransitions =
                 placeIds.stream()
                         .map(id ->
                                 existingByPlaceId.getOrDefault(
                                         id, PlaceVisitState.unvisited(id, userId)))
-                        .toList();
-        List<VisitStateSnapshotView> previousStates =
-                currentStates.stream().map(AtlasViewMapper::toVisitStateSnapshot).toList();
-
-        Instant now = Instant.now();
-        List<PlaceVisitState> updatedStates =
-                currentStates.stream()
                         .map(current ->
-                                current.apply(request.targetStatus(), VisitSource.MANUAL_BULK, now))
+                                new StateTransition(
+                                        current,
+                                        current.apply(
+                                                request.targetStatus(),
+                                                VisitSource.MANUAL_BULK,
+                                                now)))
+                        .filter(StateTransition::changed)
                         .toList();
-        placeRepository.upsertVisitStates(updatedStates);
+
+        List<PlaceVisitState> updatedStates =
+                changedTransitions.stream().map(StateTransition::updated).toList();
+        if (!updatedStates.isEmpty()) {
+            placeRepository.upsertVisitStates(updatedStates);
+        }
+        List<VisitStateSnapshotView> previousStates =
+                changedTransitions.stream()
+                        .map(StateTransition::current)
+                        .map(AtlasViewMapper::toVisitStateSnapshot)
+                        .toList();
         return new BulkVisitStatusResultView(updatedStates.size(), previousStates);
+    }
+
+    private record StateTransition(PlaceVisitState current, PlaceVisitState updated) {
+        boolean changed() {
+            return !updated.equals(current);
+        }
     }
 }

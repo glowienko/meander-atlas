@@ -1,9 +1,9 @@
 package com.meanderatlas.atlas.domain.places;
 
+import com.meanderatlas.atlas.domain.RegionCodeNormalizer;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.VisitStatus;
-import java.util.Locale;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
@@ -19,14 +19,10 @@ public record PlaceQueryFilter(
         @Nullable BoundingBox bbox) {
 
     public PlaceQueryFilter {
-        q = trimToNull(q);
-        account = trimToNull(account);
-        list = trimToNull(list);
-        countryCode = upperTrimToNull(countryCode);
-    }
-
-    public static PlaceQueryFilter empty() {
-        return new PlaceQueryFilter(null, null, null, null, null, null, null, null, null);
+        q = RegionCodeNormalizer.trimToNull(q);
+        account = RegionCodeNormalizer.trimToNull(account);
+        list = RegionCodeNormalizer.trimToNull(list);
+        countryCode = RegionCodeNormalizer.normalizeCountryCode(countryCode);
     }
 
     public static PlaceQueryFilter forCountry(String countryCode) {
@@ -35,18 +31,5 @@ public record PlaceQueryFilter(
 
     public static PlaceQueryFilter forAdmin1(UUID admin1Id) {
         return new PlaceQueryFilter(null, null, null, null, null, null, null, admin1Id, null);
-    }
-
-    private static @Nullable String trimToNull(@Nullable String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static @Nullable String upperTrimToNull(@Nullable String raw) {
-        String trimmed = trimToNull(raw);
-        return trimmed == null ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 }

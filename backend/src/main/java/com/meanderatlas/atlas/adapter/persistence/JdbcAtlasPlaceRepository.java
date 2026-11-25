@@ -37,9 +37,166 @@ import org.springframework.stereotype.Repository;
 @Repository
 class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
 
-    private static final double COASTAL_FALLBACK_METERS = 15_000.0;
-    private static final double COASTAL_BBOX_EXPAND_DEGREES = 0.6;
-    private static final double NEARBY_BBOX_EXPAND_DEGREES = 0.01;
+    private static final String FIND_PLACES_SQL =
+            """
+            SELECT
+                p.id,
+                p.canonical_name,
+                ST_Y(p.geom) AS lat,
+                ST_X(p.geom) AS lng,
+                p.category,
+                p.subcategory,
+                p.category_source,
+                p.derived_role,
+                COALESCE(pvs.status, 'UNVISITED') AS visit_status,
+                pvs.source AS visit_source,
+                COALESCE(pvs.visit_count, 0) AS visit_count,
+                pvs.first_visited_at,
+                pvs.last_visited_at,
+                p.country_code,
+                p.admin1_id,
+                rb.code AS admin1_code,
+                rb.name AS admin1_name,
+                p.city_name
+            FROM places p
+            LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+            LEFT JOIN region_boundaries rb ON rb.id = p.admin1_id
+            WHERE p.user_id = CAST(:userId AS uuid)
+              AND p.geom IS NOT NULL
+              %s
+              AND (CAST(:visitStatus AS TEXT) IS NULL
+                  OR COALESCE(pvs.status, 'UNVISITED') = CAST(:visitStatus AS TEXT))
+              AND (CAST(:countryCode AS TEXT) IS NULL
+                  OR p.country_code = CAST(:countryCode AS TEXT))
+              AND (CAST(:admin1Id AS uuid) IS NULL
+                  OR p.admin1_id = CAST(:admin1Id AS uuid))
+              AND (:hasBbox = false
+                  OR (:crossesAntimeridian = false
+                      AND p.geom && ST_MakeEnvelope(:minLng, :minLat, :maxLng, :maxLat, 4326))
+                  OR (:crossesAntimeridian = true
+                      AND (p.geom && ST_MakeEnvelope(:minLng, :minLat, 180.0, :maxLat, 4326)
+                          OR p.geom && ST_MakeEnvelope(-180.0, :minLat, :maxLng, :maxLat, 4326))))
+            ORDER BY p.canonical_name ASC, p.id ASC
+            """
+                    .formatted(AtlasPlaceFilterSql.COMMON_PLACE_PREDICATES);
+
+    private static final String INSERT_IMPORTED_PLACE_SQL =
+            """
+            WITH pt AS (
+                SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) AS geom
+            ),
+            resolved_country AS (
+                SELECT COALESCE(%s, CAST(:fallbackCountryCode AS TEXT)) AS country_code
+                FROM pt
+            ),
+            resolved_admin1 AS (
+                SELECT %s AS admin1_id
+                FROM pt, resolved_country rc
+            )
+            INSERT INTO places (
+                id,
+                user_id,
+                canonical_name,
+                geom,
+                coord_source,
+                google_place_id,
+                google_cid,
+                category,
+                subcategory,
+                category_source,
+                derived_role,
+                country_code,
+                admin1_id,
+                city_name
+            )
+            SELECT
+                CAST(:id AS uuid),
+                CAST(:userId AS uuid),
+                :canonicalName,
+                pt.geom,
+                :coordSource,
+                CAST(:googlePlaceId AS TEXT),
+                CAST(:googleCid AS BIGINT),
+                :category,
+                CAST(:subcategory AS TEXT),
+                :categorySource,
+                :derivedRole,
+                rc.country_code,
+                ra.admin1_id,
+                CAST(:cityName AS TEXT)
+            FROM pt, resolved_country rc, resolved_admin1 ra
+            """
+                    .formatted(
+                            SpatialRegionSql.countryLookupSql("pt.geom"),
+                            SpatialRegionSql.admin1LookupSql("pt.geom", "rc.country_code"));
+
+    private static final String UPDATE_PLACE_AFTER_MERGE_SQL =
+            """
+            WITH target_place AS (
+                SELECT p.id, p.geom, p.country_code, p.admin1_id
+                FROM places p
+                WHERE p.id = CAST(:placeId AS uuid)
+                  AND p.user_id = CAST(:userId AS uuid)
+            ),
+            resolved_country AS (
+                SELECT
+                    tp.id,
+                    tp.geom,
+                    tp.admin1_id,
+                    COALESCE(
+                        tp.country_code,
+                        %s,
+                        CAST(:fallbackCountryCode AS TEXT)
+                    ) AS next_country_code
+                FROM target_place tp
+            ),
+            resolved AS (
+                SELECT
+                    rc.id,
+                    rc.next_country_code,
+                    COALESCE(rc.admin1_id, %s) AS next_admin1_id
+                FROM resolved_country rc
+            )
+            UPDATE places p
+            SET derived_role = :derivedRole,
+                category = COALESCE(CAST(:upgradedCategory AS TEXT), p.category),
+                subcategory = CASE
+                    WHEN CAST(:upgradedCategory AS TEXT) IS NOT NULL
+                        THEN CAST(:upgradedSubcategory AS TEXT)
+                    ELSE p.subcategory
+                END,
+                category_source = COALESCE(CAST(:upgradedCategorySource AS TEXT), p.category_source),
+                google_place_id = CASE
+                    WHEN p.google_place_id IS NULL
+                         AND CAST(:googlePlaceId AS TEXT) IS NOT NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM places o
+                             WHERE o.user_id = p.user_id
+                               AND o.google_place_id = CAST(:googlePlaceId AS TEXT)
+                         )
+                        THEN CAST(:googlePlaceId AS TEXT)
+                    ELSE p.google_place_id
+                END,
+                google_cid = CASE
+                    WHEN p.google_cid IS NULL
+                         AND CAST(:googleCid AS BIGINT) IS NOT NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM places o
+                             WHERE o.user_id = p.user_id
+                               AND o.google_cid = CAST(:googleCid AS BIGINT)
+                         )
+                        THEN CAST(:googleCid AS BIGINT)
+                    ELSE p.google_cid
+                END,
+                country_code = resolved.next_country_code,
+                admin1_id = resolved.next_admin1_id,
+                updated_at = now()
+            FROM resolved
+            WHERE p.id = resolved.id
+            """
+                    .formatted(
+                            SpatialRegionSql.countryLookupSql("tp.geom"),
+                            SpatialRegionSql.admin1LookupSql("rc.geom", "rc.next_country_code"));
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -51,93 +208,38 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
     public List<StoredPlace> findPlaces(UserId userId, PlaceQueryFilter filter) {
         BoundingBox bbox = filter.bbox();
         MapSqlParameterSource params =
-                new MapSqlParameterSource()
-                        .addValue("userId", userId.value())
-                        .addValue("q", filter.q(), Types.VARCHAR)
-                        .addValue(
-                                "visitStatus",
-                                filter.visitStatus() == null ? null : filter.visitStatus().name(),
-                                Types.VARCHAR)
-                        .addValue(
-                                "derivedRole",
-                                filter.derivedRole() == null ? null : filter.derivedRole().name(),
-                                Types.VARCHAR)
-                        .addValue(
-                                "category",
-                                filter.category() == null ? null : filter.category().name(),
-                                Types.VARCHAR)
-                        .addValue("account", filter.account(), Types.VARCHAR)
-                        .addValue("list", filter.list(), Types.VARCHAR)
-                        .addValue("countryCode", filter.countryCode(), Types.VARCHAR)
-                        .addValue("admin1Id", filter.admin1Id(), Types.OTHER)
-                        .addValue("hasBbox", bbox != null)
-                        .addValue("minLng", bbox == null ? 0.0 : bbox.minLng())
-                        .addValue("minLat", bbox == null ? 0.0 : bbox.minLat())
-                        .addValue("maxLng", bbox == null ? 0.0 : bbox.maxLng())
-                        .addValue("maxLat", bbox == null ? 0.0 : bbox.maxLat());
+                AtlasPlaceFilterSql.addCommonFilterParams(
+                        new MapSqlParameterSource()
+                                .addValue("userId", userId.value())
+                                .addValue(
+                                        "visitStatus",
+                                        filter.visitStatus() == null
+                                                ? null
+                                                : filter.visitStatus().name(),
+                                        Types.VARCHAR)
+                                .addValue("countryCode", filter.countryCode(), Types.VARCHAR)
+                                .addValue("admin1Id", filter.admin1Id(), Types.OTHER)
+                                .addValue("hasBbox", bbox != null)
+                                .addValue(
+                                        "crossesAntimeridian",
+                                        bbox != null && bbox.crossesAntimeridian())
+                                .addValue("minLng", bbox == null ? 0.0 : bbox.minLng())
+                                .addValue("minLat", bbox == null ? 0.0 : bbox.minLat())
+                                .addValue("maxLng", bbox == null ? 0.0 : bbox.maxLng())
+                                .addValue("maxLat", bbox == null ? 0.0 : bbox.maxLat()),
+                        filter.q(),
+                        filter.derivedRole(),
+                        filter.category(),
+                        filter.account(),
+                        filter.list());
 
-        List<PlaceRow> rows =
+        List<StoredPlace> rows =
                 jdbcTemplate.query(
-                        """
-                        SELECT
-                            p.id,
-                            p.canonical_name,
-                            ST_Y(p.geom) AS lat,
-                            ST_X(p.geom) AS lng,
-                            p.category,
-                            p.subcategory,
-                            p.category_source,
-                            p.derived_role,
-                            COALESCE(pvs.status, 'UNVISITED') AS visit_status,
-                            pvs.source AS visit_source,
-                            COALESCE(pvs.visit_count, 0) AS visit_count,
-                            pvs.first_visited_at,
-                            pvs.last_visited_at,
-                            p.country_code,
-                            p.admin1_id,
-                            rb.code AS admin1_code,
-                            rb.name AS admin1_name,
-                            p.city_name
-                        FROM places p
-                        LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
-                        LEFT JOIN region_boundaries rb ON rb.id = p.admin1_id
-                        WHERE p.user_id = CAST(:userId AS uuid)
-                          AND p.geom IS NOT NULL
-                          AND (CAST(:q AS TEXT) IS NULL
-                              OR strpos(lower(p.canonical_name), lower(CAST(:q AS TEXT))) > 0
-                              OR strpos(lower(COALESCE(p.city_name, '')), lower(CAST(:q AS TEXT))) > 0
-                              OR EXISTS (
-                                  SELECT 1 FROM place_memberships pmq
-                                  WHERE pmq.place_id = p.id
-                                    AND strpos(lower(COALESCE(pmq.note, '')), lower(CAST(:q AS TEXT))) > 0
-                              ))
-                          AND (CAST(:visitStatus AS TEXT) IS NULL
-                              OR COALESCE(pvs.status, 'UNVISITED') = CAST(:visitStatus AS TEXT))
-                          AND (CAST(:derivedRole AS TEXT) IS NULL
-                              OR p.derived_role = CAST(:derivedRole AS TEXT))
-                          AND (CAST(:category AS TEXT) IS NULL
-                              OR p.category = CAST(:category AS TEXT))
-                          AND (CAST(:countryCode AS TEXT) IS NULL
-                              OR p.country_code = CAST(:countryCode AS TEXT))
-                          AND (CAST(:admin1Id AS uuid) IS NULL
-                              OR p.admin1_id = CAST(:admin1Id AS uuid))
-                          AND ((CAST(:account AS TEXT) IS NULL AND CAST(:list AS TEXT) IS NULL)
-                              OR EXISTS (
-                                  SELECT 1 FROM place_memberships pmf
-                                  WHERE pmf.place_id = p.id
-                                    AND (CAST(:account AS TEXT) IS NULL
-                                        OR pmf.account_label = CAST(:account AS TEXT))
-                                    AND (CAST(:list AS TEXT) IS NULL
-                                        OR pmf.list_name = CAST(:list AS TEXT))
-                              ))
-                          AND (:hasBbox = false
-                              OR p.geom && ST_MakeEnvelope(:minLng, :minLat, :maxLng, :maxLat, 4326))
-                        ORDER BY p.canonical_name ASC, p.id ASC
-                        """,
+                        FIND_PLACES_SQL,
                         params,
                         (rs, _) -> {
                             String rawVisitSource = rs.getString("visit_source");
-                            return new PlaceRow(
+                            return new StoredPlace(
                                     new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
                                     JdbcRowReaders.requiredString(rs, "canonical_name"),
                                     new GeoPoint(rs.getDouble("lat"), rs.getDouble("lng")),
@@ -160,34 +262,18 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                     rs.getObject("admin1_id", UUID.class),
                                     rs.getString("admin1_code"),
                                     rs.getString("admin1_name"),
-                                    rs.getString("city_name"));
+                                    rs.getString("city_name"),
+                                    List.of());
                         });
         if (rows.isEmpty()) {
             return List.of();
         }
         Map<PlaceId, List<StoredMembership>> membershipsByPlace =
-                loadMemberships(rows.stream().map(row -> row.id().value()).toList());
+                loadMemberships(rows.stream().map(place -> place.id().value()).toList());
         return rows.stream()
-                .map(row ->
-                        new StoredPlace(
-                                row.id(),
-                                row.canonicalName(),
-                                row.coordinates(),
-                                row.category(),
-                                row.subcategory(),
-                                row.categorySource(),
-                                row.derivedRole(),
-                                row.visitStatus(),
-                                row.visitSource(),
-                                row.visitCount(),
-                                row.firstVisitedAt(),
-                                row.lastVisitedAt(),
-                                row.countryCode(),
-                                row.admin1Id(),
-                                row.admin1Code(),
-                                row.admin1Name(),
-                                row.cityName(),
-                                membershipsByPlace.getOrDefault(row.id(), List.of())))
+                .map(place ->
+                        place.withMemberships(
+                                membershipsByPlace.getOrDefault(place.id(), List.of())))
                 .toList();
     }
 
@@ -353,9 +439,6 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         FROM places
                         WHERE user_id = CAST(:userId AS uuid)
                           AND geom IS NOT NULL
-                          AND geom && ST_Expand(
-                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
-                              :nearbyExpandDegrees)
                           AND ST_DWithin(
                               geom::geography,
                               ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
@@ -371,7 +454,6 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                 .addValue("lng", coordinates.longitude())
                                 .addValue("lat", coordinates.latitude())
                                 .addValue("radiusMeters", radiusMeters)
-                                .addValue("nearbyExpandDegrees", NEARBY_BBOX_EXPAND_DEGREES)
                                 .addValue("canonicalName", canonicalName)
                                 .addValue("minSimilarity", minTrigramSimilarity),
                         JdbcAtlasPlaceRepository::mapMatchedPlace)
@@ -432,100 +514,9 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         .addValue("derivedRole", derivedRole.name())
                         .addValue("fallbackCountryCode", fallbackCountryCode, Types.VARCHAR)
                         .addValue("cityName", cityName, Types.VARCHAR)
-                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS)
-                        .addValue("coastalExpandDegrees", COASTAL_BBOX_EXPAND_DEGREES);
-        jdbcTemplate.update(
-                """
-                WITH pt AS (
-                    SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) AS geom
-                ),
-                resolved_country AS (
-                    SELECT COALESCE(
-                        (
-                            SELECT rb.country_code
-                            FROM region_boundaries rb, pt
-                            WHERE rb.region_level = 'COUNTRY'
-                              AND rb.geom && pt.geom
-                              AND ST_Covers(rb.geom, pt.geom)
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT rb.country_code
-                            FROM region_boundaries rb, pt
-                            WHERE rb.region_level = 'COUNTRY'
-                              AND rb.geom && ST_Expand(pt.geom, :coastalExpandDegrees)
-                              AND ST_DWithin(
-                                  rb.geom::geography,
-                                  pt.geom::geography,
-                                  :coastalFallbackMeters)
-                            ORDER BY ST_Distance(rb.geom::geography, pt.geom::geography) ASC
-                            LIMIT 1
-                        ),
-                        CAST(:fallbackCountryCode AS TEXT)
-                    ) AS country_code
-                ),
-                resolved_admin1 AS (
-                    SELECT COALESCE(
-                        (
-                            SELECT rb.id
-                            FROM region_boundaries rb, pt, resolved_country rc
-                            WHERE rb.region_level = 'ADMIN1'
-                              AND rb.geom && pt.geom
-                              AND ST_Covers(rb.geom, pt.geom)
-                            ORDER BY (rc.country_code IS NOT NULL
-                                         AND rb.country_code = rc.country_code) DESC
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT rb.id
-                            FROM region_boundaries rb, pt, resolved_country rc
-                            WHERE rb.region_level = 'ADMIN1'
-                              AND rb.geom && ST_Expand(pt.geom, :coastalExpandDegrees)
-                              AND ST_DWithin(
-                                  rb.geom::geography,
-                                  pt.geom::geography,
-                                  :coastalFallbackMeters)
-                            ORDER BY (rc.country_code IS NOT NULL
-                                         AND rb.country_code = rc.country_code) DESC,
-                                     ST_Distance(rb.geom::geography, pt.geom::geography) ASC
-                            LIMIT 1
-                        )
-                    ) AS admin1_id
-                )
-                INSERT INTO places (
-                    id,
-                    user_id,
-                    canonical_name,
-                    geom,
-                    coord_source,
-                    google_place_id,
-                    google_cid,
-                    category,
-                    subcategory,
-                    category_source,
-                    derived_role,
-                    country_code,
-                    admin1_id,
-                    city_name
-                )
-                SELECT
-                    CAST(:id AS uuid),
-                    CAST(:userId AS uuid),
-                    :canonicalName,
-                    pt.geom,
-                    :coordSource,
-                    CAST(:googlePlaceId AS TEXT),
-                    CAST(:googleCid AS BIGINT),
-                    :category,
-                    CAST(:subcategory AS TEXT),
-                    :categorySource,
-                    :derivedRole,
-                    rc.country_code,
-                    ra.admin1_id,
-                    CAST(:cityName AS TEXT)
-                FROM pt, resolved_country rc, resolved_admin1 ra
-                """,
-                params);
+                        .addValue(
+                                "coastalFallbackMeters", SpatialRegionSql.COASTAL_FALLBACK_METERS);
+        jdbcTemplate.update(INSERT_IMPORTED_PLACE_SQL, params);
         return id;
     }
 
@@ -605,93 +596,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
             @Nullable Long googleCidToBackfill,
             @Nullable String fallbackCountryCode) {
         jdbcTemplate.update(
-                """
-                UPDATE places p
-                SET derived_role = :derivedRole,
-                    category = COALESCE(CAST(:upgradedCategory AS TEXT), p.category),
-                    subcategory = CASE
-                        WHEN CAST(:upgradedCategory AS TEXT) IS NOT NULL
-                            THEN CAST(:upgradedSubcategory AS TEXT)
-                        ELSE p.subcategory
-                    END,
-                    category_source = COALESCE(CAST(:upgradedCategorySource AS TEXT), p.category_source),
-                    google_place_id = CASE
-                        WHEN p.google_place_id IS NULL
-                             AND CAST(:googlePlaceId AS TEXT) IS NOT NULL
-                             AND NOT EXISTS (
-                                 SELECT 1 FROM places o
-                                 WHERE o.user_id = p.user_id
-                                   AND o.google_place_id = CAST(:googlePlaceId AS TEXT)
-                             )
-                            THEN CAST(:googlePlaceId AS TEXT)
-                        ELSE p.google_place_id
-                    END,
-                    google_cid = CASE
-                        WHEN p.google_cid IS NULL
-                             AND CAST(:googleCid AS BIGINT) IS NOT NULL
-                             AND NOT EXISTS (
-                                 SELECT 1 FROM places o
-                                 WHERE o.user_id = p.user_id
-                                   AND o.google_cid = CAST(:googleCid AS BIGINT)
-                             )
-                            THEN CAST(:googleCid AS BIGINT)
-                        ELSE p.google_cid
-                    END,
-                    country_code = COALESCE(
-                        p.country_code,
-                        (
-                            SELECT rb.country_code
-                            FROM region_boundaries rb
-                            WHERE rb.region_level = 'COUNTRY'
-                              AND p.geom IS NOT NULL
-                              AND rb.geom && p.geom
-                              AND ST_Covers(rb.geom, p.geom)
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT rb.country_code
-                            FROM region_boundaries rb
-                            WHERE rb.region_level = 'COUNTRY'
-                              AND p.geom IS NOT NULL
-                              AND rb.geom && ST_Expand(p.geom, :coastalExpandDegrees)
-                              AND ST_DWithin(
-                                  rb.geom::geography,
-                                  p.geom::geography,
-                                  :coastalFallbackMeters)
-                            ORDER BY ST_Distance(rb.geom::geography, p.geom::geography) ASC
-                            LIMIT 1
-                        ),
-                        CAST(:fallbackCountryCode AS TEXT)
-                    ),
-                    admin1_id = COALESCE(
-                        p.admin1_id,
-                        (
-                            SELECT rb.id
-                            FROM region_boundaries rb
-                            WHERE rb.region_level = 'ADMIN1'
-                              AND p.geom IS NOT NULL
-                              AND rb.geom && p.geom
-                              AND ST_Covers(rb.geom, p.geom)
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT rb.id
-                            FROM region_boundaries rb
-                            WHERE rb.region_level = 'ADMIN1'
-                              AND p.geom IS NOT NULL
-                              AND rb.geom && ST_Expand(p.geom, :coastalExpandDegrees)
-                              AND ST_DWithin(
-                                  rb.geom::geography,
-                                  p.geom::geography,
-                                  :coastalFallbackMeters)
-                            ORDER BY ST_Distance(rb.geom::geography, p.geom::geography) ASC
-                            LIMIT 1
-                        )
-                    ),
-                    updated_at = now()
-                WHERE p.id = CAST(:placeId AS uuid)
-                  AND p.user_id = CAST(:userId AS uuid)
-                """,
+                UPDATE_PLACE_AFTER_MERGE_SQL,
                 new MapSqlParameterSource()
                         .addValue("placeId", placeId.value())
                         .addValue("userId", userId.value())
@@ -710,8 +615,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         .addValue("googlePlaceId", googlePlaceIdToBackfill, Types.VARCHAR)
                         .addValue("googleCid", googleCidToBackfill, Types.BIGINT)
                         .addValue("fallbackCountryCode", fallbackCountryCode, Types.VARCHAR)
-                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS)
-                        .addValue("coastalExpandDegrees", COASTAL_BBOX_EXPAND_DEGREES));
+                        .addValue(
+                                "coastalFallbackMeters", SpatialRegionSql.COASTAL_FALLBACK_METERS));
     }
 
     @Override
@@ -754,9 +659,6 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
                         WHERE p.user_id = CAST(:userId AS uuid)
                           AND p.geom IS NOT NULL
-                          AND p.geom && ST_Expand(
-                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
-                              :nearbyExpandDegrees)
                           AND ST_DWithin(
                               p.geom::geography,
                               ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
@@ -774,9 +676,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                 "lat",
                                 coordinates.latitude(),
                                 "radiusMeters",
-                                exactRadiusMeters,
-                                "nearbyExpandDegrees",
-                                NEARBY_BBOX_EXPAND_DEGREES),
+                                exactRadiusMeters),
                         JdbcAtlasPlaceRepository::mapTimelineCandidate)
                 .stream()
                 .findFirst();
@@ -794,9 +694,6 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         WHERE p.user_id = CAST(:userId AS uuid)
                           AND p.geom IS NOT NULL
                           AND COALESCE(pvs.status, 'UNVISITED') = 'UNVISITED'
-                          AND p.geom && ST_Expand(
-                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326),
-                              :nearbyExpandDegrees)
                           AND ST_DWithin(
                               p.geom::geography,
                               ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
@@ -819,9 +716,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                                 "minRadiusMeters",
                                 minRadiusMeters,
                                 "maxRadiusMeters",
-                                maxRadiusMeters,
-                                "nearbyExpandDegrees",
-                                NEARBY_BBOX_EXPAND_DEGREES),
+                                maxRadiusMeters),
                         (rs, _) -> new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")))
                 .stream()
                 .findFirst();
@@ -905,23 +800,4 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 rs.getString("google_place_id"),
                 VisitStatus.valueOf(JdbcRowReaders.requiredString(rs, "visit_status")));
     }
-
-    private record PlaceRow(
-            PlaceId id,
-            String canonicalName,
-            GeoPoint coordinates,
-            PlaceCategory category,
-            @Nullable String subcategory,
-            CategorySource categorySource,
-            DerivedRole derivedRole,
-            VisitStatus visitStatus,
-            @Nullable VisitSource visitSource,
-            int visitCount,
-            @Nullable Instant firstVisitedAt,
-            @Nullable Instant lastVisitedAt,
-            @Nullable String countryCode,
-            @Nullable UUID admin1Id,
-            @Nullable String admin1Code,
-            @Nullable String admin1Name,
-            @Nullable String cityName) {}
 }

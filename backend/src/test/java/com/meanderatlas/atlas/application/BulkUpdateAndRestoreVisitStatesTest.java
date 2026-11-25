@@ -139,12 +139,27 @@ class BulkUpdateAndRestoreVisitStatesTest {
         assertThat(view.status()).isEqualTo(VisitStatus.VISITED);
         assertThat(view.source()).isEqualTo(VisitSource.MANUAL_SINGLE);
         assertThat(view.previousState().status()).isEqualTo(VisitStatus.UNVISITED);
+
+        int upsertsBeforeNoOp = repo.upsertCallCount;
+        BulkVisitStatusResultView noOp =
+                bulkUpdate.execute(
+                        new BulkVisitStatusRequest(List.of(ownedId), VisitStatus.NEEDS_TRIAGE));
+        assertThat(noOp.updatedCount()).isZero();
+        assertThat(noOp.previousStates()).isEmpty();
+        assertThat(repo.upsertCallCount).isEqualTo(upsertsBeforeNoOp);
+
+        PlaceVisitStateView singleNoOp =
+                singleUpdate.execute(
+                        ownedId, new UpdatePlaceVisitStatusRequest(VisitStatus.NEEDS_TRIAGE));
+        assertThat(singleNoOp.status()).isEqualTo(VisitStatus.VISITED);
+        assertThat(repo.upsertCallCount).isEqualTo(upsertsBeforeNoOp);
     }
 
     private static final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
 
         private final Set<PlaceId> ownedIds = new java.util.HashSet<>();
         private final Map<PlaceId, PlaceVisitState> states = new HashMap<>();
+        private int upsertCallCount;
 
         PlaceVisitState stateOf(UUID id) {
             return Objects.requireNonNull(states.get(new PlaceId(id)));
@@ -177,6 +192,7 @@ class BulkUpdateAndRestoreVisitStatesTest {
 
         @Override
         public void upsertVisitStates(List<PlaceVisitState> updatedStates) {
+            upsertCallCount++;
             updatedStates.forEach(state -> states.put(state.placeId(), state));
         }
 

@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meanderatlas.atlas.domain.AtlasHealthRepository;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaType;
@@ -26,12 +27,16 @@ import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Bean;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.docs.Documenter;
+import org.springframework.web.bind.annotation.GetMapping;
 
 class ArchitectureTest {
 
@@ -218,14 +223,37 @@ class ArchitectureTest {
     }
 
     @Test
-    void deadCodeRuleRejectsUnusedProductionMethods() {
+    void deadCodeRuleRejectsUnusedProductionMethodsAndBridgeOnlyCalls() {
         JavaClasses syntheticClasses =
-                new ClassFileImporter().importClasses(SyntheticDeadCodeHolder.class);
+                new ClassFileImporter()
+                        .importClasses(
+                                SyntheticDeadCodeHolder.class,
+                                SyntheticGenericBridgeInterface.class,
+                                SyntheticBridgeDeadCodeImpl.class);
         var result =
                 methods().should(beCalledInProductionOrBeEntryPoint()).evaluate(syntheticClasses);
 
         assertThat(result.hasViolation()).isTrue();
-        assertThat(result.getFailureReport().getDetails()).hasSize(EXPECTED_DEAD_METHOD_VIOLATIONS);
+        assertThat(result.getFailureReport().getDetails())
+                .hasSize(EXPECTED_DEAD_METHOD_VIOLATIONS + 2);
+    }
+
+    @Test
+    void deadCodeRuleAcceptsContractsGenericOverridesMethodRefsRecordsAndAnnotations() {
+        JavaClasses syntheticClasses =
+                new ClassFileImporter()
+                        .importClasses(
+                                SyntheticConcreteTargetInterface.class,
+                                SyntheticConcreteService.class,
+                                SyntheticInterfaceTarget.class,
+                                SyntheticInterfaceService.class,
+                                SyntheticCleanComparable.class,
+                                SyntheticRecord.class,
+                                SyntheticCleanEntryPoint.class);
+        var result =
+                methods().should(beCalledInProductionOrBeEntryPoint()).evaluate(syntheticClasses);
+
+        assertThat(result.hasViolation()).isFalse();
     }
 
     private static ArchCondition<JavaMethod> beCalledInProductionOrBeEntryPoint() {
@@ -234,6 +262,7 @@ class ArchitectureTest {
             public void check(JavaMethod method, ConditionEvents events) {
                 if (isSkippableEntryPoint(method)
                         || hasDirectProductionUsage(method)
+                        || hasSubtypeProductionUsage(method)
                         || implementsProductionContract(method)) {
                     return;
                 }
@@ -271,39 +300,99 @@ class ArchitectureTest {
         return overridesExternalContract(method, owner);
     }
 
+    private static Stream<JavaClass> ancestorsOf(JavaClass owner) {
+        return Stream.concat(
+                owner.getAllRawSuperclasses().stream(), owner.getAllRawInterfaces().stream());
+    }
+
     private static boolean overridesExternalContract(JavaMethod method, JavaClass owner) {
-        return java.util.stream.Stream.concat(
-                        owner.getAllRawSuperclasses().stream(),
-                        owner.getAllRawInterfaces().stream())
-                .filter(ancestor -> !ancestor.getPackageName().startsWith(BASE_PACKAGE_PREFIX))
-                .anyMatch(ancestor ->
-                        ancestor.tryGetMethod(
-                                        method.getName(),
-                                        method.getRawParameterTypes().stream()
-                                                .map(JavaClass::getName)
-                                                .toArray(String[]::new))
-                                .isPresent());
+        return ancestorsOf(owner)
+                .filter(ancestor -> !isProjectClass(ancestor))
+                .anyMatch(ancestor -> findAncestorMethod(ancestor, method).isPresent());
+    }
+
+    private static boolean isProjectClass(JavaClass type) {
+        String pkg = type.getPackageName();
+        return pkg.equals(BASE_PACKAGE) || pkg.startsWith(BASE_PACKAGE_PREFIX);
     }
 
     private static boolean hasDirectProductionUsage(JavaMethod method) {
-        return method.getCallsOfSelf().stream().anyMatch(call -> !call.getOrigin().equals(method))
+        return method.getCallsOfSelf().stream()
+                        .anyMatch(call -> isExternalOrNonSelfLambdaCaller(method, call.getOrigin()))
                 || method.getReferencesToSelf().stream()
-                        .anyMatch(ref -> !ref.getOrigin().equals(method));
+                        .anyMatch(ref -> isExternalOrNonSelfLambdaCaller(method, ref.getOrigin()));
+    }
+
+    private static boolean isExternalOrNonSelfLambdaCaller(JavaMethod target, JavaCodeUnit origin) {
+        if (origin.equals(target) || origin.getModifiers().contains(JavaModifier.BRIDGE)) {
+            return false;
+        }
+        if (origin.getModifiers().contains(JavaModifier.SYNTHETIC)
+                && origin.getOwner().equals(target.getOwner())
+                && origin.getName().startsWith("lambda$" + target.getName() + "$")) {
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean hasSubtypeProductionUsage(JavaMethod method) {
+        return method.getOwner().getAllSubclasses().stream()
+                .map(subtype -> findOverridingMethod(subtype, method))
+                .flatMap(Optional::stream)
+                .anyMatch(ArchitectureTest::hasDirectProductionUsage);
     }
 
     private static boolean implementsProductionContract(JavaMethod method) {
-        JavaClass owner = method.getOwner();
-        String[] paramTypeNames =
-                method.getRawParameterTypes().stream()
-                        .map(JavaClass::getName)
-                        .toArray(String[]::new);
-        return java.util.stream.Stream.concat(
-                        owner.getAllRawSuperclasses().stream(),
-                        owner.getAllRawInterfaces().stream())
-                .filter(ancestor -> ancestor.getPackageName().startsWith(BASE_PACKAGE_PREFIX))
-                .map(ancestor -> ancestor.tryGetMethod(method.getName(), paramTypeNames))
-                .flatMap(java.util.Optional::stream)
+        return ancestorsOf(method.getOwner())
+                .filter(ArchitectureTest::isProjectClass)
+                .map(ancestor -> findAncestorMethod(ancestor, method))
+                .flatMap(Optional::stream)
                 .anyMatch(ArchitectureTest::hasDirectProductionUsage);
+    }
+
+    private static Optional<JavaMethod> findAncestorMethod(
+            JavaClass ancestor, JavaMethod concreteMethod) {
+        List<JavaClass> concreteParams = concreteMethod.getRawParameterTypes();
+        String[] exactNames =
+                concreteParams.stream().map(JavaClass::getName).toArray(String[]::new);
+        Optional<JavaMethod> exact = ancestor.tryGetMethod(concreteMethod.getName(), exactNames);
+        if (exact.isPresent()) {
+            return exact;
+        }
+        return ancestor.getMethods().stream()
+                .filter(candidate -> candidate.getName().equals(concreteMethod.getName()))
+                .filter(candidate ->
+                        parametersAssignable(candidate.getRawParameterTypes(), concreteParams))
+                .findFirst();
+    }
+
+    private static Optional<JavaMethod> findOverridingMethod(
+            JavaClass subtype, JavaMethod ancestorMethod) {
+        List<JavaClass> ancestorParams = ancestorMethod.getRawParameterTypes();
+        String[] exactNames =
+                ancestorParams.stream().map(JavaClass::getName).toArray(String[]::new);
+        Optional<JavaMethod> exact = subtype.tryGetMethod(ancestorMethod.getName(), exactNames);
+        if (exact.isPresent()) {
+            return exact;
+        }
+        return subtype.getMethods().stream()
+                .filter(candidate -> candidate.getName().equals(ancestorMethod.getName()))
+                .filter(candidate ->
+                        parametersAssignable(ancestorParams, candidate.getRawParameterTypes()))
+                .findFirst();
+    }
+
+    private static boolean parametersAssignable(
+            List<JavaClass> ancestorParams, List<JavaClass> concreteParams) {
+        if (ancestorParams.size() != concreteParams.size()) {
+            return false;
+        }
+        for (int i = 0; i < ancestorParams.size(); i++) {
+            if (!ancestorParams.get(i).isAssignableFrom(concreteParams.get(i).getName())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static ArchCondition<JavaMethod> notExposeInternalModuleTypes() {
@@ -385,5 +474,73 @@ class ArchitectureTest {
         }
 
         void unusedHelper() {}
+    }
+
+    interface SyntheticGenericBridgeInterface<T> {
+        String process(T value);
+    }
+
+    static class SyntheticBridgeDeadCodeImpl implements SyntheticGenericBridgeInterface<String> {
+        @Override
+        public String process(String value) {
+            return value;
+        }
+    }
+
+    interface SyntheticConcreteTargetInterface {
+        String greet();
+    }
+
+    static class SyntheticConcreteService implements SyntheticConcreteTargetInterface {
+        @Override
+        public String greet() {
+            return "hi";
+        }
+    }
+
+    interface SyntheticInterfaceTarget {
+        String ping();
+    }
+
+    static class SyntheticInterfaceService implements SyntheticInterfaceTarget {
+        @Override
+        public String ping() {
+            return "pong";
+        }
+    }
+
+    static final class SyntheticCleanComparable implements Comparable<SyntheticCleanComparable> {
+        private final int rank;
+
+        SyntheticCleanComparable(int rank) {
+            this.rank = rank;
+        }
+
+        @Override
+        public int compareTo(SyntheticCleanComparable other) {
+            return Integer.compare(this.rank, other.rank);
+        }
+    }
+
+    record SyntheticRecord(String label) {}
+
+    static class SyntheticCleanEntryPoint {
+
+        @GetMapping("/synthetic")
+        List<String> handleRequest() {
+            SyntheticConcreteService concrete = new SyntheticConcreteService();
+            SyntheticInterfaceTarget iface = new SyntheticInterfaceService();
+            SyntheticRecord rec = new SyntheticRecord(concrete.greet() + iface.ping());
+            return Stream.of(rec.label()).map(SyntheticCleanEntryPoint::formatLabel).toList();
+        }
+
+        @Bean
+        SyntheticCleanComparable comparableBean() {
+            return new SyntheticCleanComparable(1);
+        }
+
+        private static String formatLabel(String value) {
+            return value;
+        }
     }
 }

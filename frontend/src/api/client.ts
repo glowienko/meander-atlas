@@ -34,32 +34,37 @@ export const apiClient = createClient<paths>({
   baseUrl: "",
 });
 
-export async function fetchAtlasHealth(): Promise<AtlasHealthView> {
-  const { data, error, response } = await apiClient.GET("/api/v1/atlas/health");
-  if (error || !response.ok || !data) {
-    throw new Error(`Atlas health request failed with status ${response.status}`);
+function unwrapResponse<T>(
+  result: { data?: T; error?: unknown; response: Response },
+  label: string,
+): T {
+  if (result.error || !result.response.ok || result.data === undefined) {
+    throw new Error(`${label} failed with status ${result.response.status}`);
   }
-  return data;
+  return result.data;
+}
+
+export async function fetchAtlasHealth(): Promise<AtlasHealthView> {
+  return unwrapResponse(await apiClient.GET("/api/v1/atlas/health"), "Atlas health request");
 }
 
 export async function fetchAtlasPlaces(filters: AtlasFilterParams): Promise<AtlasPlacesResponse> {
-  const { data, error, response } = await apiClient.GET("/api/v1/atlas/places", {
-    params: {
-      query: {
-        q: nonEmpty(filters.q),
-        visitStatus: nonEmptyEnum(filters.visitStatus),
-        derivedRole: nonEmptyEnum(filters.derivedRole),
-        category: nonEmptyEnum(filters.category),
-        account: nonEmpty(filters.account),
-        list: nonEmpty(filters.list),
-        countryCode: nonEmpty(filters.countryCode),
+  return unwrapResponse(
+    await apiClient.GET("/api/v1/atlas/places", {
+      params: {
+        query: {
+          q: nonEmpty(filters.q),
+          visitStatus: nonEmptyEnum(filters.visitStatus),
+          derivedRole: nonEmptyEnum(filters.derivedRole),
+          category: nonEmptyEnum(filters.category),
+          account: nonEmpty(filters.account),
+          list: nonEmpty(filters.list),
+          countryCode: nonEmpty(filters.countryCode),
+        },
       },
-    },
-  });
-  if (error || !response.ok || !data) {
-    throw new Error(`Atlas places request failed with status ${response.status}`);
-  }
-  return data;
+    }),
+    "Atlas places request",
+  );
 }
 
 export async function fetchRegionSummaries(
@@ -67,120 +72,97 @@ export async function fetchRegionSummaries(
   countryCode: string | undefined,
   filters: AtlasFilterParams,
 ): Promise<RegionSummaryView[]> {
-  const { data, error, response } = await apiClient.GET("/api/v1/atlas/regions", {
-    params: {
-      query: {
-        level,
-        countryCode: nonEmpty(countryCode),
-        q: nonEmpty(filters.q),
-        derivedRole: nonEmptyEnum(filters.derivedRole),
-        category: nonEmptyEnum(filters.category),
-        account: nonEmpty(filters.account),
-        list: nonEmpty(filters.list),
+  return unwrapResponse(
+    await apiClient.GET("/api/v1/atlas/regions", {
+      params: {
+        query: {
+          level,
+          countryCode: nonEmpty(countryCode),
+          q: nonEmpty(filters.q),
+          derivedRole: nonEmptyEnum(filters.derivedRole),
+          category: nonEmptyEnum(filters.category),
+          account: nonEmpty(filters.account),
+          list: nonEmpty(filters.list),
+        },
       },
-    },
-  });
-  if (error || !response.ok || !data) {
-    throw new Error(`Atlas regions request failed with status ${response.status}`);
-  }
-  return data;
+    }),
+    "Atlas regions request",
+  );
 }
 
 export async function fetchRegionDossier(
   level: RegionLevel,
   code: string,
 ): Promise<RegionDossierView> {
-  const { data, error, response } = await apiClient.GET("/api/v1/atlas/regions/{level}/{code}", {
-    params: {
-      path: { level, code },
-    },
-  });
-  if (error || !response.ok || !data) {
-    throw new Error(`Region dossier request failed with status ${response.status}`);
-  }
-  return data;
+  return unwrapResponse(
+    await apiClient.GET("/api/v1/atlas/regions/{level}/{code}", {
+      params: {
+        path: { level, code },
+      },
+    }),
+    "Region dossier request",
+  );
 }
 
 export async function fetchAtlasStats(): Promise<AtlasStatsView> {
-  const { data, error, response } = await apiClient.GET("/api/v1/atlas/stats");
-  if (error || !response.ok || !data) {
-    throw new Error(`Atlas stats request failed with status ${response.status}`);
-  }
-  return data;
+  return unwrapResponse(await apiClient.GET("/api/v1/atlas/stats"), "Atlas stats request");
 }
 
 export async function patchPlaceVisitStatus(
   placeId: string,
   status: VisitStatus,
 ): Promise<PlaceVisitStateView> {
-  const { data, error, response } = await apiClient.PATCH(
-    "/api/v1/atlas/places/{id}/visit-status",
-    {
+  return unwrapResponse(
+    await apiClient.PATCH("/api/v1/atlas/places/{id}/visit-status", {
       params: { path: { id: placeId } },
       body: { status },
-    },
+    }),
+    "Update place status",
   );
-  if (error || !response.ok || !data) {
-    throw new Error(`Update place status failed with status ${response.status}`);
-  }
-  return data;
 }
 
 export async function patchBulkVisitStatus(
   placeIds: string[],
   targetStatus: VisitStatus,
 ): Promise<BulkVisitStatusResultView> {
-  const { data, error, response } = await apiClient.PATCH(
-    "/api/v1/atlas/places/bulk-visit-status",
-    {
+  return unwrapResponse(
+    await apiClient.PATCH("/api/v1/atlas/places/bulk-visit-status", {
       body: { placeIds, targetStatus },
-    },
+    }),
+    "Bulk update visit status",
   );
-  if (error || !response.ok || !data) {
-    throw new Error(`Bulk update visit status failed with status ${response.status}`);
-  }
-  return data;
 }
 
 export async function postRestoreVisitStates(
   snapshots: VisitStateSnapshotView[],
 ): Promise<RestoreVisitStatesResultView> {
-  const { data, error, response } = await apiClient.POST(
-    "/api/v1/atlas/places/bulk-visit-status/restore",
-    {
+  return unwrapResponse(
+    await apiClient.POST("/api/v1/atlas/places/bulk-visit-status/restore", {
       body: { snapshots },
-    },
+    }),
+    "Restore visit states",
   );
-  if (error || !response.ok || !data) {
-    throw new Error(`Restore visit states failed with status ${response.status}`);
-  }
-  return data;
 }
 
 export async function fetchImportStatus(): Promise<ImportStatusView> {
-  const { data, error, response } = await apiClient.GET("/api/v1/imports/status");
-  if (error || !response.ok || !data) {
-    throw new Error(`Import status request failed with status ${response.status}`);
-  }
-  return data;
+  return unwrapResponse(await apiClient.GET("/api/v1/imports/status"), "Import status request");
 }
 
 export async function postLocalImport(options?: {
   account?: string;
   force?: boolean;
 }): Promise<LocalImportSummaryView> {
-  const { data, error, response } = await apiClient.POST("/api/v1/imports/local", {
-    params: {
-      query: {
-        account: nonEmpty(options?.account),
-        force: options?.force,
+  return unwrapResponse(
+    await apiClient.POST("/api/v1/imports/local", {
+      params: {
+        query: {
+          account: nonEmpty(options?.account),
+          force: options?.force,
+        },
       },
-    },
-  });
-  if (error || !response.ok || !data) {
-    throw new Error(`Local import request failed with status ${response.status}`);
-  }
-  return data;
+    }),
+    "Local import request",
+  );
 }
 
 function nonEmpty(value: string | undefined): string | undefined {

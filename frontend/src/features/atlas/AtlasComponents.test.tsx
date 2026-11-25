@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AtlasPlaceView, AtlasStatsView, RegionDossierView } from "../../api/client";
 import { AtlasFilterBar } from "./AtlasFilterBar";
 import { BulkVisitDialog } from "./BulkVisitDialog";
+import { PlaceDetailCard } from "./PlaceDetailCard";
 import { RegionDossierDrawer } from "./RegionDossierDrawer";
 import { TravelStatsPanel } from "./TravelStatsPanel";
 import { UndoToast } from "./UndoToast";
@@ -29,6 +30,7 @@ const SAMPLE_PLACE: AtlasPlaceView = {
       listName: "Starred",
       listKind: "STARRED",
       note: "Must visit hill",
+      sourceUrl: "https://maps.google.com/?cid=123",
     },
   ],
 };
@@ -81,9 +83,56 @@ describe("Living Atlas components", () => {
     );
 
     expect(screen.getByTestId("region-completion-ring")).toHaveTextContent("50%");
-    expect(screen.getByText("1 of 2 visited — 50%")).toBeInTheDocument();
+    expect(screen.getByText("1 of 2 visited (50%)")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("dossier-bulk-visit-button"));
     expect(onOpenBulkVisit).toHaveBeenCalledWith([SAMPLE_PLACE], "Mark Poland places visited");
+  });
+
+  it("sanitizes external URLs in PlaceDetailCard and triggers status update", () => {
+    const onUpdateVisitStatus = vi.fn();
+    const { rerender } = render(
+      <PlaceDetailCard
+        place={SAMPLE_PLACE}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={onUpdateVisitStatus}
+      />,
+    );
+
+    const card = screen.getByTestId("place-detail-card");
+    expect(card).toHaveTextContent("Wawel Royal Castle");
+    expect(card).toHaveTextContent("Bucket list");
+    expect(card).toHaveTextContent("Landmarks · castle");
+    const link = screen.getByRole("link", { name: /Google Maps/i });
+    expect(link).toHaveAttribute("href", "https://maps.google.com/?cid=123");
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark Visited" }));
+    expect(onUpdateVisitStatus).toHaveBeenCalledWith(SAMPLE_PLACE, "VISITED");
+
+    const unsafePlace: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      visitStatus: "VISITED",
+      visitCount: 2,
+      memberships: [
+        {
+          accountLabel: "personal",
+          listName: "Starred",
+          listKind: "STARRED",
+          sourceUrl: "javascript:alert(1)",
+        },
+      ],
+    };
+    rerender(
+      <PlaceDetailCard
+        place={unsafePlace}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={onUpdateVisitStatus}
+      />,
+    );
+
+    expect(screen.queryByRole("link", { name: /Google Maps/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("place-detail-card")).toHaveTextContent("2 visits");
   });
 
   it("allows unchecking places in BulkVisitDialog and submits remaining IDs", () => {

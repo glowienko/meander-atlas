@@ -33,6 +33,7 @@ import {
 import {
   type AtlasProjection,
   clearAtlasFilters,
+  isPlaceInViewport,
   readAtlasViewState,
   writeAtlasViewState,
 } from "./features/atlas/viewState";
@@ -56,6 +57,7 @@ const VIEWPORT_BULK_MAX_PLACES = 200;
 function AtlasShell() {
   const [viewState, setViewState] = useState(() => readAtlasViewState(window.location.search));
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [selectedPlaceFallback, setSelectedPlaceFallback] = useState<AtlasPlaceView | null>(null);
   const [viewport, setViewport] = useState<MapViewport | null>(null);
   const [bulkDialog, setBulkDialog] = useState<BulkDialogState | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
@@ -103,10 +105,17 @@ function AtlasShell() {
   }, [viewState]);
 
   const places = placesQuery.data?.places ?? [];
-  const selectedPlace = useMemo(
-    () => (selectedPlaceId ? (places.find((p) => p.id === selectedPlaceId) ?? null) : null),
-    [places, selectedPlaceId],
-  );
+  const dossierPlaces = dossierQuery.data?.places ?? [];
+  const selectedPlace = useMemo(() => {
+    if (!selectedPlaceId) {
+      return null;
+    }
+    return (
+      places.find((p) => p.id === selectedPlaceId) ??
+      dossierPlaces.find((p) => p.id === selectedPlaceId) ??
+      (selectedPlaceFallback?.id === selectedPlaceId ? selectedPlaceFallback : null)
+    );
+  }, [places, dossierPlaces, selectedPlaceId, selectedPlaceFallback]);
 
   const fitBoundsTarget: FitBoundsTarget | null = useMemo(() => {
     const region = dossierQuery.data?.region;
@@ -127,12 +136,7 @@ function AtlasShell() {
       return [];
     }
     return places.filter(
-      (place) =>
-        place.visitStatus !== "VISITED" &&
-        place.lng >= viewport.minLng &&
-        place.lng <= viewport.maxLng &&
-        place.lat >= viewport.minLat &&
-        place.lat <= viewport.maxLat,
+      (place) => place.visitStatus !== "VISITED" && isPlaceInViewport(place, viewport),
     );
   }, [places, viewport]);
 
@@ -142,6 +146,7 @@ function AtlasShell() {
 
   const handleSelectRegion = useCallback((level: RegionLevel, code: string) => {
     setSelectedPlaceId(null);
+    setSelectedPlaceFallback(null);
     setViewState((prev) => ({
       ...prev,
       regionLevel: level,
@@ -149,14 +154,42 @@ function AtlasShell() {
     }));
   }, []);
 
+  const handleSelectPlaceFromMap = useCallback(
+    (placeId: string) => {
+      setSelectedPlaceId(placeId);
+      const found =
+        places.find((p) => p.id === placeId) ?? dossierPlaces.find((p) => p.id === placeId) ?? null;
+      setSelectedPlaceFallback(found);
+    },
+    [places, dossierPlaces],
+  );
+
   const handleToggleSingleVisit = (place: AtlasPlaceView, nextStatus: VisitStatus) => {
     updateVisitMutation.mutate(
       { placeId: place.id, status: nextStatus },
       {
         onSuccess: (result) => {
+          setSelectedPlaceFallback((prev) =>
+            prev && prev.id === result.placeId
+              ? {
+                  ...prev,
+                  visitStatus: result.status,
+                  visitSource: result.source,
+                  visitCount: result.visitCount,
+                  firstVisitedAt: result.firstVisitedAt,
+                  lastVisitedAt: result.lastVisitedAt,
+                }
+              : prev,
+          );
           setUndoToast({
             message: `Marked ${place.canonicalName} as ${nextStatus === "VISITED" ? "visited" : "unvisited"}`,
             snapshots: [result.previousState],
+          });
+        },
+        onError: () => {
+          setUndoToast({
+            message: `Could not update ${place.canonicalName}`,
+            snapshots: [],
           });
         },
       },
@@ -174,6 +207,12 @@ function AtlasShell() {
             snapshots: result.previousStates,
           });
         },
+        onError: () => {
+          setUndoToast({
+            message: "Could not update selected places",
+            snapshots: [],
+          });
+        },
       },
     );
   };
@@ -185,6 +224,12 @@ function AtlasShell() {
     restoreVisitMutation.mutate(undoToast.snapshots, {
       onSuccess: () => {
         setUndoToast(null);
+      },
+      onError: () => {
+        setUndoToast({
+          message: "Could not undo visit changes",
+          snapshots: [],
+        });
       },
     });
   };
@@ -226,7 +271,7 @@ function AtlasShell() {
         selectedRegionCode={viewState.regionCode}
         selectedPlaceId={selectedPlaceId}
         fitBoundsTarget={fitBoundsTarget}
-        onSelectPlace={(placeId) => setSelectedPlaceId(placeId)}
+        onSelectPlace={handleSelectPlaceFromMap}
         onSelectRegion={handleSelectRegion}
         onViewportChange={setViewport}
       />
@@ -281,7 +326,10 @@ function AtlasShell() {
           isMutating={isMutating}
           onClose={() => setViewState((prev) => ({ ...prev, regionLevel: "", regionCode: "" }))}
           onSelectRegion={handleSelectRegion}
-          onSelectPlace={(place) => setSelectedPlaceId(place.id)}
+          onSelectPlace={(place) => {
+            setSelectedPlaceId(place.id);
+            setSelectedPlaceFallback(place);
+          }}
           onToggleVisitStatus={handleToggleSingleVisit}
           onOpenBulkVisit={(targetPlaces, title) => setBulkDialog({ title, places: targetPlaces })}
         />
@@ -292,7 +340,10 @@ function AtlasShell() {
           place={selectedPlace}
           isMutating={isMutating}
           offsetForStats={viewState.statsOpen}
-          onClose={() => setSelectedPlaceId(null)}
+          onClose={() => {
+            setSelectedPlaceId(null);
+            setSelectedPlaceFallback(null);
+          }}
           onUpdateVisitStatus={handleToggleSingleVisit}
         />
       )}
@@ -310,7 +361,7 @@ function AtlasShell() {
                   places: visibleUnvisitedPlaces,
                 })
               }
-              className="pointer-events-auto inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold text-white shadow-lg transition-opacity hover:opacity-95 disabled:opacity-50"
+              className="pointer-events-auto inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-4 py-2 text-[13px] font-semibold text-white shadow-lg transition-opacity hover:opacity-95 disabled:opacity-50"
               style={{
                 backgroundColor: "var(--atlas-accent)",
                 borderColor: "rgba(255, 255, 255, 0.25)",

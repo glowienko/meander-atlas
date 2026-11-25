@@ -46,7 +46,9 @@ public class UpdatePlaceVisitStatus {
         VisitStateSnapshotView previousSnapshot = AtlasViewMapper.toVisitStateSnapshot(current);
         PlaceVisitState updated =
                 current.apply(request.status(), VisitSource.MANUAL_SINGLE, Instant.now());
-        placeRepository.upsertVisitStates(List.of(updated));
+        if (!updated.equals(current)) {
+            placeRepository.upsertVisitStates(List.of(updated));
+        }
 
         return new PlaceVisitStateView(
                 updated.placeId().value(),

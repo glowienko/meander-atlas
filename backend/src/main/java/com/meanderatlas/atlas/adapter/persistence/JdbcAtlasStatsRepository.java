@@ -1,10 +1,10 @@
 package com.meanderatlas.atlas.adapter.persistence;
 
 import com.meanderatlas.atlas.domain.RegionLevel;
-import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.stats.AtlasStats;
 import com.meanderatlas.atlas.domain.stats.AtlasStatsRepository;
 import com.meanderatlas.atlas.domain.stats.RegionSummary;
+import com.meanderatlas.atlas.domain.stats.RegionSummaryFilter;
 import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.UserId;
@@ -23,6 +23,44 @@ import org.springframework.stereotype.Repository;
 class JdbcAtlasStatsRepository implements AtlasStatsRepository {
 
     private static final int TOP_SUBCATEGORIES_LIMIT = 15;
+    private static final String FIND_REGION_SUMMARIES_SQL =
+            """
+            WITH filtered_places AS (
+                SELECT
+                    p.id,
+                    p.country_code,
+                    p.admin1_id,
+                    COALESCE(pvs.status, 'UNVISITED') AS visit_status
+                FROM places p
+                LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+                WHERE p.user_id = CAST(:userId AS uuid)
+                  AND p.geom IS NOT NULL
+                  %s
+            )
+            SELECT
+                rb.id,
+                rb.region_level,
+                rb.code,
+                rb.country_code,
+                rb.name,
+                COUNT(fp.id)::int AS total_places,
+                COUNT(fp.id) FILTER (WHERE fp.visit_status = 'VISITED')::int AS visited_places,
+                COUNT(fp.id) FILTER (WHERE fp.visit_status = 'UNVISITED')::int AS unvisited_places,
+                COUNT(fp.id) FILTER (WHERE fp.visit_status = 'NEEDS_TRIAGE')::int AS needs_triage_places,
+                ST_XMin(rb.simplified_geom) AS min_lng,
+                ST_YMin(rb.simplified_geom) AS min_lat,
+                ST_XMax(rb.simplified_geom) AS max_lng,
+                ST_YMax(rb.simplified_geom) AS max_lat
+            FROM region_boundaries rb
+            JOIN filtered_places fp
+              ON (rb.region_level = 'COUNTRY' AND fp.country_code = rb.code)
+              OR (rb.region_level = 'ADMIN1' AND fp.admin1_id = rb.id)
+            WHERE rb.region_level = :regionLevel
+              AND (CAST(:countryCode AS TEXT) IS NULL OR rb.country_code = CAST(:countryCode AS TEXT))
+            GROUP BY rb.id
+            ORDER BY visited_places DESC, total_places DESC, rb.name ASC
+            """
+                    .formatted(AtlasPlaceFilterSql.COMMON_PLACE_PREDICATES);
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -35,82 +73,20 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
             UserId userId,
             RegionLevel level,
             @Nullable String countryCode,
-            PlaceQueryFilter filter) {
+            RegionSummaryFilter filter) {
         MapSqlParameterSource params =
-                new MapSqlParameterSource()
-                        .addValue("userId", userId.value())
-                        .addValue("regionLevel", level.name())
-                        .addValue("countryCode", countryCode, Types.VARCHAR)
-                        .addValue("q", filter.q(), Types.VARCHAR)
-                        .addValue(
-                                "derivedRole",
-                                filter.derivedRole() == null ? null : filter.derivedRole().name(),
-                                Types.VARCHAR)
-                        .addValue(
-                                "category",
-                                filter.category() == null ? null : filter.category().name(),
-                                Types.VARCHAR)
-                        .addValue("account", filter.account(), Types.VARCHAR)
-                        .addValue("list", filter.list(), Types.VARCHAR);
+                AtlasPlaceFilterSql.addCommonFilterParams(
+                        new MapSqlParameterSource()
+                                .addValue("userId", userId.value())
+                                .addValue("regionLevel", level.name())
+                                .addValue("countryCode", countryCode, Types.VARCHAR),
+                        filter.q(),
+                        filter.derivedRole(),
+                        filter.category(),
+                        filter.account(),
+                        filter.list());
         return jdbcTemplate.query(
-                """
-                WITH filtered_places AS (
-                    SELECT
-                        p.id,
-                        p.country_code,
-                        p.admin1_id,
-                        COALESCE(pvs.status, 'UNVISITED') AS visit_status
-                    FROM places p
-                    LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
-                    WHERE p.user_id = CAST(:userId AS uuid)
-                      AND p.geom IS NOT NULL
-                      AND (CAST(:q AS TEXT) IS NULL
-                          OR strpos(lower(p.canonical_name), lower(CAST(:q AS TEXT))) > 0
-                          OR strpos(lower(COALESCE(p.city_name, '')), lower(CAST(:q AS TEXT))) > 0
-                          OR EXISTS (
-                              SELECT 1 FROM place_memberships pmq
-                              WHERE pmq.place_id = p.id
-                                AND strpos(lower(COALESCE(pmq.note, '')), lower(CAST(:q AS TEXT))) > 0
-                          ))
-                      AND (CAST(:derivedRole AS TEXT) IS NULL
-                          OR p.derived_role = CAST(:derivedRole AS TEXT))
-                      AND (CAST(:category AS TEXT) IS NULL
-                          OR p.category = CAST(:category AS TEXT))
-                      AND ((CAST(:account AS TEXT) IS NULL AND CAST(:list AS TEXT) IS NULL)
-                          OR EXISTS (
-                              SELECT 1 FROM place_memberships pmf
-                              WHERE pmf.place_id = p.id
-                                AND (CAST(:account AS TEXT) IS NULL
-                                    OR pmf.account_label = CAST(:account AS TEXT))
-                                AND (CAST(:list AS TEXT) IS NULL
-                                    OR pmf.list_name = CAST(:list AS TEXT))
-                          ))
-                )
-                SELECT
-                    rb.id,
-                    rb.region_level,
-                    rb.code,
-                    rb.country_code,
-                    rb.name,
-                    COUNT(fp.id)::int AS total_places,
-                    COUNT(fp.id) FILTER (WHERE fp.visit_status = 'VISITED')::int AS visited_places,
-                    COUNT(fp.id) FILTER (WHERE fp.visit_status = 'UNVISITED')::int AS unvisited_places,
-                    COUNT(fp.id) FILTER (WHERE fp.visit_status = 'NEEDS_TRIAGE')::int AS needs_triage_places,
-                    ST_XMin(rb.simplified_geom) AS min_lng,
-                    ST_YMin(rb.simplified_geom) AS min_lat,
-                    ST_XMax(rb.simplified_geom) AS max_lng,
-                    ST_YMax(rb.simplified_geom) AS max_lat
-                FROM region_boundaries rb
-                JOIN filtered_places fp
-                  ON (rb.region_level = 'COUNTRY' AND fp.country_code = rb.code)
-                  OR (rb.region_level = 'ADMIN1' AND fp.admin1_id = rb.id)
-                WHERE rb.region_level = :regionLevel
-                  AND (CAST(:countryCode AS TEXT) IS NULL OR rb.country_code = CAST(:countryCode AS TEXT))
-                GROUP BY rb.id
-                ORDER BY visited_places DESC, total_places DESC, rb.name ASC
-                """,
-                params,
-                JdbcAtlasStatsRepository::mapRegionSummary);
+                FIND_REGION_SUMMARIES_SQL, params, JdbcAtlasStatsRepository::mapRegionSummary);
     }
 
     @Override

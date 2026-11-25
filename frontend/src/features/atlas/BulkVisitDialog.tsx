@@ -74,7 +74,7 @@ export function BulkVisitDialog({
         >
           <div>
             <h2 className="font-editorial text-lg font-semibold">{title}</h2>
-            <p className="text-xs" style={{ color: "var(--atlas-muted)" }}>
+            <p className="text-[13px]" style={{ color: "var(--atlas-muted)" }}>
               Uncheck any places you have not visited yet.
             </p>
           </div>
@@ -90,7 +90,7 @@ export function BulkVisitDialog({
         </div>
 
         <div
-          className="flex items-center justify-between gap-2 border-b px-5 py-2.5 text-xs"
+          className="flex items-center justify-between gap-2 border-b px-5 py-2.5 text-[13px]"
           style={{ borderColor: "var(--atlas-border)" }}
         >
           <input
@@ -98,28 +98,28 @@ export function BulkVisitDialog({
             placeholder="Filter checklist..."
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            className="h-7 flex-1 rounded-full border bg-white/80 px-3 text-xs outline-none focus:border-[var(--atlas-accent)]"
+            className="h-8 flex-1 rounded-full border bg-white/80 px-3 text-[13px] outline-none focus:border-[var(--atlas-accent)]"
             style={{ borderColor: "var(--atlas-border)" }}
           />
           <button
             type="button"
             onClick={toggleAll}
-            className="cursor-pointer rounded-full border px-2.5 py-1 font-medium hover:bg-black/5"
+            className="cursor-pointer rounded-full border px-3 py-1 font-medium hover:bg-black/5"
             style={{ borderColor: "var(--atlas-border)" }}
           >
             {selectedIds.size === places.length ? "Uncheck all" : "Check all"}
           </button>
         </div>
 
-        <ul className="flex-1 space-y-1.5 overflow-y-auto px-5 py-3">
+        <ul
+          className="flex-1 divide-y overflow-y-auto px-5 py-2"
+          style={{ borderColor: "var(--atlas-border)" }}
+        >
           {filteredPlaces.map((place) => {
             const checked = selectedIds.has(place.id);
             return (
-              <li key={place.id}>
-                <label
-                  className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border bg-white/75 px-3 py-2 text-xs transition-colors hover:border-[var(--atlas-accent)]"
-                  style={{ borderColor: "var(--atlas-border)" }}
-                >
+              <li key={place.id} style={{ borderColor: "var(--atlas-border)" }}>
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-sm transition-colors hover:bg-white/75">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <input
                       type="checkbox"
@@ -129,7 +129,7 @@ export function BulkVisitDialog({
                     />
                     <div className="min-w-0">
                       <div className="truncate font-semibold">{place.canonicalName}</div>
-                      <div className="truncate text-[11px]" style={{ color: "var(--atlas-muted)" }}>
+                      <div className="truncate text-[13px]" style={{ color: "var(--atlas-muted)" }}>
                         {categoryLabel(place.category)}
                         {place.cityName ? ` · ${place.cityName}` : ""}
                       </div>
@@ -148,7 +148,7 @@ export function BulkVisitDialog({
           <button
             type="button"
             onClick={onClose}
-            className="cursor-pointer rounded-full border px-4 py-1.5 text-xs font-medium hover:bg-black/5"
+            className="cursor-pointer rounded-full border px-4 py-1.5 text-[13px] font-medium hover:bg-black/5"
             style={{ borderColor: "var(--atlas-border)" }}
           >
             Cancel
@@ -158,7 +158,7 @@ export function BulkVisitDialog({
             data-testid="confirm-bulk-visit-button"
             disabled={isSubmitting || selectedIds.size === 0}
             onClick={() => onConfirm(Array.from(selectedIds))}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: "var(--atlas-accent)" }}
           >
             <Check className="h-3.5 w-3.5" aria-hidden="true" />

@@ -36,13 +36,19 @@ import com.meanderatlas.shared.VisitStatus;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionOperations;
 import tools.jackson.databind.json.JsonMapper;
 
 @Service
@@ -59,26 +65,46 @@ public class ImportLocalDirectory {
     private final ImportRepository importRepository;
     private final AtlasFacade atlasFacade;
     private final CurrentUserProvider currentUserProvider;
-    private final TransactionTemplate transactionTemplate;
+    private final TransactionOperations transactionOperations;
 
     public ImportLocalDirectory(
             TripImportSourcePort importSourcePort,
             ImportRepository importRepository,
             AtlasFacade atlasFacade,
             CurrentUserProvider currentUserProvider,
-            TransactionTemplate transactionTemplate) {
+            TransactionOperations transactionOperations) {
         this.importSourcePort = importSourcePort;
         this.importRepository = importRepository;
         this.atlasFacade = atlasFacade;
         this.currentUserProvider = currentUserProvider;
-        this.transactionTemplate = transactionTemplate;
+        this.transactionOperations = transactionOperations;
     }
 
     public LocalImportSummaryView execute(@Nullable String accountFilter, boolean force) {
         UserId userId = currentUserProvider.currentUserId();
         List<AccountImportSource> accounts = importSourcePort.discoverAccounts(accountFilter);
+        List<PreparedAccount> prepared =
+                accounts.stream().map(account -> prepareAccount(userId, account, force)).toList();
+
+        List<PreparedAccount> activeAccounts =
+                prepared.stream().filter(item -> !item.skipped()).toList();
+        Map<String, AccountImportSummaryView> importedByAccount =
+                activeAccounts.isEmpty()
+                        ? Map.of()
+                        : Objects.requireNonNull(
+                                transactionOperations.execute(
+                                        _ -> executeTwoPassImport(userId, activeAccounts)));
+
         List<AccountImportSummaryView> accountSummaries =
-                accounts.stream().map(account -> importAccount(userId, account, force)).toList();
+                prepared.stream()
+                        .map(item ->
+                                item.skipped()
+                                        ? skippedSummary(item.source())
+                                        : Objects.requireNonNull(
+                                                importedByAccount.get(
+                                                        item.source().accountLabel())))
+                        .toList();
+
         return new LocalImportSummaryView(
                 accountSummaries,
                 sumInt(accountSummaries.stream().mapToInt(AccountImportSummaryView::placesCreated)),
@@ -98,22 +124,34 @@ public class ImportLocalDirectory {
                                 .mapToInt(AccountImportSummaryView::timelineUnmatched)));
     }
 
-    private AccountImportSummaryView importAccount(
+    private PreparedAccount prepareAccount(
             UserId userId, AccountImportSource account, boolean force) {
         if (!force
                 && importRepository.hasCompletedBatch(
                         userId, account.accountLabel(), account.contentSha256())) {
-            return skippedSummary(account);
+            return new PreparedAccount(account, true, null);
         }
-
-        ParsedAccountData parsed = parseAccountFiles(account.files());
-        return Objects.requireNonNull(
-                transactionTemplate.execute(
-                        _ -> persistAndReconcileAccount(userId, account, parsed)));
+        return new PreparedAccount(account, false, parseAccountFiles(account.files()));
     }
 
-    private AccountImportSummaryView persistAndReconcileAccount(
-            UserId userId, AccountImportSource account, ParsedAccountData parsed) {
+    private Map<String, AccountImportSummaryView> executeTwoPassImport(
+            UserId userId, List<PreparedAccount> activeAccounts) {
+        List<Pass1AccountState> pass1States =
+                activeAccounts.stream().map(item -> runPass1(userId, item)).toList();
+
+        List<Pass2AccountState> pass2States =
+                pass1States.stream().map(state -> runPass2ReconcileLinks(userId, state)).toList();
+
+        return pass2States.stream()
+                .map(this::runPass2TimelineAndFinalize)
+                .collect(
+                        Collectors.toUnmodifiableMap(
+                                AccountImportSummaryView::accountLabel, Function.identity()));
+    }
+
+    private Pass1AccountState runPass1(UserId userId, PreparedAccount item) {
+        AccountImportSource account = item.source();
+        ParsedAccountData parsed = Objects.requireNonNull(item.parsed());
         UUID batchId =
                 importRepository.startOrRestartBatch(
                         userId, account.accountLabel(), account.contentSha256(), SOURCE_TYPE_LOCAL);
@@ -123,25 +161,61 @@ public class ImportLocalDirectory {
                 parsed.savedPlaces().stream()
                         .map(entry -> upsertSavedPlace(account.accountLabel(), entry))
                         .toList();
-        List<UpsertedPlaceView> reviewResults =
+        List<UpsertedPlaceView> geocodedReviewResults =
                 parsed.reviews().stream()
-                        .filter(review -> review.coordinates() != null)
-                        .map(review -> upsertReview(account.accountLabel(), review))
+                        .filter(entry -> entry.review().coordinates() != null)
+                        .map(entry -> upsertReview(account.accountLabel(), entry.review()))
                         .toList();
 
-        List<CsvMatchOutcome> csvOutcomes =
-                parsed.csvRows().stream()
-                        .map(entry -> reconcileCsvRow(account.accountLabel(), entry))
+        int totalUpserted = savedPlaceResults.size() + geocodedReviewResults.size();
+        int placesCreated =
+                (int)
+                        Stream.concat(savedPlaceResults.stream(), geocodedReviewResults.stream())
+                                .filter(UpsertedPlaceView::created)
+                                .count();
+        int placesMerged = totalUpserted - placesCreated;
+        return new Pass1AccountState(account, parsed, batchId, placesCreated, placesMerged);
+    }
+
+    private Pass2AccountState runPass2ReconcileLinks(UserId userId, Pass1AccountState state) {
+        String accountLabel = state.account().accountLabel();
+        ParsedAccountData parsed = state.parsed();
+
+        List<MatchOutcome> coordlessReviewOutcomes =
+                parsed.reviews().stream()
+                        .filter(entry -> entry.review().coordinates() == null)
+                        .map(entry -> reconcileCoordlessReview(accountLabel, entry))
                         .toList();
+        List<MatchOutcome> csvOutcomes =
+                parsed.csvRows().stream()
+                        .map(entry -> reconcileCsvRow(accountLabel, entry))
+                        .toList();
+
         List<NewResolutionJob> pendingJobs =
-                csvOutcomes.stream()
-                        .map(CsvMatchOutcome::pendingJob)
+                Stream.concat(coordlessReviewOutcomes.stream(), csvOutcomes.stream())
+                        .map(MatchOutcome::pendingJob)
                         .filter(Objects::nonNull)
                         .toList();
         importRepository.enqueueCoordinateLookups(userId, pendingJobs);
 
+        int coordlessReviewsMatched =
+                (int) coordlessReviewOutcomes.stream().filter(MatchOutcome::matched).count();
+        int csvCidMatched = (int) csvOutcomes.stream().filter(MatchOutcome::matched).count();
+        return new Pass2AccountState(
+                state, coordlessReviewsMatched, csvCidMatched, pendingJobs.size());
+    }
+
+    private AccountImportSummaryView runPass2TimelineAndFinalize(Pass2AccountState state) {
+        Pass1AccountState pass1 = state.pass1();
+        AccountImportSource account = pass1.account();
+        ParsedAccountData parsed = pass1.parsed();
+
         List<TimelineReconciliationOutcome> timelineOutcomes =
                 parsed.timelineVisits().stream()
+                        .sorted(
+                                Comparator.comparing(
+                                        ParsedTimelineVisit::startTime,
+                                        Comparator.nullsLast(Comparator.naturalOrder())))
                         .map(visit ->
                                 atlasFacade.reconcileTimelineVisit(
                                         new TimelineVisitSignal(
@@ -150,22 +224,7 @@ public class ImportLocalDirectory {
                                                 visit.startTime())))
                         .toList();
 
-        importRepository.markBatchCompleted(batchId, parsed.records().size());
-
-        int totalUpserted = savedPlaceResults.size() + reviewResults.size();
-        int placesCreated =
-                (int)
-                        Stream.concat(savedPlaceResults.stream(), reviewResults.stream())
-                                .filter(UpsertedPlaceView::created)
-                                .count();
-        int placesMerged = totalUpserted - placesCreated;
-        int csvCidMatched = (int) csvOutcomes.stream().filter(CsvMatchOutcome::cidMatched).count();
-        int timelineMatchedVisited =
-                countOutcome(timelineOutcomes, TimelineReconciliationOutcome.MATCHED_VISITED);
-        int timelineMarkedTriage =
-                countOutcome(timelineOutcomes, TimelineReconciliationOutcome.MARKED_NEEDS_TRIAGE);
-        int timelineUnmatched =
-                countOutcome(timelineOutcomes, TimelineReconciliationOutcome.UNMATCHED);
+        importRepository.markBatchCompleted(pass1.batchId(), parsed.records().size());
 
         return new AccountImportSummaryView(
                 account.accountLabel(),
@@ -173,13 +232,13 @@ public class ImportLocalDirectory {
                 false,
                 account.files().size(),
                 parsed.records().size(),
-                placesCreated,
-                placesMerged,
-                csvCidMatched,
-                pendingJobs.size(),
-                timelineMatchedVisited,
-                timelineMarkedTriage,
-                timelineUnmatched);
+                pass1.placesCreated(),
+                pass1.placesMerged() + state.coordlessReviewsMatched(),
+                state.csvCidMatched(),
+                state.queuedResolutionJobs(),
+                countOutcome(timelineOutcomes, TimelineReconciliationOutcome.MATCHED_VISITED),
+                countOutcome(timelineOutcomes, TimelineReconciliationOutcome.MARKED_NEEDS_TRIAGE),
+                countOutcome(timelineOutcomes, TimelineReconciliationOutcome.UNMATCHED));
     }
 
     private UpsertedPlaceView upsertSavedPlace(String accountLabel, SavedPlaceEntry entry) {
@@ -213,8 +272,7 @@ public class ImportLocalDirectory {
 
     private UpsertedPlaceView upsertReview(String accountLabel, ParsedReview review) {
         GeoPoint coordinates = Objects.requireNonNull(review.coordinates());
-        String trimmedName = TextNormalizer.trimToNull(review.name());
-        String canonicalName = trimmedName != null ? trimmedName : FALLBACK_REVIEW_NAME;
+        String canonicalName = resolveReviewName(review);
         PlaceClassification classification =
                 PlaceCategoryClassifier.classify(canonicalName, review.reviewText(), null);
         Long cid = review.googleCid() == null ? null : review.googleCid().unsignedBits();
@@ -242,11 +300,45 @@ public class ImportLocalDirectory {
                         review.reviewedAt()));
     }
 
-    private CsvMatchOutcome reconcileCsvRow(String accountLabel, CsvRowEntry entry) {
+    private MatchOutcome reconcileCoordlessReview(String accountLabel, ReviewEntry entry) {
+        ParsedReview review = entry.review();
+        GoogleCid cid = review.googleCid();
+        if (cid == null) {
+            return new MatchOutcome(
+                    new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
+        }
+        String canonicalName = resolveReviewName(review);
+        PlaceClassification classification =
+                PlaceCategoryClassifier.classify(canonicalName, review.reviewText(), null);
+        boolean matched =
+                atlasFacade.attachCsvMembershipByCid(
+                        new AttachCsvMembershipCommand(
+                                cid.unsignedBits(),
+                                canonicalName,
+                                classification.category(),
+                                classification.subcategory(),
+                                classification.source(),
+                                accountLabel,
+                                LIST_NAME_REVIEWS,
+                                ListKind.REVIEW,
+                                review.reviewText(),
+                                null,
+                                review.googleMapsUrl(),
+                                review.reviewedAt(),
+                                VisitStatus.VISITED,
+                                VisitSource.REVIEW,
+                                review.reviewedAt()));
+        if (matched) {
+            return new MatchOutcome(null, true);
+        }
+        return new MatchOutcome(new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
+    }
+
+    private MatchOutcome reconcileCsvRow(String accountLabel, CsvRowEntry entry) {
         ParsedSavedCsvRow row = entry.row();
         GoogleCid cid = row.googleCid();
         if (cid == null) {
-            return new CsvMatchOutcome(
+            return new MatchOutcome(
                     new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
         }
         PlaceClassification classification =
@@ -264,18 +356,26 @@ public class ImportLocalDirectory {
                                 row.listKind(),
                                 row.note(),
                                 row.tags(),
-                                row.url()));
+                                row.url(),
+                                null,
+                                null,
+                                null,
+                                null));
         if (matched) {
-            return new CsvMatchOutcome(null, true);
+            return new MatchOutcome(null, true);
         }
-        return new CsvMatchOutcome(
-                new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
+        return new MatchOutcome(new NewResolutionJob(UUID.randomUUID(), entry.recordId()), false);
+    }
+
+    private static String resolveReviewName(ParsedReview review) {
+        String trimmedName = TextNormalizer.trimToNull(review.name());
+        return trimmedName != null ? trimmedName : FALLBACK_REVIEW_NAME;
     }
 
     private static ParsedAccountData parseAccountFiles(List<DiscoveredImportFile> files) {
         Stream.Builder<NewImportRecord> records = Stream.builder();
         Stream.Builder<SavedPlaceEntry> savedPlaces = Stream.builder();
-        Stream.Builder<ParsedReview> reviews = Stream.builder();
+        Stream.Builder<ReviewEntry> reviews = Stream.builder();
         Stream.Builder<CsvRowEntry> csvRows = Stream.builder();
         Stream.Builder<ParsedTimelineVisit> timelineVisits = Stream.builder();
 
@@ -294,7 +394,7 @@ public class ImportLocalDirectory {
             DiscoveredImportFile file,
             Stream.Builder<NewImportRecord> records,
             Stream.Builder<SavedPlaceEntry> savedPlaces,
-            Stream.Builder<ParsedReview> reviews,
+            Stream.Builder<ReviewEntry> reviews,
             Stream.Builder<CsvRowEntry> csvRows,
             Stream.Builder<ParsedTimelineVisit> timelineVisits) {
         try {
@@ -310,8 +410,10 @@ public class ImportLocalDirectory {
                 case REVIEW_GEOJSON ->
                         TakeoutGeoJsonParser.parseReviews(file.absolutePath())
                                 .forEach(review -> {
-                                    records.add(toReviewRecord(file.relativePath(), review));
-                                    reviews.add(review);
+                                    NewImportRecord record =
+                                            toReviewRecord(file.relativePath(), review);
+                                    records.add(record);
+                                    reviews.add(new ReviewEntry(record.id(), review));
                                 });
                 case SAVED_CSV ->
                         TakeoutCsvParser.parse(file.absolutePath())
@@ -403,7 +505,7 @@ public class ImportLocalDirectory {
         }
         String raw = fileName.toString();
         String trimmed =
-                raw.toLowerCase(java.util.Locale.ROOT).endsWith(JSON_EXTENSION)
+                raw.toLowerCase(Locale.ROOT).endsWith(JSON_EXTENSION)
                         ? raw.substring(0, raw.length() - JSON_EXTENSION.length())
                         : raw;
         String normalized = TextNormalizer.trimToNull(trimmed);
@@ -431,20 +533,38 @@ public class ImportLocalDirectory {
         return (int) outcomes.stream().filter(outcome -> outcome == target).count();
     }
 
-    private static int sumInt(java.util.stream.IntStream stream) {
+    private static int sumInt(IntStream stream) {
         return stream.sum();
     }
 
+    private record PreparedAccount(
+            AccountImportSource source, boolean skipped, @Nullable ParsedAccountData parsed) {}
+
+    private record Pass1AccountState(
+            AccountImportSource account,
+            ParsedAccountData parsed,
+            UUID batchId,
+            int placesCreated,
+            int placesMerged) {}
+
+    private record Pass2AccountState(
+            Pass1AccountState pass1,
+            int coordlessReviewsMatched,
+            int csvCidMatched,
+            int queuedResolutionJobs) {}
+
     private record SavedPlaceEntry(String listName, ParsedSavedPlace place) {}
+
+    private record ReviewEntry(UUID recordId, ParsedReview review) {}
 
     private record CsvRowEntry(UUID recordId, ParsedSavedCsvRow row) {}
 
     private record ParsedAccountData(
             List<NewImportRecord> records,
             List<SavedPlaceEntry> savedPlaces,
-            List<ParsedReview> reviews,
+            List<ReviewEntry> reviews,
             List<CsvRowEntry> csvRows,
             List<ParsedTimelineVisit> timelineVisits) {}
 
-    private record CsvMatchOutcome(@Nullable NewResolutionJob pendingJob, boolean cidMatched) {}
+    private record MatchOutcome(@Nullable NewResolutionJob pendingJob, boolean matched) {}
 }

@@ -297,12 +297,12 @@ export interface components {
         };
         BoundarySeedResultView: {
             /** Format: int32 */
-            admin1Upserted?: number;
+            admin1Upserted: number;
             /** Format: int32 */
-            countriesUpserted?: number;
+            countriesUpserted: number;
             /** Format: int32 */
-            placesTagged?: number;
-            skipped?: boolean;
+            placesTagged: number;
+            skipped: boolean;
         };
         BulkVisitStatusRequest: {
             placeIds: string[];
@@ -373,6 +373,19 @@ export interface components {
             status: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE";
             /** Format: int32 */
             visitCount: number;
+        };
+        ProblemDetail: {
+            detail?: string;
+            /** Format: uri */
+            instance?: string;
+            properties?: {
+                [key: string]: unknown;
+            };
+            /** Format: int32 */
+            status?: number;
+            title?: string;
+            /** Format: uri */
+            type?: string;
         };
         RegionDossierView: {
             childRegions: components["schemas"]["RegionSummaryView"][];
@@ -685,13 +698,29 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description Mapbox Vector Tile payload */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/vnd.mapbox-vector-tile": string;
+                };
+            };
+            /** @description No features in requested tile */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid tile zoom or coordinates */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
         };

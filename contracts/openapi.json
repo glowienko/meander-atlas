@@ -433,11 +433,24 @@
               "application/vnd.mapbox-vector-tile" : {
                 "schema" : {
                   "type" : "string",
-                  "format" : "byte"
+                  "format" : "binary"
                 }
               }
             },
-            "description" : "OK"
+            "description" : "Mapbox Vector Tile payload"
+          },
+          "204" : {
+            "description" : "No features in requested tile"
+          },
+          "400" : {
+            "content" : {
+              "application/problem+json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description" : "Invalid tile zoom or coordinates"
           }
         },
         "tags" : [ "atlas-boundaries-controller" ]
@@ -752,7 +765,8 @@
           "skipped" : {
             "type" : "boolean"
           }
-        }
+        },
+        "required" : [ "admin1Upserted", "countriesUpserted", "placesTagged", "skipped" ]
       },
       "BulkVisitStatusRequest" : {
         "type" : "object",
@@ -932,6 +946,33 @@
           }
         },
         "required" : [ "placeId", "previousState", "status", "visitCount" ]
+      },
+      "ProblemDetail" : {
+        "type" : "object",
+        "properties" : {
+          "detail" : {
+            "type" : "string"
+          },
+          "instance" : {
+            "type" : "string",
+            "format" : "uri"
+          },
+          "properties" : {
+            "type" : "object",
+            "additionalProperties" : { }
+          },
+          "status" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string",
+            "format" : "uri"
+          }
+        }
       },
       "RegionDossierView" : {
         "type" : "object",

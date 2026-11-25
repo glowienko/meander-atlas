@@ -10,9 +10,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 @Service
 public class SeedRegionBoundaries {
@@ -24,21 +25,23 @@ public class SeedRegionBoundaries {
 
     private final RegionBoundaryRepository regionBoundaryRepository;
     private final Path boundariesDir;
+    private final TransactionOperations transactionOperations;
 
     public SeedRegionBoundaries(
             RegionBoundaryRepository regionBoundaryRepository,
             @Value("${app.boundaries-dir:${user.home}/meander-atlas-data/boundaries}")
-                    String boundariesDir) {
+                    String boundariesDir,
+            TransactionOperations transactionOperations) {
         this.regionBoundaryRepository = regionBoundaryRepository;
         this.boundariesDir = Path.of(boundariesDir).toAbsolutePath().normalize();
+        this.transactionOperations = transactionOperations;
     }
 
-    @Transactional
     public BoundarySeedResultView execute(boolean force) {
         long existingCountries = regionBoundaryRepository.countByLevel(RegionLevel.COUNTRY);
         long existingAdmin1 = regionBoundaryRepository.countByLevel(RegionLevel.ADMIN1);
         if (!force && existingCountries > 0 && existingAdmin1 > 0) {
-            int tagged = regionBoundaryRepository.assignRegionsToUntaggedPlaces();
+            int tagged = assignRegionsInTransaction();
             return new BoundarySeedResultView(0, 0, tagged, true);
         }
 
@@ -52,11 +55,19 @@ public class SeedRegionBoundaries {
 
         int countriesUpserted =
                 (force || existingCountries == 0) && hasCountriesFile
-                        ? upsertCountries(countriesPath)
+                        ? parseAndUpsertLevel(
+                                countriesPath,
+                                COUNTRY_SIMPLIFY_TOLERANCE,
+                                NaturalEarthGeoJsonParser::parseCountries)
                         : 0;
         int admin1Upserted =
-                (force || existingAdmin1 == 0) && hasAdmin1File ? upsertAdmin1(admin1Path) : 0;
-        int placesTagged = regionBoundaryRepository.assignRegionsToUntaggedPlaces();
+                (force || existingAdmin1 == 0) && hasAdmin1File
+                        ? parseAndUpsertLevel(
+                                admin1Path,
+                                ADMIN1_SIMPLIFY_TOLERANCE,
+                                NaturalEarthGeoJsonParser::parseAdmin1)
+                        : 0;
+        int placesTagged = assignRegionsInTransaction();
         return new BoundarySeedResultView(
                 countriesUpserted,
                 admin1Upserted,
@@ -64,21 +75,30 @@ public class SeedRegionBoundaries {
                 countriesUpserted == 0 && admin1Upserted == 0);
     }
 
-    private int upsertCountries(Path file) {
+    private int parseAndUpsertLevel(Path file, double tolerance, BoundaryParser parser) {
+        List<BoundaryFeature> features;
         try {
-            List<BoundaryFeature> countries = NaturalEarthGeoJsonParser.parseCountries(file);
-            return regionBoundaryRepository.upsertBoundaries(countries, COUNTRY_SIMPLIFY_TOLERANCE);
+            features = parser.parse(file);
         } catch (IOException ex) {
-            throw new UncheckedIOException("Failed to read country boundary GeoJSON: " + file, ex);
+            throw new UncheckedIOException("Failed to read boundary GeoJSON: " + file, ex);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException("Invalid boundary GeoJSON: " + file, ex);
         }
+        return Objects.requireNonNullElse(
+                transactionOperations.execute(
+                        _ -> regionBoundaryRepository.upsertBoundaries(features, tolerance)),
+                0);
     }
 
-    private int upsertAdmin1(Path file) {
-        try {
-            List<BoundaryFeature> admin1 = NaturalEarthGeoJsonParser.parseAdmin1(file);
-            return regionBoundaryRepository.upsertBoundaries(admin1, ADMIN1_SIMPLIFY_TOLERANCE);
-        } catch (IOException ex) {
-            throw new UncheckedIOException("Failed to read admin-1 boundary GeoJSON: " + file, ex);
-        }
+    private int assignRegionsInTransaction() {
+        return Objects.requireNonNullElse(
+                transactionOperations.execute(
+                        _ -> regionBoundaryRepository.assignRegionsToUntaggedPlaces()),
+                0);
+    }
+
+    @FunctionalInterface
+    private interface BoundaryParser {
+        List<BoundaryFeature> parse(Path file) throws IOException;
     }
 }

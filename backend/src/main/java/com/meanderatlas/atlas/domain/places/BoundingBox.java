@@ -4,6 +4,7 @@ public record BoundingBox(double minLng, double minLat, double maxLng, double ma
 
     private static final double MIN_LNG = -180.0;
     private static final double MAX_LNG = 180.0;
+    private static final double FULL_WORLD_SPAN = 360.0;
     private static final double MIN_LAT = -90.0;
     private static final double MAX_LAT = 90.0;
 
@@ -14,13 +15,30 @@ public record BoundingBox(double minLng, double minLat, double maxLng, double ma
                 || !Double.isFinite(maxLat)) {
             throw new IllegalArgumentException("Bounding box coordinates must be finite");
         }
-        if (minLng < MIN_LNG || maxLng > MAX_LNG || minLng > maxLng) {
-            throw new IllegalArgumentException(
-                    "Invalid longitude bounds: [" + minLng + ", " + maxLng + "]");
-        }
         if (minLat < MIN_LAT || maxLat > MAX_LAT || minLat > maxLat) {
             throw new IllegalArgumentException(
                     "Invalid latitude bounds: [" + minLat + ", " + maxLat + "]");
         }
+        if (maxLng - minLng >= FULL_WORLD_SPAN) {
+            minLng = MIN_LNG;
+            maxLng = MAX_LNG;
+        } else if (minLng < MIN_LNG || maxLng > MAX_LNG) {
+            double wrappedMin = wrapLongitude(minLng);
+            double wrappedMax = wrapLongitude(maxLng);
+            if (wrappedMax == MIN_LNG && wrappedMin > MIN_LNG) {
+                wrappedMax = MAX_LNG;
+            }
+            minLng = wrappedMin;
+            maxLng = wrappedMax;
+        }
+    }
+
+    public boolean crossesAntimeridian() {
+        return minLng > maxLng;
+    }
+
+    private static double wrapLongitude(double lng) {
+        return ((((lng + MAX_LNG) % FULL_WORLD_SPAN) + FULL_WORLD_SPAN) % FULL_WORLD_SPAN)
+                - MAX_LNG;
     }
 }

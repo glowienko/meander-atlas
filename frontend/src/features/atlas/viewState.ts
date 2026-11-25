@@ -1,3 +1,5 @@
+import { CATEGORY_OPTIONS, DERIVED_ROLE_OPTIONS, VISIT_STATUS_OPTIONS } from "./atlasLabels";
+
 export type AtlasProjection = "globe" | "mercator";
 export type RegionScope = "COUNTRY" | "ADMIN1";
 export type VisitStatusFilter = "UNVISITED" | "VISITED" | "NEEDS_TRIAGE" | "";
@@ -29,21 +31,9 @@ export interface AtlasViewState {
   statsOpen: boolean;
 }
 
-const VALID_VISIT_STATUSES = new Set<string>(["UNVISITED", "VISITED", "NEEDS_TRIAGE"]);
-const VALID_DERIVED_ROLES = new Set<string>(["PREFERRED_HOTEL", "MUST_SEE", "FAVORITE", "BACKLOG"]);
-const VALID_CATEGORIES = new Set<string>([
-  "RESTAURANT",
-  "CAFE_BAR",
-  "HOTEL",
-  "MUSEUM",
-  "LANDMARK",
-  "SACRAL",
-  "MOUNTAIN",
-  "WATER",
-  "NATURE_PARK",
-  "VIEWPOINT",
-  "UNCATEGORIZED",
-]);
+const VALID_VISIT_STATUSES = new Set<string>(VISIT_STATUS_OPTIONS.map((o) => o.value));
+const VALID_DERIVED_ROLES = new Set<string>(DERIVED_ROLE_OPTIONS.map((o) => o.value));
+const VALID_CATEGORIES = new Set<string>(CATEGORY_OPTIONS.map((o) => o.value));
 const VALID_REGION_LEVELS = new Set<string>(["COUNTRY", "ADMIN1"]);
 
 export function defaultAtlasViewState(): AtlasViewState {
@@ -136,6 +126,28 @@ export function clearAtlasFilters(state: AtlasViewState): AtlasViewState {
     account: "",
     list: "",
   };
+}
+
+export function isPlaceInViewport(
+  place: { lat: number; lng: number },
+  viewport: { minLng: number; minLat: number; maxLng: number; maxLat: number },
+): boolean {
+  if (place.lat < viewport.minLat || place.lat > viewport.maxLat) {
+    return false;
+  }
+  if (viewport.minLng >= -180 && viewport.maxLng <= 180) {
+    if (viewport.minLng <= viewport.maxLng) {
+      return place.lng >= viewport.minLng && place.lng <= viewport.maxLng;
+    }
+    return place.lng >= viewport.minLng || place.lng <= viewport.maxLng;
+  }
+  const span = viewport.maxLng - viewport.minLng;
+  if (span >= 360) {
+    return true;
+  }
+  const arcSpan = span >= 0 ? span : ((span % 360) + 360) % 360;
+  const delta = (((place.lng - viewport.minLng) % 360) + 360) % 360;
+  return delta <= arcSpan;
 }
 
 function setOrDelete(params: URLSearchParams, key: string, value: string): void {

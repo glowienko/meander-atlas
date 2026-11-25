@@ -101,3 +101,18 @@ for ignored_data in \
     exit 1
   fi
 done
+
+BOUNDARY_SCRIPT="$REPO_ROOT/scripts/download-boundaries.sh"
+"$BASH_BIN" -n "$BOUNDARY_SCRIPT"
+if grep -Fq '/master/' "$BOUNDARY_SCRIPT"; then
+  printf 'FAIL: download-boundaries.sh must pin a Natural Earth release tag/SHA instead of /master/\n' >&2
+  exit 1
+fi
+if ! grep -Fq 'chmod 0644 "$CURRENT_TMP_FILE"' "$BOUNDARY_SCRIPT"; then
+  printf 'FAIL: download-boundaries.sh must chmod 0644 downloaded files before mv\n' >&2
+  exit 1
+fi
+if ! grep -Fq -- '-s "$CURRENT_TMP_FILE"' "$BOUNDARY_SCRIPT"; then
+  printf 'FAIL: download-boundaries.sh must verify non-empty downloaded temp file (-s) before mv\n' >&2
+  exit 1
+fi

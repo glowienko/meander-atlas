@@ -91,13 +91,22 @@ test("syncs synthetic local folder, visualizes Live Atlas stats and pins, and su
   await expect(page).not.toHaveURL(/view=map/);
   await expect(mapContainer).toHaveAttribute("data-projection", "globe");
 
-  await page.goto("/?region=PL&regionLevel=COUNTRY", { waitUntil: "domcontentloaded" });
+  await page.goto("/?region=PL&regionLevel=COUNTRY&status=UNVISITED", {
+    waitUntil: "domcontentloaded",
+  });
   const dossier = page.getByTestId("region-dossier-drawer");
   await expect(dossier).toContainText("Poland", { timeout: 15_000 });
   await expect(dossier).toContainText("Wawel Royal Castle");
 
-  await dossier.getByRole("button", { name: "Visited ✓" }).first().click();
+  await dossier.getByRole("button", { name: "Wawel Royal Castle" }).click();
+  const detailCard = page.getByTestId("place-detail-card");
+  await expect(detailCard).toBeVisible();
+  await expect(detailCard).toContainText("Wawel Royal Castle");
+  await detailCard.getByRole("button", { name: "Mark Unvisited" }).click();
+  await expect(detailCard).toBeVisible();
+  await expect(detailCard.getByRole("button", { name: "Mark Visited" })).toBeVisible();
   await expect(page.getByTestId("atlas-undo-toast")).toBeVisible();
+
   const bulkButton = page.getByTestId("dossier-bulk-visit-button");
   await expect(bulkButton).toBeVisible();
 

@@ -56,7 +56,7 @@ class NaturalEarthGeoJsonParserTest {
                         BoundaryFeature::name)
                 .containsExactly(
                         Tuple.tuple(RegionLevel.ADMIN1, "PL-12", "PL", "Małopolskie"),
-                        Tuple.tuple(RegionLevel.ADMIN1, "FRA-1001", "FRA", "Corsica"),
+                        Tuple.tuple(RegionLevel.ADMIN1, "FRA-1001", "FR", "Corsica"),
                         Tuple.tuple(RegionLevel.ADMIN1, "FRA-5260", "FR", "Paris"),
                         Tuple.tuple(RegionLevel.ADMIN1, "FRA-5261", "FR", "Paris Outer"));
     }
@@ -80,9 +80,9 @@ class NaturalEarthGeoJsonParserTest {
         assertThat(NaturalEarthGeoJsonParser.parseAdmin1(emptyArray)).isEmpty();
 
         List<BoundaryFeature> admin1 = NaturalEarthGeoJsonParser.parseAdmin1(admin1File);
-        assertThat(admin1).hasSize(1);
-        assertThat(admin1.getFirst().code()).isEqualTo("GB-ENG");
-        assertThat(admin1.getFirst().countryCode()).isEqualTo("GB");
+        assertThat(admin1)
+                .extracting(BoundaryFeature::code, BoundaryFeature::countryCode)
+                .containsExactly(Tuple.tuple("GB-ENG", "GB"), Tuple.tuple("SOL-01", "SOL"));
 
         assertThatThrownBy(
                         () -> new BoundaryFeature(RegionLevel.COUNTRY, " ", "PL", "Poland", "{}"))
