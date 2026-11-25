@@ -26,6 +26,8 @@ allocate_two_ports() {
 PG_CONTAINER=""
 BACKEND_PID=""
 BACKEND_LOG="$(mktemp)"
+E2E_BOUNDARIES_DIR="$(mktemp -d)"
+E2E_IMPORTS_DIR="$(mktemp -d)"
 
 cleanup() {
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
@@ -36,8 +38,69 @@ cleanup() {
     docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
   fi
   rm -f "$BACKEND_LOG"
+  rm -rf "$E2E_BOUNDARIES_DIR" "$E2E_IMPORTS_DIR"
 }
 trap cleanup EXIT INT TERM
+
+cat > "$E2E_BOUNDARIES_DIR/ne_10m_admin_0_countries.geojson" <<'EOF'
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"ISO_A2_EH": "PL", "ADMIN": "Poland"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[14.0, 49.0], [24.2, 49.0], [24.2, 55.0], [14.0, 55.0], [14.0, 49.0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"ISO_A2_EH": "FR", "ADMIN": "France"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-5.0, 42.0], [8.5, 42.0], [8.5, 51.2], [-5.0, 51.2], [-5.0, 42.0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"ISO_A2_EH": "IT", "ADMIN": "Italy"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[6.6, 36.6], [18.5, 36.6], [18.5, 47.1], [6.6, 47.1], [6.6, 36.6]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"ISO_A2_EH": "ES", "ADMIN": "Spain"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-9.5, 36.0], [3.5, 36.0], [3.5, 41.9], [-9.5, 41.9], [-9.5, 36.0]]]
+      }
+    }
+  ]
+}
+EOF
+
+cat > "$E2E_BOUNDARIES_DIR/ne_10m_admin_1_states_provinces.geojson" <<'EOF'
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"iso_3166_2": "PL-12", "iso_a2": "PL", "name": "Małopolskie"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[19.0, 49.4], [21.2, 49.4], [21.2, 50.6], [19.0, 50.6], [19.0, 49.4]]]
+      }
+    }
+  ]
+}
+EOF
+
+mkdir -p "$E2E_IMPORTS_DIR/personal"
+unzip -q "$REPO_ROOT/fixtures/synthetic-takeout-pl-en.zip" -d "$E2E_IMPORTS_DIR/personal"
+cp "$REPO_ROOT/fixtures/synthetic-timeline.json" "$E2E_IMPORTS_DIR/personal/Timeline.json"
 
 PG_CONTAINER="$(docker run --rm -d \
   -e POSTGRES_DB=meander_atlas \
@@ -70,9 +133,7 @@ if [[ ! -f "$JAR_PATH" ]]; then
   exit 1
 fi
 
-if [[ ! -f frontend/dist/index.html ]]; then
-  pnpm --dir frontend run build >/dev/null
-fi
+pnpm --dir frontend run build >/dev/null
 
 read -r BACKEND_PORT PREVIEW_PORT <<<"$(allocate_two_ports)"
 
@@ -81,6 +142,9 @@ java -jar "$JAR_PATH" \
   --spring.datasource.url="jdbc:postgresql://127.0.0.1:${PG_PORT}/meander_atlas" \
   --spring.datasource.username=meander \
   --spring.datasource.password=meander_e2e \
+  --app.boundaries-dir="$E2E_BOUNDARIES_DIR" \
+  --app.boundaries-auto-seed=true \
+  --app.imports-dir="$E2E_IMPORTS_DIR" \
   >"$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 

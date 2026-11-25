@@ -36,6 +36,9 @@ import {
   readAtlasViewState,
   writeAtlasViewState,
 } from "./features/atlas/viewState";
+import { ImportStatusBadge } from "./features/ingestion/ImportStatusBadge";
+import { SyncImportsButton } from "./features/ingestion/SyncImportsButton";
+import { useImportStatus, useTriggerLocalImport } from "./features/ingestion/useLocalImport";
 
 interface UndoToastState {
   message: string;
@@ -85,6 +88,8 @@ function AtlasShell() {
   const updateVisitMutation = useUpdatePlaceVisitStatus();
   const bulkVisitMutation = useBulkUpdateVisitStatus();
   const restoreVisitMutation = useRestoreVisitStates();
+  const importStatusQuery = useImportStatus();
+  const localImportMutation = useTriggerLocalImport();
 
   useEffect(() => {
     const nextSearch = writeAtlasViewState(viewState, window.location.search);
@@ -184,6 +189,28 @@ function AtlasShell() {
     });
   };
 
+  const handleSyncLocalFolder = () => {
+    localImportMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.accounts.length === 0) {
+          setUndoToast({ message: "No local import accounts found", snapshots: [] });
+          return;
+        }
+        if (result.accounts.every((account) => account.skipped)) {
+          setUndoToast({ message: "Local folder already up to date", snapshots: [] });
+          return;
+        }
+        setUndoToast({
+          message: `Synced ${result.totalPlacesCreated} new, ${result.totalPlacesMerged} merged · ${result.totalQueuedResolutionJobs} awaiting coordinates`,
+          snapshots: [],
+        });
+      },
+      onError: () => {
+        setUndoToast({ message: "Local folder sync failed", snapshots: [] });
+      },
+    });
+  };
+
   const isMutating =
     updateVisitMutation.isPending || bulkVisitMutation.isPending || restoreVisitMutation.isPending;
 
@@ -213,6 +240,12 @@ function AtlasShell() {
           onProjectionChange={handleProjectionChange}
           statsOpen={viewState.statsOpen}
           onToggleStats={() => setViewState((prev) => ({ ...prev, statsOpen: !prev.statsOpen }))}
+          extraActions={
+            <SyncImportsButton
+              isPending={localImportMutation.isPending}
+              onClick={handleSyncLocalFolder}
+            />
+          }
         />
 
         <AtlasFilterBar
@@ -231,6 +264,12 @@ function AtlasShell() {
           isError={statsQuery.isError}
           onClose={() => setViewState((prev) => ({ ...prev, statsOpen: false }))}
           onFilterCategory={(category) => setViewState((prev) => ({ ...prev, category }))}
+          importSlot={
+            <ImportStatusBadge
+              mappedCount={statsQuery.data?.totalMappedPlaces ?? 0}
+              status={importStatusQuery.data}
+            />
+          }
         />
       )}
 

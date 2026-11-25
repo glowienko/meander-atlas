@@ -3,10 +3,13 @@ package com.meanderatlas.atlas.adapter.persistence;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.BoundingBox;
+import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
+import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate;
 import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.ListKind;
@@ -15,6 +18,8 @@ import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.List;
@@ -31,6 +36,8 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
+
+    private static final double COASTAL_FALLBACK_METERS = 15_000.0;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -297,6 +304,510 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 params);
     }
 
+    @Override
+    public Optional<MatchedPlace> findCanonicalMatch(
+            UserId userId,
+            @Nullable String googlePlaceId,
+            @Nullable Long googleCid,
+            GeoPoint coordinates,
+            String canonicalName,
+            double radiusMeters,
+            double minTrigramSimilarity) {
+        if (googlePlaceId != null) {
+            Optional<MatchedPlace> byPlaceId =
+                    jdbcTemplate
+                            .query(
+                                    """
+                                    SELECT id, category, category_source, google_place_id, google_cid,
+                                           country_code, admin1_id
+                                    FROM places
+                                    WHERE user_id = CAST(:userId AS uuid)
+                                      AND google_place_id = :googlePlaceId
+                                    LIMIT 1
+                                    """,
+                                    Map.of(
+                                            "userId",
+                                            userId.value(),
+                                            "googlePlaceId",
+                                            googlePlaceId),
+                                    JdbcAtlasPlaceRepository::mapMatchedPlace)
+                            .stream()
+                            .findFirst();
+            if (byPlaceId.isPresent()) {
+                return byPlaceId;
+            }
+        }
+        if (googleCid != null) {
+            Optional<MatchedPlace> byCid = findByGoogleCid(userId, googleCid);
+            if (byCid.isPresent()) {
+                return byCid;
+            }
+        }
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT id, category, category_source, google_place_id, google_cid,
+                               country_code, admin1_id
+                        FROM places
+                        WHERE user_id = CAST(:userId AS uuid)
+                          AND geom IS NOT NULL
+                          AND ST_DWithin(
+                              geom::geography,
+                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                              :radiusMeters)
+                          AND similarity(canonical_name, :canonicalName) >= :minSimilarity
+                        ORDER BY ST_Distance(
+                            geom::geography,
+                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) ASC
+                        LIMIT 1
+                        """,
+                        new MapSqlParameterSource()
+                                .addValue("userId", userId.value())
+                                .addValue("lng", coordinates.longitude())
+                                .addValue("lat", coordinates.latitude())
+                                .addValue("radiusMeters", radiusMeters)
+                                .addValue("canonicalName", canonicalName)
+                                .addValue("minSimilarity", minTrigramSimilarity),
+                        JdbcAtlasPlaceRepository::mapMatchedPlace)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public Optional<MatchedPlace> findByGoogleCid(UserId userId, long googleCid) {
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT id, category, category_source, google_place_id, google_cid,
+                               country_code, admin1_id
+                        FROM places
+                        WHERE user_id = CAST(:userId AS uuid)
+                          AND google_cid = :googleCid
+                        LIMIT 1
+                        """,
+                        Map.of("userId", userId.value(), "googleCid", googleCid),
+                        JdbcAtlasPlaceRepository::mapMatchedPlace)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public PlaceId insertImportedPlace(
+            UserId userId,
+            String canonicalName,
+            GeoPoint coordinates,
+            CoordSource coordSource,
+            @Nullable String googlePlaceId,
+            @Nullable Long googleCid,
+            PlaceCategory category,
+            @Nullable String subcategory,
+            CategorySource categorySource,
+            DerivedRole derivedRole,
+            @Nullable String fallbackCountryCode,
+            @Nullable String cityName) {
+        if (coordSource == CoordSource.GOOGLE_TEMP) {
+            throw new IllegalArgumentException(
+                    "GOOGLE_TEMP coordinates require explicit expiration TTL");
+        }
+        PlaceId id = new PlaceId(UUID.randomUUID());
+        MapSqlParameterSource params =
+                new MapSqlParameterSource()
+                        .addValue("id", id.value())
+                        .addValue("userId", userId.value())
+                        .addValue("canonicalName", canonicalName)
+                        .addValue("lng", coordinates.longitude())
+                        .addValue("lat", coordinates.latitude())
+                        .addValue("coordSource", coordSource.name())
+                        .addValue("googlePlaceId", googlePlaceId, Types.VARCHAR)
+                        .addValue("googleCid", googleCid, Types.BIGINT)
+                        .addValue("category", category.name())
+                        .addValue("subcategory", subcategory, Types.VARCHAR)
+                        .addValue("categorySource", categorySource.name())
+                        .addValue("derivedRole", derivedRole.name())
+                        .addValue("fallbackCountryCode", fallbackCountryCode, Types.VARCHAR)
+                        .addValue("cityName", cityName, Types.VARCHAR)
+                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS);
+        jdbcTemplate.update(
+                """
+                WITH pt AS (
+                    SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) AS geom
+                ),
+                resolved_country AS (
+                    SELECT COALESCE(
+                        (
+                            SELECT rb.country_code
+                            FROM region_boundaries rb, pt
+                            WHERE rb.region_level = 'COUNTRY'
+                              AND (
+                                  ST_Covers(rb.geom, pt.geom)
+                                  OR ST_DWithin(
+                                      rb.geom::geography,
+                                      pt.geom::geography,
+                                      :coastalFallbackMeters)
+                              )
+                            ORDER BY ST_Covers(rb.geom, pt.geom) DESC,
+                                     ST_Distance(rb.geom::geography, pt.geom::geography) ASC
+                            LIMIT 1
+                        ),
+                        CAST(:fallbackCountryCode AS TEXT)
+                    ) AS country_code
+                ),
+                resolved_admin1 AS (
+                    SELECT (
+                        SELECT rb.id
+                        FROM region_boundaries rb, pt, resolved_country rc
+                        WHERE rb.region_level = 'ADMIN1'
+                          AND (
+                              ST_Covers(rb.geom, pt.geom)
+                              OR ST_DWithin(
+                                  rb.geom::geography,
+                                  pt.geom::geography,
+                                  :coastalFallbackMeters)
+                          )
+                        ORDER BY ST_Covers(rb.geom, pt.geom) DESC,
+                                 (rc.country_code IS NOT NULL
+                                     AND rb.country_code = rc.country_code) DESC,
+                                 ST_Distance(rb.geom::geography, pt.geom::geography) ASC
+                        LIMIT 1
+                    ) AS admin1_id
+                )
+                INSERT INTO places (
+                    id,
+                    user_id,
+                    canonical_name,
+                    geom,
+                    coord_source,
+                    google_place_id,
+                    google_cid,
+                    category,
+                    subcategory,
+                    category_source,
+                    derived_role,
+                    country_code,
+                    admin1_id,
+                    city_name
+                )
+                SELECT
+                    CAST(:id AS uuid),
+                    CAST(:userId AS uuid),
+                    :canonicalName,
+                    pt.geom,
+                    :coordSource,
+                    CAST(:googlePlaceId AS TEXT),
+                    CAST(:googleCid AS BIGINT),
+                    :category,
+                    CAST(:subcategory AS TEXT),
+                    :categorySource,
+                    :derivedRole,
+                    rc.country_code,
+                    ra.admin1_id,
+                    CAST(:cityName AS TEXT)
+                FROM pt, resolved_country rc, resolved_admin1 ra
+                """,
+                params);
+        return id;
+    }
+
+    @Override
+    public void upsertMembership(
+            UserId userId,
+            PlaceId placeId,
+            String accountLabel,
+            String listName,
+            ListKind listKind,
+            @Nullable String note,
+            @Nullable String tags,
+            @Nullable String sourceUrl,
+            @Nullable Instant savedAt) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO place_memberships (
+                    id, place_id, user_id, account_label, list_name, list_kind,
+                    note, tags, source_url, saved_at
+                )
+                VALUES (
+                    CAST(:id AS uuid),
+                    CAST(:placeId AS uuid),
+                    CAST(:userId AS uuid),
+                    :accountLabel,
+                    :listName,
+                    :listKind,
+                    CAST(:note AS TEXT),
+                    CAST(:tags AS TEXT),
+                    CAST(:sourceUrl AS TEXT),
+                    CAST(:savedAt AS timestamptz)
+                )
+                ON CONFLICT (place_id, account_label, list_name) DO UPDATE
+                SET list_kind = EXCLUDED.list_kind,
+                    note = COALESCE(EXCLUDED.note, place_memberships.note),
+                    tags = COALESCE(EXCLUDED.tags, place_memberships.tags),
+                    source_url = COALESCE(EXCLUDED.source_url, place_memberships.source_url),
+                    saved_at = COALESCE(EXCLUDED.saved_at, place_memberships.saved_at)
+                """,
+                new MapSqlParameterSource()
+                        .addValue("id", UUID.randomUUID())
+                        .addValue("placeId", placeId.value())
+                        .addValue("userId", userId.value())
+                        .addValue("accountLabel", accountLabel)
+                        .addValue("listName", listName)
+                        .addValue("listKind", listKind.name())
+                        .addValue("note", note, Types.VARCHAR)
+                        .addValue("tags", tags, Types.VARCHAR)
+                        .addValue("sourceUrl", sourceUrl, Types.VARCHAR)
+                        .addValue(
+                                "savedAt",
+                                JdbcRowReaders.toOffsetDateTime(savedAt),
+                                Types.TIMESTAMP_WITH_TIMEZONE));
+    }
+
+    @Override
+    public List<ListKind> findMembershipListKinds(PlaceId placeId) {
+        return jdbcTemplate.query(
+                """
+                SELECT DISTINCT list_kind
+                FROM place_memberships
+                WHERE place_id = CAST(:placeId AS uuid)
+                """,
+                Map.of("placeId", placeId.value()),
+                (rs, _) -> ListKind.valueOf(JdbcRowReaders.requiredString(rs, "list_kind")));
+    }
+
+    @Override
+    public void updatePlaceAfterMerge(
+            UserId userId,
+            PlaceId placeId,
+            DerivedRole derivedRole,
+            @Nullable PlaceCategory upgradedCategory,
+            @Nullable String upgradedSubcategory,
+            @Nullable CategorySource upgradedCategorySource,
+            @Nullable String googlePlaceIdToBackfill,
+            @Nullable Long googleCidToBackfill,
+            @Nullable String fallbackCountryCode) {
+        jdbcTemplate.update(
+                """
+                UPDATE places p
+                SET derived_role = :derivedRole,
+                    category = COALESCE(CAST(:upgradedCategory AS TEXT), p.category),
+                    subcategory = CASE
+                        WHEN CAST(:upgradedCategory AS TEXT) IS NOT NULL
+                            THEN CAST(:upgradedSubcategory AS TEXT)
+                        ELSE p.subcategory
+                    END,
+                    category_source = COALESCE(CAST(:upgradedCategorySource AS TEXT), p.category_source),
+                    google_place_id = CASE
+                        WHEN p.google_place_id IS NULL
+                             AND CAST(:googlePlaceId AS TEXT) IS NOT NULL
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM places o
+                                 WHERE o.user_id = p.user_id
+                                   AND o.google_place_id = CAST(:googlePlaceId AS TEXT)
+                             )
+                            THEN CAST(:googlePlaceId AS TEXT)
+                        ELSE p.google_place_id
+                    END,
+                    google_cid = CASE
+                        WHEN p.google_cid IS NULL
+                             AND CAST(:googleCid AS BIGINT) IS NOT NULL
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM places o
+                                 WHERE o.user_id = p.user_id
+                                   AND o.google_cid = CAST(:googleCid AS BIGINT)
+                             )
+                            THEN CAST(:googleCid AS BIGINT)
+                        ELSE p.google_cid
+                    END,
+                    country_code = COALESCE(
+                        p.country_code,
+                        (
+                            SELECT rb.country_code
+                            FROM region_boundaries rb
+                            WHERE rb.region_level = 'COUNTRY'
+                              AND p.geom IS NOT NULL
+                              AND (
+                                  ST_Covers(rb.geom, p.geom)
+                                  OR ST_DWithin(
+                                      rb.geom::geography,
+                                      p.geom::geography,
+                                      :coastalFallbackMeters)
+                              )
+                            ORDER BY ST_Covers(rb.geom, p.geom) DESC,
+                                     ST_Distance(rb.geom::geography, p.geom::geography) ASC
+                            LIMIT 1
+                        ),
+                        CAST(:fallbackCountryCode AS TEXT)
+                    ),
+                    admin1_id = COALESCE(
+                        p.admin1_id,
+                        (
+                            SELECT rb.id
+                            FROM region_boundaries rb
+                            WHERE rb.region_level = 'ADMIN1'
+                              AND p.geom IS NOT NULL
+                              AND (
+                                  ST_Covers(rb.geom, p.geom)
+                                  OR ST_DWithin(
+                                      rb.geom::geography,
+                                      p.geom::geography,
+                                      :coastalFallbackMeters)
+                              )
+                            ORDER BY ST_Covers(rb.geom, p.geom) DESC,
+                                     ST_Distance(rb.geom::geography, p.geom::geography) ASC
+                            LIMIT 1
+                        )
+                    ),
+                    updated_at = now()
+                WHERE p.id = CAST(:placeId AS uuid)
+                  AND p.user_id = CAST(:userId AS uuid)
+                """,
+                new MapSqlParameterSource()
+                        .addValue("placeId", placeId.value())
+                        .addValue("userId", userId.value())
+                        .addValue("derivedRole", derivedRole.name())
+                        .addValue(
+                                "upgradedCategory",
+                                upgradedCategory == null ? null : upgradedCategory.name(),
+                                Types.VARCHAR)
+                        .addValue("upgradedSubcategory", upgradedSubcategory, Types.VARCHAR)
+                        .addValue(
+                                "upgradedCategorySource",
+                                upgradedCategorySource == null
+                                        ? null
+                                        : upgradedCategorySource.name(),
+                                Types.VARCHAR)
+                        .addValue("googlePlaceId", googlePlaceIdToBackfill, Types.VARCHAR)
+                        .addValue("googleCid", googleCidToBackfill, Types.BIGINT)
+                        .addValue("fallbackCountryCode", fallbackCountryCode, Types.VARCHAR)
+                        .addValue("coastalFallbackMeters", COASTAL_FALLBACK_METERS));
+    }
+
+    @Override
+    public Optional<TimelineMatchCandidate> findExactOrNearTimelineMatch(
+            UserId userId,
+            @Nullable String googlePlaceId,
+            GeoPoint coordinates,
+            double exactRadiusMeters) {
+        if (googlePlaceId != null) {
+            Optional<TimelineMatchCandidate> byPlaceId =
+                    jdbcTemplate
+                            .query(
+                                    """
+                                    SELECT p.id, p.google_place_id,
+                                           COALESCE(pvs.status, 'UNVISITED') AS visit_status
+                                    FROM places p
+                                    LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+                                    WHERE p.user_id = CAST(:userId AS uuid)
+                                      AND p.google_place_id = :googlePlaceId
+                                    LIMIT 1
+                                    """,
+                                    Map.of(
+                                            "userId",
+                                            userId.value(),
+                                            "googlePlaceId",
+                                            googlePlaceId),
+                                    JdbcAtlasPlaceRepository::mapTimelineCandidate)
+                            .stream()
+                            .findFirst();
+            if (byPlaceId.isPresent()) {
+                return byPlaceId;
+            }
+        }
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT p.id, p.google_place_id,
+                               COALESCE(pvs.status, 'UNVISITED') AS visit_status
+                        FROM places p
+                        LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+                        WHERE p.user_id = CAST(:userId AS uuid)
+                          AND p.geom IS NOT NULL
+                          AND ST_DWithin(
+                              p.geom::geography,
+                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                              :radiusMeters)
+                        ORDER BY ST_Distance(
+                            p.geom::geography,
+                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) ASC
+                        LIMIT 1
+                        """,
+                        Map.of(
+                                "userId",
+                                userId.value(),
+                                "lng",
+                                coordinates.longitude(),
+                                "lat",
+                                coordinates.latitude(),
+                                "radiusMeters",
+                                exactRadiusMeters),
+                        JdbcAtlasPlaceRepository::mapTimelineCandidate)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public Optional<PlaceId> findUnvisitedTriageCandidate(
+            UserId userId, GeoPoint coordinates, double minRadiusMeters, double maxRadiusMeters) {
+        return jdbcTemplate
+                .query(
+                        """
+                        SELECT p.id
+                        FROM places p
+                        LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
+                        WHERE p.user_id = CAST(:userId AS uuid)
+                          AND p.geom IS NOT NULL
+                          AND COALESCE(pvs.status, 'UNVISITED') = 'UNVISITED'
+                          AND ST_DWithin(
+                              p.geom::geography,
+                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                              :maxRadiusMeters)
+                          AND ST_Distance(
+                              p.geom::geography,
+                              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) >= :minRadiusMeters
+                        ORDER BY ST_Distance(
+                            p.geom::geography,
+                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) ASC
+                        LIMIT 1
+                        """,
+                        Map.of(
+                                "userId",
+                                userId.value(),
+                                "lng",
+                                coordinates.longitude(),
+                                "lat",
+                                coordinates.latitude(),
+                                "minRadiusMeters",
+                                minRadiusMeters,
+                                "maxRadiusMeters",
+                                maxRadiusMeters),
+                        (rs, _) -> new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")))
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public void backfillGooglePlaceId(UserId userId, PlaceId placeId, String googlePlaceId) {
+        jdbcTemplate.update(
+                """
+                UPDATE places p
+                SET google_place_id = :googlePlaceId,
+                    updated_at = now()
+                WHERE p.id = CAST(:placeId AS uuid)
+                  AND p.user_id = CAST(:userId AS uuid)
+                  AND p.google_place_id IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM places o
+                      WHERE o.user_id = p.user_id
+                        AND o.google_place_id = :googlePlaceId
+                  )
+                """,
+                Map.of(
+                        "placeId",
+                        placeId.value(),
+                        "userId",
+                        userId.value(),
+                        "googlePlaceId",
+                        googlePlaceId));
+    }
+
     private Map<PlaceId, List<StoredMembership>> loadMemberships(List<UUID> placeIds) {
         List<StoredMembership> memberships =
                 jdbcTemplate.query(
@@ -330,6 +841,25 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 .collect(
                         Collectors.groupingBy(
                                 StoredMembership::placeId, Collectors.toUnmodifiableList()));
+    }
+
+    private static MatchedPlace mapMatchedPlace(ResultSet rs, int rowNum) throws SQLException {
+        return new MatchedPlace(
+                new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
+                PlaceCategory.valueOf(JdbcRowReaders.requiredString(rs, "category")),
+                CategorySource.valueOf(JdbcRowReaders.requiredString(rs, "category_source")),
+                rs.getString("google_place_id"),
+                rs.getObject("google_cid", Long.class),
+                rs.getString("country_code"),
+                rs.getObject("admin1_id", UUID.class));
+    }
+
+    private static TimelineMatchCandidate mapTimelineCandidate(ResultSet rs, int rowNum)
+            throws SQLException {
+        return new TimelineMatchCandidate(
+                new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
+                rs.getString("google_place_id"),
+                VisitStatus.valueOf(JdbcRowReaders.requiredString(rs, "visit_status")));
     }
 
     private record PlaceRow(

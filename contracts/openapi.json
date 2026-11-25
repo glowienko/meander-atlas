@@ -442,10 +442,113 @@
         },
         "tags" : [ "atlas-boundaries-controller" ]
       }
+    },
+    "/api/v1/imports/local" : {
+      "post" : {
+        "operationId" : "importLocal",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "account",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "force",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/LocalImportSummaryView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "import-controller" ]
+      }
+    },
+    "/api/v1/imports/status" : {
+      "get" : {
+        "operationId" : "status",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ImportStatusView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "import-controller" ]
+      }
     }
   },
   "components" : {
     "schemas" : {
+      "AccountImportSummaryView" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string"
+          },
+          "contentSha256" : {
+            "type" : "string"
+          },
+          "csvCidMatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "discoveredFiles" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "importRecordsCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "placesCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "placesMerged" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "queuedResolutionJobs" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "skipped" : {
+            "type" : "boolean"
+          },
+          "timelineMarkedTriage" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "timelineMatchedVisited" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "timelineUnmatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accountLabel", "contentSha256", "csvCidMatched", "discoveredFiles", "importRecordsCreated", "placesCreated", "placesMerged", "queuedResolutionJobs", "skipped", "timelineMarkedTriage", "timelineMatchedVisited", "timelineUnmatched" ]
+      },
       "AccountListFacetView" : {
         "type" : "object",
         "properties" : {
@@ -703,6 +806,70 @@
           }
         },
         "required" : [ "category", "totalCount", "visitedCount" ]
+      },
+      "ImportStatusView" : {
+        "type" : "object",
+        "properties" : {
+          "accounts" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "completedBatches" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "lastImportedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "pendingResolutionCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accounts", "completedBatches", "pendingResolutionCount" ]
+      },
+      "LocalImportSummaryView" : {
+        "type" : "object",
+        "properties" : {
+          "accounts" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AccountImportSummaryView"
+            }
+          },
+          "totalCsvCidMatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalPlacesCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalPlacesMerged" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalQueuedResolutionJobs" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalTimelineMarkedTriage" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalTimelineMatchedVisited" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalTimelineUnmatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accounts", "totalCsvCidMatched", "totalPlacesCreated", "totalPlacesMerged", "totalQueuedResolutionJobs", "totalTimelineMarkedTriage", "totalTimelineMatchedVisited", "totalTimelineUnmatched" ]
       },
       "PlaceMembershipView" : {
         "type" : "object",

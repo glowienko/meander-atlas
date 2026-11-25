@@ -2,4 +2,11 @@
 |===
 |Base package
 |`com.meanderatlas.ingestion`
+|Spring components
+|_Services_
+
+* `c.m.i.ImportFacade`
+|Bean references
+|* `c.m.s.CurrentUserProvider` (in Shared)
+* `c.m.a.AtlasFacade` (in Atlas)
 |===

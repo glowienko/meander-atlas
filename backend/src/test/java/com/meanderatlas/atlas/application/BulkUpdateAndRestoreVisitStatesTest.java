@@ -11,9 +11,17 @@ import com.meanderatlas.atlas.RestoreVisitStatesResultView;
 import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
+import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
+import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate;
+import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.CurrentUserProvider;
+import com.meanderatlas.shared.DerivedRole;
+import com.meanderatlas.shared.GeoPoint;
+import com.meanderatlas.shared.ListKind;
+import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
@@ -28,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 class BulkUpdateAndRestoreVisitStatesTest {
@@ -156,5 +165,89 @@ class BulkUpdateAndRestoreVisitStatesTest {
         public void upsertVisitStates(List<PlaceVisitState> updatedStates) {
             updatedStates.forEach(state -> states.put(state.placeId(), state));
         }
+
+        @Override
+        public Optional<MatchedPlace> findCanonicalMatch(
+                UserId userId,
+                @Nullable String googlePlaceId,
+                @Nullable Long googleCid,
+                GeoPoint coordinates,
+                String canonicalName,
+                double radiusMeters,
+                double minTrigramSimilarity) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<MatchedPlace> findByGoogleCid(UserId userId, long googleCid) {
+            return Optional.empty();
+        }
+
+        @Override
+        public PlaceId insertImportedPlace(
+                UserId userId,
+                String canonicalName,
+                GeoPoint coordinates,
+                CoordSource coordSource,
+                @Nullable String googlePlaceId,
+                @Nullable Long googleCid,
+                PlaceCategory category,
+                @Nullable String subcategory,
+                CategorySource categorySource,
+                DerivedRole derivedRole,
+                @Nullable String fallbackCountryCode,
+                @Nullable String cityName) {
+            return new PlaceId(UUID.randomUUID());
+        }
+
+        @Override
+        public void upsertMembership(
+                UserId userId,
+                PlaceId placeId,
+                String accountLabel,
+                String listName,
+                ListKind listKind,
+                @Nullable String note,
+                @Nullable String tags,
+                @Nullable String sourceUrl,
+                @Nullable Instant savedAt) {}
+
+        @Override
+        public List<ListKind> findMembershipListKinds(PlaceId placeId) {
+            return List.of();
+        }
+
+        @Override
+        public void updatePlaceAfterMerge(
+                UserId userId,
+                PlaceId placeId,
+                DerivedRole derivedRole,
+                @Nullable PlaceCategory upgradedCategory,
+                @Nullable String upgradedSubcategory,
+                @Nullable CategorySource upgradedCategorySource,
+                @Nullable String googlePlaceIdToBackfill,
+                @Nullable Long googleCidToBackfill,
+                @Nullable String fallbackCountryCode) {}
+
+        @Override
+        public Optional<TimelineMatchCandidate> findExactOrNearTimelineMatch(
+                UserId userId,
+                @Nullable String googlePlaceId,
+                GeoPoint coordinates,
+                double exactRadiusMeters) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<PlaceId> findUnvisitedTriageCandidate(
+                UserId userId,
+                GeoPoint coordinates,
+                double minRadiusMeters,
+                double maxRadiusMeters) {
+            return Optional.empty();
+        }
+
+        @Override
+        public void backfillGooglePlaceId(UserId userId, PlaceId placeId, String googlePlaceId) {}
     }
 }

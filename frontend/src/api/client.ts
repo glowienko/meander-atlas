@@ -12,6 +12,9 @@ export type PlaceVisitStateView = components["schemas"]["PlaceVisitStateView"];
 export type BulkVisitStatusResultView = components["schemas"]["BulkVisitStatusResultView"];
 export type RestoreVisitStatesResultView = components["schemas"]["RestoreVisitStatesResultView"];
 export type VisitStateSnapshotView = components["schemas"]["VisitStateSnapshotView"];
+export type AccountImportSummaryView = components["schemas"]["AccountImportSummaryView"];
+export type LocalImportSummaryView = components["schemas"]["LocalImportSummaryView"];
+export type ImportStatusView = components["schemas"]["ImportStatusView"];
 export type VisitStatus = AtlasPlaceView["visitStatus"];
 export type DerivedRole = AtlasPlaceView["derivedRole"];
 export type PlaceCategory = AtlasPlaceView["category"];
@@ -150,6 +153,32 @@ export async function postRestoreVisitStates(
   );
   if (error || !response.ok || !data) {
     throw new Error(`Restore visit states failed with status ${response.status}`);
+  }
+  return data;
+}
+
+export async function fetchImportStatus(): Promise<ImportStatusView> {
+  const { data, error, response } = await apiClient.GET("/api/v1/imports/status");
+  if (error || !response.ok || !data) {
+    throw new Error(`Import status request failed with status ${response.status}`);
+  }
+  return data;
+}
+
+export async function postLocalImport(options?: {
+  account?: string;
+  force?: boolean;
+}): Promise<LocalImportSummaryView> {
+  const { data, error, response } = await apiClient.POST("/api/v1/imports/local", {
+    params: {
+      query: {
+        account: nonEmpty(options?.account),
+        force: options?.force,
+      },
+    },
+  });
+  if (error || !response.ok || !data) {
+    throw new Error(`Local import request failed with status ${response.status}`);
   }
   return data;
 }
