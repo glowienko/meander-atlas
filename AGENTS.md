@@ -11,7 +11,7 @@
 
 ## Commands
 - Fast loop (privacy + doc budget + guardrails + unit + compile + NullAway + Checkstyle + FE lint/AST/typecheck/unit): `./scripts/verify.sh --fast`
-- Full gate (+ gitleaks + Spotless + PostGIS Testcontainers + JaCoCo 85% coverage gate + OpenAPI/doc drift + FE build + Playwright visual proof): `./scripts/verify.sh`
+- Full gate (+ gitleaks + Spotless + PostGIS Testcontainers + JaCoCo 90% coverage gate + OpenAPI/doc drift + FE build + Playwright visual proof): `./scripts/verify.sh`
 - Full + containerized stack smoke (`compose --profile app` build, healthchecks, Caddy proxy): `./scripts/verify.sh --docker` (or `./scripts/verify-docker.sh`)
 - Format backend / frontend: `./backend/gradlew -p backend spotlessApply` / `pnpm --dir frontend run format`
 - Local PostGIS / hooks: `docker compose up -d` / `./scripts/install-hooks.sh`
@@ -47,6 +47,7 @@
 - **Immutability & Functional Java 25:** Embrace immutable collections (`List.of`, `Set.of`, `Map.of`, `Stream.toList`, `Collectors.toUnmodifiable*`, `Stream.builder`) and concise `Stream`/`Optional`/`switch` expressions over temporary mutable `ArrayList`/`HashSet`/`HashMap` builders or `for`/`continue` loops (enforced by `ArchitectureTest` + Checkstyle); keep a small private scanner only for genuinely stateful lexers rather than convoluted functional chains.
 - **No code comments in `src/` or `frontend/e2e/`:** Names, types, and tests carry intent; put design rationale in `docs/adr/NNNN-title.md` (`<=15` lines: Context, Decision, Consequences; `AGENTS.md <=120` lines). Enforced via AST (Checkstyle + `ts.createSourceFile` parser with unit tests).
 - **Testing Trophy:** Pure JUnit for domain/parsers; in-memory Fakes for external ports (Mockito banned by `ArchitectureTest`); real HTTP + PostGIS Testcontainers `@SpringBootTest(RANDOM_PORT)` E2E tests.
+- **Dead-Code Guardrails & Test Hygiene:** Zero unused production methods/locals/imports (enforced via Error Prone `Unused*`, `ArchitectureTest` caller rule, and Biome `noUnused*`). Keep production and test functions lean at a single abstraction level, reusing shared `*TestData` fixture helpers instead of inline JSON/CSV blocks.
 - **Contract sync:** `OpenApiExportTest` generates `contracts/openapi.json`; `pnpm --dir frontend run gen:api` updates `frontend/src/api/schema.d.ts`. `verify.sh` fails on drift.
 - **Repo Skills (`.agents/skills/`):** `meander-vertical-slice` (TDD slice workflow & pitfalls), `meander-pr-preflight` (deterministic pre-PR gate + Docker & proof checks), `meander-correct` (turn every review finding into a permanent automated guard).
 

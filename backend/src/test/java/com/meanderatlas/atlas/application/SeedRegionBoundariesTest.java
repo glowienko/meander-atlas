@@ -5,10 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.meanderatlas.atlas.BoundarySeedResultView;
 import com.meanderatlas.atlas.domain.RegionLevel;
 import com.meanderatlas.atlas.domain.boundaries.BoundaryFeature;
+import com.meanderatlas.atlas.domain.boundaries.BoundaryTestData;
 import com.meanderatlas.atlas.domain.boundaries.RegionBoundaryRepository;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,7 +32,7 @@ class SeedRegionBoundariesTest {
 
     @Test
     void seedsIdempotentlyAndReSeedsWhenForced(@TempDir Path tempDir) throws IOException {
-        writeSampleBoundaryFiles(tempDir);
+        BoundaryTestData.writePolandOnly(tempDir);
         FakeRegionBoundaryRepository fakeRepo = new FakeRegionBoundaryRepository();
         fakeRepo.placesTaggedToReturn = 3;
         SeedRegionBoundaries useCase = new SeedRegionBoundaries(fakeRepo, tempDir.toString());
@@ -56,9 +55,10 @@ class SeedRegionBoundariesTest {
     }
 
     @Test
-    void seedsMissingAdmin1WhenCountriesAlreadyPresentAndWrapsDirectoryReadFailure(
-            @TempDir Path tempDir) throws IOException {
-        writeSampleBoundaryFiles(tempDir);
+    void seedsMissingAdmin1WhenCountriesPresentAndSupportsAdmin1OnlyDir(@TempDir Path tempDir)
+            throws IOException {
+        Path bothDir = tempDir.resolve("both");
+        BoundaryTestData.writePolandOnly(bothDir);
         FakeRegionBoundaryRepository fakeRepo = new FakeRegionBoundaryRepository();
         fakeRepo.upsertBoundaries(
                 List.of(
@@ -70,62 +70,22 @@ class SeedRegionBoundariesTest {
                                 "{\"type\":\"Polygon\",\"coordinates\":[]}")),
                 0.02);
 
-        SeedRegionBoundaries useCase = new SeedRegionBoundaries(fakeRepo, tempDir.toString());
-        BoundarySeedResultView partial = useCase.execute(false);
+        BoundarySeedResultView partial =
+                new SeedRegionBoundaries(fakeRepo, bothDir.toString()).execute(false);
         assertThat(partial.skipped()).isFalse();
         assertThat(partial.countriesUpserted()).isZero();
         assertThat(partial.admin1Upserted()).isEqualTo(1);
 
-        Path missingCountriesDir = tempDir.resolve("only-admin1");
-        Files.createDirectories(missingCountriesDir);
-        Files.copy(
-                tempDir.resolve("ne_10m_admin_1_states_provinces.geojson"),
-                missingCountriesDir.resolve("ne_10m_admin_1_states_provinces.geojson"));
+        Path admin1OnlyDir = tempDir.resolve("only-admin1");
+        BoundaryTestData.writeGeoJson(
+                admin1OnlyDir,
+                "ne_10m_admin_1_states_provinces.geojson",
+                BoundaryTestData.singleMalopolskieAdmin1GeoJson());
         FakeRegionBoundaryRepository admin1OnlyRepo = new FakeRegionBoundaryRepository();
         BoundarySeedResultView admin1OnlyResult =
-                new SeedRegionBoundaries(admin1OnlyRepo, missingCountriesDir.toString())
-                        .execute(false);
+                new SeedRegionBoundaries(admin1OnlyRepo, admin1OnlyDir.toString()).execute(false);
         assertThat(admin1OnlyResult.countriesUpserted()).isZero();
         assertThat(admin1OnlyResult.admin1Upserted()).isEqualTo(1);
-    }
-
-    private static void writeSampleBoundaryFiles(Path dir) throws IOException {
-        Files.writeString(
-                dir.resolve("ne_10m_admin_0_countries.geojson"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "properties": {"ISO_A2_EH": "PL", "ADMIN": "Poland"},
-                      "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[19.0, 49.0], [21.0, 49.0], [21.0, 51.0], [19.0, 51.0], [19.0, 49.0]]]
-                      }
-                    }
-                  ]
-                }
-                """,
-                StandardCharsets.UTF_8);
-        Files.writeString(
-                dir.resolve("ne_10m_admin_1_states_provinces.geojson"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "properties": {"iso_3166_2": "PL-12", "iso_a2": "PL", "name": "Małopolskie"},
-                      "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[19.0, 49.5], [21.0, 49.5], [21.0, 50.5], [19.0, 50.5], [19.0, 49.5]]]
-                      }
-                    }
-                  ]
-                }
-                """,
-                StandardCharsets.UTF_8);
     }
 
     private static final class FakeRegionBoundaryRepository implements RegionBoundaryRepository {

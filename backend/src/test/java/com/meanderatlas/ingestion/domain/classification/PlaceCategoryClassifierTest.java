@@ -65,7 +65,7 @@ class PlaceCategoryClassifierTest {
         assertClassified(
                 "Schronisko PTTK w Dolinie Pięciu Stawów", PlaceCategory.HOTEL, "mountain_hut");
 
-        PlaceClassification unknown = PlaceCategoryClassifier.classify("Nyhavn");
+        PlaceClassification unknown = PlaceCategoryClassifier.classify("Nyhavn", null, null);
         assertThat(unknown.category()).isEqualTo(PlaceCategory.UNCATEGORIZED);
         assertThat(unknown.subcategory()).isNull();
         assertThat(unknown.source()).isEqualTo(CategorySource.HEURISTIC);
@@ -114,7 +114,7 @@ class PlaceCategoryClassifierTest {
 
     private static void assertClassified(
             String name, PlaceCategory expectedCategory, String expectedSubcategory) {
-        PlaceClassification classification = PlaceCategoryClassifier.classify(name);
+        PlaceClassification classification = PlaceCategoryClassifier.classify(name, null, null);
         assertThat(classification.category()).as(name).isEqualTo(expectedCategory);
         assertThat(classification.subcategory()).as(name).isEqualTo(expectedSubcategory);
         assertThat(classification.source()).as(name).isEqualTo(CategorySource.HEURISTIC);

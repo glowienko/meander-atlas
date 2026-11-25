@@ -415,7 +415,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
             throw new IllegalArgumentException(
                     "GOOGLE_TEMP coordinates require explicit expiration TTL");
         }
-        PlaceId id = new PlaceId(UUID.randomUUID());
+        PlaceId id = PlaceId.random();
         MapSqlParameterSource params =
                 new MapSqlParameterSource()
                         .addValue("id", id.value())

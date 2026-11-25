@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
 import com.meanderatlas.ingestion.domain.GoogleCid;
+import com.meanderatlas.ingestion.domain.TakeoutTestData;
 import com.meanderatlas.shared.ListKind;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -59,20 +60,10 @@ class TakeoutCsvParserTest {
 
     @Test
     void normalizesNbspBomPreambleAndQuotedMultilineFields() {
-        String content =
-                "\uFEFFCustom list preamble line 1\n"
-                        + "Second description line, with comma\n"
-                        + "\n"
-                        + "Tytuł\u00A0,Notatka\u00A0,URL\u00A0,Tagi,Skomentuj\n"
-                        + "\"Cafe \"\"Roma\"\", Old Town\",\"Line 1\nLine 2\","
-                        + "https://www.google.com/maps/place/Cafe+Roma/data=!4m2!3m1!1s0x1:0xf123456789abcdef,"
-                        + "coffee,\"Best espresso, ever\"\n"
-                        + "Non-Maps Bookmark,ignore,https://example.com/article,web,\n"
-                        + "Spoofed Query,ignore,https://example.com/?ref=google.com/maps,web,\n"
-                        + "Regional Maps,,https://www.google.pl/maps/place/Test/data=!4m2!3m1!1s0x1:0x20000001,,\n";
-
         List<ParsedSavedCsvRow> rows =
-                TakeoutCsvParser.parse("Chcę\u00A0odwiedzić(1).csv", content);
+                TakeoutCsvParser.parse(
+                        "Chcę\u00A0odwiedzić(1).csv",
+                        TakeoutTestData.nbspBomAndQuotedMultilineCsv());
 
         assertThat(rows).hasSize(2);
         ParsedSavedCsvRow row = rows.getFirst();
@@ -86,6 +77,18 @@ class TakeoutCsvParserTest {
         assertThat(row.comment()).isEqualTo("Best espresso, ever");
         assertThat(rows.get(1).title()).isEqualTo("Regional Maps");
         assertThat(rows.get(1).googleCid()).isEqualTo(GoogleCid.fromUnsignedDecimal("536870913"));
+    }
+
+    @Test
+    void parsesCrlfCsvWithoutTrailingNewline() {
+        List<ParsedSavedCsvRow> rows =
+                TakeoutCsvParser.parse(
+                        "Want to go.csv", TakeoutTestData.crlfAndNoTrailingNewlineCsv());
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).title()).isEqualTo("Wawel Royal Castle");
+        assertThat(rows.get(1).title()).isEqualTo("Eiffel Tower");
+        assertThat(rows.get(1).googleCid()).isEqualTo(GoogleCid.fromUnsignedDecimal("536870915"));
     }
 
     @Test

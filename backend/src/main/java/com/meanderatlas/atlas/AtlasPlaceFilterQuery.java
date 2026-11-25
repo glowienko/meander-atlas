@@ -18,10 +18,4 @@ public record AtlasPlaceFilterQuery(
         @Nullable Double minLng,
         @Nullable Double minLat,
         @Nullable Double maxLng,
-        @Nullable Double maxLat) {
-
-    public static AtlasPlaceFilterQuery empty() {
-        return new AtlasPlaceFilterQuery(
-                null, null, null, null, null, null, null, null, null, null, null, null);
-    }
-}
+        @Nullable Double maxLat) {}

@@ -97,6 +97,10 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.addAll(listOf("-Xlint:all,-processing,-serial", "-Werror"))
     options.errorprone {
         check("NullAway", CheckSeverity.ERROR)
+        check("UnusedMethod", CheckSeverity.ERROR)
+        check("UnusedVariable", CheckSeverity.ERROR)
+        check("UnusedNestedClass", CheckSeverity.ERROR)
+        check("DeadException", CheckSeverity.ERROR)
         option("NullAway:AnnotatedPackages", "com.meanderatlas")
         option("NullAway:JSpecifyMode", "true")
         option("NullAway:HandleTestAssertionLibraries", "true")
@@ -158,12 +162,12 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
-                minimum = "0.85".toBigDecimal()
+                minimum = "0.90".toBigDecimal()
             }
             limit {
                 counter = "INSTRUCTION"
                 value = "COVEREDRATIO"
-                minimum = "0.85".toBigDecimal()
+                minimum = "0.90".toBigDecimal()
             }
         }
     }

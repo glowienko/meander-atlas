@@ -3,8 +3,6 @@ package com.meanderatlas.atlas.domain.boundaries;
 import com.meanderatlas.atlas.domain.RegionLevel;
 import java.io.IOException;
 import java.io.Reader;
-import java.io.StringReader;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,28 +48,10 @@ public final class NaturalEarthGeoJsonParser {
         }
     }
 
-    public static List<BoundaryFeature> parseCountries(String geoJson) {
-        Objects.requireNonNull(geoJson, "geoJson must not be null");
-        try (Reader reader = new StringReader(geoJson)) {
-            return parseCountries(reader);
-        } catch (IOException ex) {
-            throw new UncheckedIOException("Failed to read country GeoJSON", ex);
-        }
-    }
-
     public static List<BoundaryFeature> parseAdmin1(Path geoJsonFile) throws IOException {
         Objects.requireNonNull(geoJsonFile, "geoJsonFile must not be null");
         try (Reader reader = Files.newBufferedReader(geoJsonFile, StandardCharsets.UTF_8)) {
             return parseAdmin1(reader);
-        }
-    }
-
-    public static List<BoundaryFeature> parseAdmin1(String geoJson) {
-        Objects.requireNonNull(geoJson, "geoJson must not be null");
-        try (Reader reader = new StringReader(geoJson)) {
-            return parseAdmin1(reader);
-        } catch (IOException ex) {
-            throw new UncheckedIOException("Failed to read admin-1 GeoJSON", ex);
         }
     }
 

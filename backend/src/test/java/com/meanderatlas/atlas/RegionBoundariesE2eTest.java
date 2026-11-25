@@ -4,9 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meanderatlas.TestEnvironment;
 import com.meanderatlas.TestcontainersConfiguration;
+import com.meanderatlas.atlas.domain.boundaries.BoundaryTestData;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
@@ -46,7 +45,7 @@ class RegionBoundariesE2eTest {
 
     @Test
     void seedsBoundariesAssignsPlacesAndServesClampedMvtTiles() throws IOException {
-        writeSyntheticBoundaryFiles();
+        BoundaryTestData.writePolandAndAntarctica(boundariesDir);
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID krakowId = UUID.randomUUID();
         UUID coastalId = UUID.randomUUID();
@@ -139,52 +138,5 @@ class RegionBoundariesE2eTest {
                         .addValue("name", name)
                         .addValue("lng", lng)
                         .addValue("lat", lat));
-    }
-
-    private static void writeSyntheticBoundaryFiles() throws IOException {
-        Files.writeString(
-                boundariesDir.resolve("ne_10m_admin_0_countries.geojson"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "properties": {"ISO_A2_EH": "PL", "ADMIN": "Poland"},
-                      "geometry": {
-                        "type": "MultiPolygon",
-                        "coordinates": [[[[18.0, 49.0], [22.0, 49.0], [22.0, 54.4], [18.0, 54.4], [18.0, 49.0]]]]
-                      }
-                    },
-                    {
-                      "type": "Feature",
-                      "properties": {"ISO_A2_EH": "AQ", "ADMIN": "Antarctica"},
-                      "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[-180.0, -89.9], [180.0, -89.9], [180.0, -70.0], [-180.0, -70.0], [-180.0, -89.9]]]
-                      }
-                    }
-                  ]
-                }
-                """,
-                StandardCharsets.UTF_8);
-        Files.writeString(
-                boundariesDir.resolve("ne_10m_admin_1_states_provinces.geojson"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "properties": {"iso_3166_2": "PL-12", "iso_a2": "PL", "name": "Małopolskie"},
-                      "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[19.0, 49.4], [21.2, 49.4], [21.2, 50.6], [19.0, 50.6], [19.0, 49.4]]]
-                      }
-                    }
-                  ]
-                }
-                """,
-                StandardCharsets.UTF_8);
     }
 }

@@ -54,6 +54,18 @@ class AtlasApiE2eTest {
 
     @Test
     void queriesPlacesRegionsStatsAndSupportsBulkVisitStatusWithUndo() {
+        SeededDataset ids = seedAtlasDataset();
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+
+        verifyPlaceFiltering(client);
+        verifyRegionsAndDossiers(client);
+        verifyStats(client);
+        verifyVisitStatusAndBulkUndo(client, ids);
+        verifyErrorResponses(client);
+    }
+
+    private SeededDataset seedAtlasDataset() {
         jdbc.update("DELETE FROM places WHERE user_id = :userId", Map.of("userId", USER_ID));
 
         UUID plCountryId = UUID.randomUUID();
@@ -150,9 +162,10 @@ class AtlasApiE2eTest {
         insertMembership(fushimiId, "secondary", "Want to go", "WANT_TO_GO", "Red torii");
         insertMembership(hotelId, "personal", "Starred", "STARRED", "Basecamp stay");
 
-        RestClient client =
-                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        return new SeededDataset(wawelId, halaId, fushimiId, hotelId);
+    }
 
+    private static void verifyPlaceFiltering(RestClient client) {
         AtlasPlacesResponse allPlaces =
                 client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
         assertThat(allPlaces).isNotNull();
@@ -161,7 +174,8 @@ class AtlasApiE2eTest {
         AtlasPlacesResponse filteredByNoteAndAccount =
                 client.get()
                         .uri(
-                                "/api/v1/atlas/places?q=pierogi&account=personal&list=Ulubione&visitStatus=UNVISITED&derivedRole=FAVORITE&category=RESTAURANT")
+                                "/api/v1/atlas/places?q=pierogi&account=personal&list=Ulubione"
+                                        + "&visitStatus=UNVISITED&derivedRole=FAVORITE&category=RESTAURANT")
                         .retrieve()
                         .body(AtlasPlacesResponse.class);
         assertThat(filteredByNoteAndAccount).isNotNull();
@@ -176,13 +190,23 @@ class AtlasApiE2eTest {
                         .body(AtlasPlacesResponse.class);
         assertThat(krakowBbox).isNotNull();
         assertThat(krakowBbox.totalCount()).isEqualTo(2);
+    }
 
+    private static void verifyRegionsAndDossiers(RestClient client) {
         List<RegionSummaryView> countries =
                 client.get()
                         .uri("/api/v1/atlas/regions?level=COUNTRY")
                         .retrieve()
                         .body(new ParameterizedTypeReference<>() {});
         assertThat(countries).isNotNull().hasSize(2);
+
+        List<RegionSummaryView> plAdmin1Regions =
+                client.get()
+                        .uri("/api/v1/atlas/regions?level=ADMIN1&countryCode= pl-api ")
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<>() {});
+        assertThat(plAdmin1Regions).isNotNull().hasSize(1);
+        assertThat(plAdmin1Regions.getFirst().code()).isEqualTo("PL-12-API");
 
         RegionDossierView polandDossier =
                 client.get()
@@ -196,6 +220,17 @@ class AtlasApiE2eTest {
         assertThat(polandDossier.childRegions()).hasSize(1);
         assertThat(polandDossier.places()).hasSize(2);
 
+        RegionDossierView malopolskieDossier =
+                client.get()
+                        .uri("/api/v1/atlas/regions/ADMIN1/PL-12-API")
+                        .retrieve()
+                        .body(RegionDossierView.class);
+        assertThat(malopolskieDossier).isNotNull();
+        assertThat(malopolskieDossier.region().name()).isEqualTo("Malopolskie");
+        assertThat(malopolskieDossier.places()).hasSize(2);
+    }
+
+    private static void verifyStats(RestClient client) {
         AtlasStatsView stats =
                 client.get().uri("/api/v1/atlas/stats").retrieve().body(AtlasStatsView.class);
         assertThat(stats).isNotNull();
@@ -208,10 +243,12 @@ class AtlasApiE2eTest {
         assertThat(stats.visitedAdmin1Regions()).isEqualTo(1);
         assertThat(stats.totalSavedAdmin1Regions()).isEqualTo(2);
         assertThat(stats.accountLists()).hasSize(3);
+    }
 
+    private static void verifyVisitStatusAndBulkUndo(RestClient client, SeededDataset ids) {
         PlaceVisitStateView hotelUpdated =
                 client.patch()
-                        .uri("/api/v1/atlas/places/{id}/visit-status", hotelId)
+                        .uri("/api/v1/atlas/places/{id}/visit-status", ids.hotelId())
                         .body(new UpdatePlaceVisitStatusRequest(VisitStatus.VISITED))
                         .retrieve()
                         .body(PlaceVisitStateView.class);
@@ -225,7 +262,8 @@ class AtlasApiE2eTest {
                         .uri("/api/v1/atlas/places/bulk-visit-status")
                         .body(
                                 new BulkVisitStatusRequest(
-                                        List.of(wawelId, halaId, fushimiId), VisitStatus.VISITED))
+                                        List.of(ids.wawelId(), ids.halaId(), ids.fushimiId()),
+                                        VisitStatus.VISITED))
                         .retrieve()
                         .body(BulkVisitStatusResultView.class);
         assertThat(bulkResult).isNotNull();
@@ -248,24 +286,18 @@ class AtlasApiE2eTest {
                         .retrieve()
                         .body(AtlasPlacesResponse.class);
         assertThat(afterUndo).isNotNull();
-        AtlasPlaceView halaAfterUndo =
-                afterUndo.places().stream()
-                        .filter(p -> p.id().equals(halaId))
-                        .findFirst()
-                        .orElseThrow();
+        AtlasPlaceView halaAfterUndo = findById(afterUndo.places(), ids.halaId());
         assertThat(halaAfterUndo.visitStatus()).isEqualTo(VisitStatus.UNVISITED);
         assertThat(halaAfterUndo.visitSource()).isNull();
         assertThat(halaAfterUndo.derivedRole()).isEqualTo(DerivedRole.FAVORITE);
 
-        AtlasPlaceView wawelAfterUndo =
-                afterUndo.places().stream()
-                        .filter(p -> p.id().equals(wawelId))
-                        .findFirst()
-                        .orElseThrow();
+        AtlasPlaceView wawelAfterUndo = findById(afterUndo.places(), ids.wawelId());
         assertThat(wawelAfterUndo.visitStatus()).isEqualTo(VisitStatus.VISITED);
         assertThat(wawelAfterUndo.visitSource()).isEqualTo(VisitSource.TIMELINE);
         assertThat(wawelAfterUndo.visitCount()).isEqualTo(2);
+    }
 
+    private static void verifyErrorResponses(RestClient client) {
         assertThatThrownBy(() ->
                         client.get()
                                 .uri("/api/v1/atlas/regions/COUNTRY/UNKNOWN")
@@ -279,6 +311,10 @@ class AtlasApiE2eTest {
                                 .retrieve()
                                 .toBodilessEntity())
                 .isInstanceOf(HttpClientErrorException.BadRequest.class);
+    }
+
+    private static AtlasPlaceView findById(List<AtlasPlaceView> places, UUID id) {
+        return places.stream().filter(p -> p.id().equals(id)).findFirst().orElseThrow();
     }
 
     private void insertBoundary(
@@ -386,4 +422,6 @@ class AtlasApiE2eTest {
                         "listKind", listKind,
                         "note", note));
     }
+
+    private record SeededDataset(UUID wawelId, UUID halaId, UUID fushimiId, UUID hotelId) {}
 }

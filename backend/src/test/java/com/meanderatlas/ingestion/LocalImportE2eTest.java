@@ -9,7 +9,9 @@ import com.meanderatlas.atlas.AtlasPlacesResponse;
 import com.meanderatlas.atlas.BoundarySeedResultView;
 import com.meanderatlas.atlas.PlaceVisitStateView;
 import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
+import com.meanderatlas.atlas.domain.boundaries.BoundaryTestData;
 import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
+import com.meanderatlas.ingestion.domain.TakeoutTestData;
 import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
@@ -69,190 +71,46 @@ class LocalImportE2eTest {
     @Test
     void importsSyntheticTakeoutCrossMatchesCidQueuesUnresolvedCsvAndRespectsPrecedence()
             throws IOException {
-        writeSyntheticPolandBoundary();
-        Path personalDir = tempRoot.resolve("imports/personal");
-        FixtureArchiveSupport.extractSyntheticTakeout(personalDir);
-        Files.copy(
-                FixtureArchiveSupport.syntheticTimelinePath(),
-                personalDir.resolve("Timeline.json"));
+        stagePersonalSyntheticTakeout();
+        RestClient client = restClient();
 
-        RestClient client =
-                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
-
-        ResponseEntity<BoundarySeedResultView> seeded =
-                client.post()
-                        .uri("/api/v1/atlas/boundaries/seed")
-                        .retrieve()
-                        .toEntity(BoundarySeedResultView.class);
-        assertThat(seeded.getStatusCode()).isEqualTo(HttpStatus.OK);
-
-        ResponseEntity<LocalImportSummaryView> firstImport =
-                client.post()
-                        .uri("/api/v1/imports/local")
-                        .retrieve()
-                        .toEntity(LocalImportSummaryView.class);
-        assertThat(firstImport.getStatusCode()).isEqualTo(HttpStatus.OK);
-        LocalImportSummaryView summary = firstImport.getBody();
-        assertThat(summary).isNotNull();
-        assertThat(summary.accounts()).hasSize(1);
-        AccountImportSummaryView personal = summary.accounts().getFirst();
-        assertThat(personal.accountLabel()).isEqualTo("personal");
-        assertThat(personal.skipped()).isFalse();
-        assertThat(personal.discoveredFiles()).isEqualTo(6);
-        assertThat(personal.importRecordsCreated()).isEqualTo(42);
-        assertThat(personal.placesCreated()).isEqualTo(5);
-        assertThat(personal.placesMerged()).isEqualTo(2);
-        assertThat(personal.csvCidMatched()).isEqualTo(5);
-        assertThat(personal.queuedResolutionJobs()).isEqualTo(20);
-        assertThat(personal.timelineMatchedVisited()).isEqualTo(5);
-        assertThat(personal.timelineMarkedTriage()).isZero();
-        assertThat(personal.timelineUnmatched()).isEqualTo(5);
-
-        ResponseEntity<ImportStatusView> statusResponse =
-                client.get()
-                        .uri("/api/v1/imports/status")
-                        .retrieve()
-                        .toEntity(ImportStatusView.class);
-        assertThat(statusResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        ImportStatusView status = statusResponse.getBody();
-        assertThat(status).isNotNull();
-        assertThat(status.pendingResolutionCount()).isEqualTo(20);
-        assertThat(status.completedBatches()).isEqualTo(1);
-        assertThat(status.accounts()).containsExactly("personal");
-        assertThat(status.lastImportedAt()).isNotNull();
-
-        Integer unlinkedJobs =
-                jdbc.queryForObject(
-                        "SELECT COUNT(*)::int FROM resolution_jobs WHERE place_id IS NULL",
-                        Map.of(),
-                        Integer.class);
-        assertThat(unlinkedJobs).isEqualTo(20);
-
-        AtlasPlacesResponse places =
-                client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
-        assertThat(places).isNotNull();
-        assertThat(places.places()).hasSize(5);
-
-        AtlasPlaceView wawel =
-                places.places().stream()
-                        .filter(p -> p.canonicalName().equals("Wawel Royal Castle"))
-                        .findFirst()
-                        .orElseThrow();
-        assertThat(wawel.visitStatus()).isEqualTo(VisitStatus.VISITED);
-        assertThat(wawel.visitSource()).isEqualTo(VisitSource.REVIEW);
-        assertThat(wawel.countryCode()).isEqualTo("PL");
-        assertThat(wawel.memberships()).hasSize(3);
-
-        AtlasPlaceView eiffel =
-                places.places().stream()
-                        .filter(p -> p.canonicalName().equals("Eiffel Tower"))
-                        .findFirst()
-                        .orElseThrow();
-        assertThat(eiffel.visitStatus()).isEqualTo(VisitStatus.VISITED);
-        assertThat(eiffel.visitSource()).isEqualTo(VisitSource.TIMELINE);
-
-        ResponseEntity<LocalImportSummaryView> skippedSecondRun =
-                client.post()
-                        .uri("/api/v1/imports/local")
-                        .retrieve()
-                        .toEntity(LocalImportSummaryView.class);
-        assertThat(skippedSecondRun.getBody()).isNotNull();
-        assertThat(skippedSecondRun.getBody().accounts().getFirst().skipped()).isTrue();
-
-        PlaceVisitStateView manualOverride =
-                client.patch()
-                        .uri("/api/v1/atlas/places/{id}/visit-status", eiffel.id())
-                        .body(new UpdatePlaceVisitStatusRequest(VisitStatus.UNVISITED))
-                        .retrieve()
-                        .body(PlaceVisitStateView.class);
-        assertThat(manualOverride).isNotNull();
-        assertThat(manualOverride.status()).isEqualTo(VisitStatus.UNVISITED);
-        assertThat(manualOverride.source()).isEqualTo(VisitSource.MANUAL_SINGLE);
-
-        ResponseEntity<LocalImportSummaryView> forcedReimport =
-                client.post()
-                        .uri("/api/v1/imports/local?force=true")
-                        .retrieve()
-                        .toEntity(LocalImportSummaryView.class);
-        assertThat(forcedReimport.getBody()).isNotNull();
-        assertThat(forcedReimport.getBody().accounts().getFirst().skipped()).isFalse();
-
-        AtlasPlacesResponse afterForce =
-                client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
-        assertThat(afterForce).isNotNull();
-        AtlasPlaceView eiffelAfterForce =
-                afterForce.places().stream()
-                        .filter(p -> p.id().equals(eiffel.id()))
-                        .findFirst()
-                        .orElseThrow();
-        assertThat(eiffelAfterForce.visitStatus()).isEqualTo(VisitStatus.UNVISITED);
-        assertThat(eiffelAfterForce.visitSource()).isEqualTo(VisitSource.MANUAL_SINGLE);
+        seedSyntheticPolandBoundary(client);
+        verifyPersonalInitialImport(client);
+        verifyImportStatusEndpoint(client);
+        verifyManualPrecedenceOnForceReimport(client);
     }
 
     @Test
     void marksUnvisitedNearbyPlaceAsNeedsTriageOnImpreciseTimelineVisit() throws IOException {
-        Path triageAccountDir = tempRoot.resolve("imports/triage");
-        Files.createDirectories(triageAccountDir);
+        Path triageDir = tempRoot.resolve("imports/triage");
+        Files.createDirectories(triageDir);
         Files.writeString(
-                triageAccountDir.resolve("Saved Places.json"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "geometry": {"type": "Point", "coordinates": [19.935412, 50.054049]},
-                      "properties": {
-                        "date": "2025-05-01T10:00:00Z",
-                        "google_maps_url": "http://maps.google.com/?cid=536870919",
-                        "location": {"country_code": "PL", "name": "Nearby Triage Landmark"}
-                      }
-                    }
-                  ]
-                }
-                """,
+                triageDir.resolve("Saved Places.json"),
+                TakeoutTestData.savedPlaceGeoJson(
+                        "Nearby Triage Landmark", 19.935412, 50.054049, 536870919L, "PL"),
                 StandardCharsets.UTF_8);
         Files.writeString(
-                triageAccountDir.resolve("Timeline.json"),
-                """
-                {
-                  "semanticSegments": [
-                    {
-                      "startTime": "2026-08-10T09:00:00.000+02:00",
-                      "endTime": "2026-08-10T10:00:00.000+02:00",
-                      "visit": {
-                        "hierarchyLevel": 0,
-                        "probability": 0.90,
-                        "topCandidate": {
-                          "probability": 0.90,
-                          "placeLocation": {"latLng": "50.0547700°, 19.9354120°"}
-                        }
-                      }
-                    }
-                  ]
-                }
-                """,
+                triageDir.resolve("Timeline.json"),
+                TakeoutTestData.singleVisitTimelineJson(
+                        "2026-08-10T09:00:00.000+02:00",
+                        "2026-08-10T10:00:00.000+02:00",
+                        50.0547700,
+                        19.9354120),
                 StandardCharsets.UTF_8);
 
-        RestClient client =
-                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
-        ResponseEntity<LocalImportSummaryView> response =
-                client.post()
+        LocalImportSummaryView summary =
+                restClient()
+                        .post()
                         .uri("/api/v1/imports/local?account=triage")
                         .retrieve()
-                        .toEntity(LocalImportSummaryView.class);
+                        .body(LocalImportSummaryView.class);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        LocalImportSummaryView summary = response.getBody();
         assertThat(summary).isNotNull();
         assertThat(summary.totalPlacesCreated()).isEqualTo(1);
         assertThat(summary.totalTimelineMarkedTriage()).isEqualTo(1);
-
-        AtlasPlacesResponse places =
-                client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
-        assertThat(places).isNotNull();
-        assertThat(places.places()).hasSize(1);
-        assertThat(places.places().getFirst().visitStatus()).isEqualTo(VisitStatus.NEEDS_TRIAGE);
+        assertThat(fetchAllPlaces(restClient()))
+                .extracting(AtlasPlaceView::visitStatus)
+                .containsExactly(VisitStatus.NEEDS_TRIAGE);
     }
 
     @Test
@@ -262,33 +120,17 @@ class LocalImportE2eTest {
         Files.createDirectories(upgradeDir);
         Files.writeString(
                 upgradeDir.resolve("Saved Places.json"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "geometry": {"type": "Point", "coordinates": [19.94, 50.06]},
-                      "properties": {
-                        "date": "2025-05-01T10:00:00Z",
-                        "google_maps_url": "http://maps.google.com/?cid=536870945",
-                        "location": {"country_code": "   ", "name": "Old Brick Building"}
-                      }
-                    }
-                  ]
-                }
-                """,
+                TakeoutTestData.savedPlaceGeoJson(
+                        "Old Brick Building", 19.94, 50.06, 536870945L, "   "),
                 StandardCharsets.UTF_8);
         Files.writeString(
                 upgradeDir.resolve("Want to go.csv"),
-                """
-                Title,Note,URL,Tags,Comment
-                Old Brick Building,Great history museum,https://www.google.com/maps/place/Old+Brick+Building/data=!4m2!3m1!1s0x10000021:0x20000021,history,
-                """,
+                TakeoutTestData.savedCsv(
+                        "Old Brick Building,Great history museum,"
+                                + "https://www.google.com/maps/place/Old+Brick+Building/data=!4m2!3m1!1s0x10000021:0x20000021,history,"),
                 StandardCharsets.UTF_8);
 
-        RestClient client =
-                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        RestClient client = restClient();
         LocalImportSummaryView emptySummary =
                 client.post()
                         .uri("/api/v1/imports/local?account=nonexistent")
@@ -306,53 +148,133 @@ class LocalImportE2eTest {
         assertThat(upgradeSummary.totalPlacesCreated()).isEqualTo(1);
         assertThat(upgradeSummary.totalCsvCidMatched()).isEqualTo(1);
 
-        AtlasPlacesResponse places =
-                client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
-        assertThat(places).isNotNull();
-        assertThat(places.places()).hasSize(1);
-        assertThat(places.places().getFirst().category()).isEqualTo(PlaceCategory.MUSEUM);
-        assertThat(places.places().getFirst().subcategory()).isEqualTo("museum");
+        ListPlaceAssertions.assertSingleCategory(
+                fetchAllPlaces(client), PlaceCategory.MUSEUM, "museum");
     }
 
-    private static void writeSyntheticPolandBoundary() throws IOException {
-        Path boundariesDir = tempRoot.resolve("boundaries");
-        Files.createDirectories(boundariesDir);
-        Files.writeString(
-                boundariesDir.resolve("ne_10m_admin_0_countries.geojson"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "properties": {"ISO_A2_EH": "PL", "ADMIN": "Poland"},
-                      "geometry": {
-                        "type": "MultiPolygon",
-                        "coordinates": [[[[18.0, 49.0], [22.0, 49.0], [22.0, 54.4], [18.0, 54.4], [18.0, 49.0]]]]
-                      }
-                    }
-                  ]
-                }
-                """,
-                StandardCharsets.UTF_8);
-        Files.writeString(
-                boundariesDir.resolve("ne_10m_admin_1_states_provinces.geojson"),
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "properties": {"iso_3166_2": "PL-12", "iso_a2": "PL", "name": "Małopolskie"},
-                      "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[19.0, 49.4], [21.2, 49.4], [21.2, 50.6], [19.0, 50.6], [19.0, 49.4]]]
-                      }
-                    }
-                  ]
-                }
-                """,
-                StandardCharsets.UTF_8);
+    private RestClient restClient() {
+        return RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+    }
+
+    private static void stagePersonalSyntheticTakeout() throws IOException {
+        BoundaryTestData.writePolandOnly(tempRoot.resolve("boundaries"));
+        Path personalDir = tempRoot.resolve("imports/personal");
+        FixtureArchiveSupport.extractSyntheticTakeout(personalDir);
+        Files.copy(
+                FixtureArchiveSupport.syntheticTimelinePath(),
+                personalDir.resolve("Timeline.json"));
+    }
+
+    private static void seedSyntheticPolandBoundary(RestClient client) {
+        ResponseEntity<BoundarySeedResultView> seeded =
+                client.post()
+                        .uri("/api/v1/atlas/boundaries/seed")
+                        .retrieve()
+                        .toEntity(BoundarySeedResultView.class);
+        assertThat(seeded.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    private static void verifyPersonalInitialImport(RestClient client) {
+        LocalImportSummaryView summary =
+                client.post()
+                        .uri("/api/v1/imports/local")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(summary).isNotNull();
+        assertThat(summary.accounts()).hasSize(1);
+        AccountImportSummaryView personal = summary.accounts().getFirst();
+        assertThat(personal.accountLabel()).isEqualTo("personal");
+        assertThat(personal.skipped()).isFalse();
+        assertThat(personal.discoveredFiles()).isEqualTo(6);
+        assertThat(personal.importRecordsCreated()).isEqualTo(42);
+        assertThat(personal.placesCreated()).isEqualTo(5);
+        assertThat(personal.placesMerged()).isEqualTo(2);
+        assertThat(personal.csvCidMatched()).isEqualTo(5);
+        assertThat(personal.queuedResolutionJobs()).isEqualTo(20);
+        assertThat(personal.timelineMatchedVisited()).isEqualTo(5);
+        assertThat(personal.timelineMarkedTriage()).isZero();
+        assertThat(personal.timelineUnmatched()).isEqualTo(5);
+    }
+
+    private void verifyImportStatusEndpoint(RestClient client) {
+        ImportStatusView status =
+                client.get().uri("/api/v1/imports/status").retrieve().body(ImportStatusView.class);
+        assertThat(status).isNotNull();
+        assertThat(status.pendingResolutionCount()).isEqualTo(20);
+        assertThat(status.completedBatches()).isEqualTo(1);
+        assertThat(status.accounts()).containsExactly("personal");
+        assertThat(status.lastImportedAt()).isNotNull();
+
+        Integer unlinkedJobs =
+                jdbc.queryForObject(
+                        "SELECT COUNT(*)::int FROM resolution_jobs WHERE place_id IS NULL",
+                        Map.of(),
+                        Integer.class);
+        assertThat(unlinkedJobs).isEqualTo(20);
+    }
+
+    private static void verifyManualPrecedenceOnForceReimport(RestClient client) {
+        java.util.List<AtlasPlaceView> places = fetchAllPlaces(client);
+        assertThat(places).hasSize(5);
+
+        AtlasPlaceView wawel = findPlaceByName(places, "Wawel Royal Castle");
+        assertThat(wawel.visitStatus()).isEqualTo(VisitStatus.VISITED);
+        assertThat(wawel.visitSource()).isEqualTo(VisitSource.REVIEW);
+        assertThat(wawel.countryCode()).isEqualTo("PL");
+        assertThat(wawel.memberships()).hasSize(3);
+
+        AtlasPlaceView eiffel = findPlaceByName(places, "Eiffel Tower");
+        assertThat(eiffel.visitStatus()).isEqualTo(VisitStatus.VISITED);
+        assertThat(eiffel.visitSource()).isEqualTo(VisitSource.TIMELINE);
+
+        LocalImportSummaryView skippedRun =
+                client.post()
+                        .uri("/api/v1/imports/local")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(skippedRun).isNotNull();
+        assertThat(skippedRun.accounts().getFirst().skipped()).isTrue();
+
+        PlaceVisitStateView manualOverride =
+                client.patch()
+                        .uri("/api/v1/atlas/places/{id}/visit-status", eiffel.id())
+                        .body(new UpdatePlaceVisitStatusRequest(VisitStatus.UNVISITED))
+                        .retrieve()
+                        .body(PlaceVisitStateView.class);
+        assertThat(manualOverride).isNotNull();
+        assertThat(manualOverride.status()).isEqualTo(VisitStatus.UNVISITED);
+        assertThat(manualOverride.source()).isEqualTo(VisitSource.MANUAL_SINGLE);
+
+        LocalImportSummaryView forcedRun =
+                client.post()
+                        .uri("/api/v1/imports/local?force=true")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(forcedRun).isNotNull();
+        assertThat(forcedRun.accounts().getFirst().skipped()).isFalse();
+
+        AtlasPlaceView eiffelAfterForce =
+                fetchAllPlaces(client).stream()
+                        .filter(p -> p.id().equals(eiffel.id()))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(eiffelAfterForce.visitStatus()).isEqualTo(VisitStatus.UNVISITED);
+        assertThat(eiffelAfterForce.visitSource()).isEqualTo(VisitSource.MANUAL_SINGLE);
+    }
+
+    private static java.util.List<AtlasPlaceView> fetchAllPlaces(RestClient client) {
+        AtlasPlacesResponse response =
+                client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
+        assertThat(response).isNotNull();
+        return response.places();
+    }
+
+    private static AtlasPlaceView findPlaceByName(
+            java.util.List<AtlasPlaceView> places, String name) {
+        return places.stream()
+                .filter(p -> p.canonicalName().equals(name))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static void clearDirectory(Path dir) throws IOException {
@@ -369,6 +291,16 @@ class LocalImportE2eTest {
                             throw new RuntimeException(ex);
                         }
                     });
+        }
+    }
+
+    private static final class ListPlaceAssertions {
+
+        private static void assertSingleCategory(
+                java.util.List<AtlasPlaceView> places, PlaceCategory category, String subcategory) {
+            assertThat(places).hasSize(1);
+            assertThat(places.getFirst().category()).isEqualTo(category);
+            assertThat(places.getFirst().subcategory()).isEqualTo(subcategory);
         }
     }
 }

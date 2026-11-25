@@ -18,7 +18,5 @@ public interface ImportRepository {
 
     void markBatchCompleted(UUID batchId, int recordCount);
 
-    void markBatchFailed(UUID batchId);
-
     ImportStatusSummary fetchStatus(UserId userId);
 }

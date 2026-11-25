@@ -8,6 +8,7 @@ import com.meanderatlas.atlas.domain.AtlasHealthRepository;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaType;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -68,8 +69,27 @@ class ArchitectureTest {
     };
     private static final Set<String> INTERNAL_SUBPACKAGES =
             Set.of("domain", "application", "adapter");
+    private static final Set<String> IGNORED_STANDARD_METHODS =
+            Set.of("main", "equals", "hashCode", "toString");
+    private static final Set<String> ENUM_GENERATED_METHODS = Set.of("values", "valueOf");
+    private static final Set<String> FRAMEWORK_ENTRY_POINT_ANNOTATIONS =
+            Set.of(
+                    "GetMapping",
+                    "PostMapping",
+                    "PatchMapping",
+                    "PutMapping",
+                    "DeleteMapping",
+                    "RequestMapping",
+                    "ExceptionHandler",
+                    "Bean",
+                    "EventListener",
+                    "ApplicationModuleListener",
+                    "Scheduled",
+                    "PostConstruct",
+                    "PreDestroy");
     private static final int EXPECTED_SYNTHETIC_VIOLATIONS = 2;
     private static final int EXPECTED_MUTABLE_VIOLATIONS = 3;
+    private static final int EXPECTED_DEAD_METHOD_VIOLATIONS = 1;
 
     private static final JavaClasses PRODUCTION_CLASSES =
             new ClassFileImporter()
@@ -192,6 +212,100 @@ class ArchitectureTest {
                 .check(TEST_CLASSES);
     }
 
+    @Test
+    void productionMethodsAreCalledByProductionOrFrameworkEntryPoints() {
+        methods().should(beCalledInProductionOrBeEntryPoint()).check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    void deadCodeRuleRejectsUnusedProductionMethods() {
+        JavaClasses syntheticClasses =
+                new ClassFileImporter().importClasses(SyntheticDeadCodeHolder.class);
+        var result =
+                methods().should(beCalledInProductionOrBeEntryPoint()).evaluate(syntheticClasses);
+
+        assertThat(result.hasViolation()).isTrue();
+        assertThat(result.getFailureReport().getDetails()).hasSize(EXPECTED_DEAD_METHOD_VIOLATIONS);
+    }
+
+    private static ArchCondition<JavaMethod> beCalledInProductionOrBeEntryPoint() {
+        return new ArchCondition<>("be called in production code or be a framework entry point") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                if (isSkippableEntryPoint(method)
+                        || hasDirectProductionUsage(method)
+                        || implementsProductionContract(method)) {
+                    return;
+                }
+                events.add(
+                        SimpleConditionEvent.violated(
+                                method,
+                                method.getFullName()
+                                        + " has no callers or references in production"));
+            }
+        };
+    }
+
+    private static boolean isSkippableEntryPoint(JavaMethod method) {
+        JavaClass owner = method.getOwner();
+        String name = method.getName();
+        if (method.getModifiers().contains(JavaModifier.SYNTHETIC)
+                || method.getModifiers().contains(JavaModifier.BRIDGE)
+                || IGNORED_STANDARD_METHODS.contains(name)) {
+            return true;
+        }
+        if (owner.isEnum() && ENUM_GENERATED_METHODS.contains(name)) {
+            return true;
+        }
+        if (owner.isRecord()
+                && method.getRawParameterTypes().isEmpty()
+                && owner.tryGetField(name).isPresent()) {
+            return true;
+        }
+        if (method.getAnnotations().stream()
+                .anyMatch(annotation ->
+                        FRAMEWORK_ENTRY_POINT_ANNOTATIONS.contains(
+                                annotation.getRawType().getSimpleName()))) {
+            return true;
+        }
+        return overridesExternalContract(method, owner);
+    }
+
+    private static boolean overridesExternalContract(JavaMethod method, JavaClass owner) {
+        return java.util.stream.Stream.concat(
+                        owner.getAllRawSuperclasses().stream(),
+                        owner.getAllRawInterfaces().stream())
+                .filter(ancestor -> !ancestor.getPackageName().startsWith(BASE_PACKAGE_PREFIX))
+                .anyMatch(ancestor ->
+                        ancestor.tryGetMethod(
+                                        method.getName(),
+                                        method.getRawParameterTypes().stream()
+                                                .map(JavaClass::getName)
+                                                .toArray(String[]::new))
+                                .isPresent());
+    }
+
+    private static boolean hasDirectProductionUsage(JavaMethod method) {
+        return method.getCallsOfSelf().stream().anyMatch(call -> !call.getOrigin().equals(method))
+                || method.getReferencesToSelf().stream()
+                        .anyMatch(ref -> !ref.getOrigin().equals(method));
+    }
+
+    private static boolean implementsProductionContract(JavaMethod method) {
+        JavaClass owner = method.getOwner();
+        String[] paramTypeNames =
+                method.getRawParameterTypes().stream()
+                        .map(JavaClass::getName)
+                        .toArray(String[]::new);
+        return java.util.stream.Stream.concat(
+                        owner.getAllRawSuperclasses().stream(),
+                        owner.getAllRawInterfaces().stream())
+                .filter(ancestor -> ancestor.getPackageName().startsWith(BASE_PACKAGE_PREFIX))
+                .map(ancestor -> ancestor.tryGetMethod(method.getName(), paramTypeNames))
+                .flatMap(java.util.Optional::stream)
+                .anyMatch(ArchitectureTest::hasDirectProductionUsage);
+    }
+
     private static ArchCondition<JavaMethod> notExposeInternalModuleTypes() {
         return new ArchCondition<>(
                 "not expose internal module types in parameters or return type") {
@@ -258,5 +372,18 @@ class ArchitectureTest {
         Map<String, String> mutableMap() {
             return new HashMap<>();
         }
+    }
+
+    static class SyntheticDeadCodeHolder {
+
+        String usedHelper() {
+            return "ok";
+        }
+
+        public static void main(String[] args) {
+            new SyntheticDeadCodeHolder().usedHelper();
+        }
+
+        void unusedHelper() {}
     }
 }

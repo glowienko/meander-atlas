@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
 import com.meanderatlas.ingestion.domain.GoogleCid;
+import com.meanderatlas.ingestion.domain.TakeoutTestData;
 import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.VisitSource;
@@ -72,34 +73,9 @@ class TakeoutGeoJsonParserTest {
 
     @Test
     void handlesNullIslandReviewsUnsigned64BitCidsAndPlEnFileDetection() {
-        String reviewsJson =
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": [0, 0] },
-                      "properties": {
-                        "date": "2025-07-01T08:00:00Z",
-                        "five_star_rating_published": 4,
-                        "review_text_published": "Great ramen.",
-                        "google_maps_url": "http://maps.google.com/?cid=18446744073709551615",
-                        "location": { "name": "Ichiran Shibuya", "country_code": "JP" }
-                      }
-                    },
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": [0.0, 0.0] },
-                      "properties": {
-                        "date": "2024-01-01T00:00:00Z"
-                      }
-                    }
-                  ]
-                }
-                """;
-
-        List<ParsedReview> reviews = TakeoutGeoJsonParser.parseReviews("Reviews.json", reviewsJson);
+        List<ParsedReview> reviews =
+                TakeoutGeoJsonParser.parseReviews(
+                        "Reviews.json", TakeoutTestData.nullIslandReviewsGeoJson());
 
         assertThat(reviews).hasSize(1);
         ParsedReview review = reviews.getFirst();
@@ -123,71 +99,16 @@ class TakeoutGeoJsonParserTest {
         assertThat(TakeoutGeoJsonParser.parseSavedPlaces("Saved Places.json", "{}")).isEmpty();
         assertThat(TakeoutGeoJsonParser.parseReviews("Reviews.json", "{}")).isEmpty();
 
-        String edgeSavedJson =
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": ["bad", 50.0] },
-                      "properties": { "Title": "Bad X" }
-                    },
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": [19.0, 95.0] },
-                      "properties": { "Title": "Bad Lat" }
-                    },
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": [19.9, 50.0] },
-                      "properties": { "date": "2025-05-01T10:00:00Z" }
-                    },
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": [19.9354, 50.0540] },
-                      "properties": {
-                        "Published": "not-an-instant",
-                        "Google Maps URL": "http://maps.google.com/?cid=536870920",
-                        "Title": "Legacy Keys Spot"
-                      }
-                    }
-                  ]
-                }
-                """;
         List<ParsedSavedPlace> saved =
-                TakeoutGeoJsonParser.parseSavedPlaces("Saved Places.json", edgeSavedJson);
+                TakeoutGeoJsonParser.parseSavedPlaces(
+                        "Saved Places.json", TakeoutTestData.malformedSavedPlacesGeoJson());
         assertThat(saved).hasSize(1);
         assertThat(saved.getFirst().name()).isEqualTo("Legacy Keys Spot");
         assertThat(saved.getFirst().savedAt()).isNull();
 
-        String edgeReviewsJson =
-                """
-                {
-                  "type": "FeatureCollection",
-                  "features": [
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": [19.9, 50.0] },
-                      "properties": {
-                        "date": "not-an-instant",
-                        "five_star_rating_published": 9,
-                        "location": { "name": "Invalid Rating Cafe" }
-                      }
-                    },
-                    {
-                      "type": "Feature",
-                      "geometry": { "type": "Point", "coordinates": [19.9] },
-                      "properties": {
-                        "five_star_rating_published": "5",
-                        "location": { "name": "Short Coords" }
-                      }
-                    }
-                  ]
-                }
-                """;
         List<ParsedReview> reviews =
-                TakeoutGeoJsonParser.parseReviews("Reviews.json", edgeReviewsJson);
+                TakeoutGeoJsonParser.parseReviews(
+                        "Reviews.json", TakeoutTestData.malformedReviewsGeoJson());
         assertThat(reviews).hasSize(2);
         assertThat(reviews.getFirst().starRating()).isNull();
         assertThat(reviews.getFirst().reviewedAt()).isNull();

@@ -135,18 +135,6 @@ class JdbcImportRepository implements ImportRepository {
     }
 
     @Override
-    public void markBatchFailed(UUID batchId) {
-        jdbcTemplate.update(
-                """
-                UPDATE import_batches
-                SET status = 'FAILED',
-                    completed_at = now()
-                WHERE id = CAST(:batchId AS uuid)
-                """,
-                Map.of("batchId", batchId));
-    }
-
-    @Override
     public ImportStatusSummary fetchStatus(UserId userId) {
         Integer pendingCount =
                 jdbcTemplate.queryForObject(
