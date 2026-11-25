@@ -3,6 +3,7 @@ package com.meanderatlas.ingestion.domain.timeline;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
+import com.meanderatlas.ingestion.domain.TakeoutTestData;
 import com.meanderatlas.shared.GeoPoint;
 import java.io.IOException;
 import java.time.Instant;
@@ -38,47 +39,9 @@ class TimelineParserTest {
 
     @Test
     void parsesNegativeLatitudeAndLongitudeWithDegreeSymbolsAndSkipsInvalidSegments() {
-        String json =
-                """
-                {
-                  "semanticSegments": [
-                    {
-                      "startTime": "2026-09-01T14:00:00.000-05:00",
-                      "endTime": "2026-09-01T17:00:00.000-05:00",
-                      "visit": {
-                        "probability": 0.91,
-                        "topCandidate": {
-                          "placeId": "ChIJ-machu-picchu",
-                          "semanticType": "UNKNOWN",
-                          "probability": 0.89,
-                          "placeLocation": {
-                            "latLng": " -13.1631412° , -72.5449629° "
-                          }
-                        }
-                      }
-                    },
-                    {
-                      "startTime": "2026-09-02T10:00:00Z",
-                      "endTime": "2026-09-02T11:00:00Z",
-                      "visit": {
-                        "topCandidate": {
-                          "placeId": "ChIJ-null-island",
-                          "placeLocation": {
-                            "latLng": "0.0°, 0.0°"
-                          }
-                        }
-                      }
-                    },
-                    {
-                      "startTime": "2026-09-03T10:00:00Z",
-                      "endTime": "2026-09-03T11:00:00Z",
-                      "timelinePath": []
-                    }
-                  ]
-                }
-                """;
-
-        List<ParsedTimelineVisit> visits = TimelineParser.parse("Timeline.json", json);
+        List<ParsedTimelineVisit> visits =
+                TimelineParser.parse(
+                        "Timeline.json", TakeoutTestData.negativeAndInvalidTimelineJson());
 
         assertThat(visits).hasSize(1);
         ParsedTimelineVisit machuPicchu = visits.getFirst();
@@ -95,5 +58,10 @@ class TimelineParserTest {
         assertThat(TimelineParser.parseDegreeLatLng("95.0°, 10.0°")).isEmpty();
         assertThat(TimelineParser.parseDegreeLatLng("not-a-coord")).isEmpty();
         assertThat(TimelineParser.parseDegreeLatLng(null)).isEmpty();
+        assertThat(TimelineParser.parse("Timeline.json", "{}")).isEmpty();
+        assertThat(
+                        TimelineParser.parse(
+                                "Timeline.json", TakeoutTestData.badTimestampTimelineJson()))
+                .isEmpty();
     }
 }

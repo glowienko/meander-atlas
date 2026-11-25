@@ -1,4 +1,4 @@
-package com.meanderatlas.atlas.domain;
+package com.meanderatlas.shared;
 
 public enum CoordSource {
     TAKEOUT,

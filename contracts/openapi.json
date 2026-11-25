@@ -8,6 +8,33 @@
     "url" : "/"
   } ],
   "paths" : {
+    "/api/v1/atlas/boundaries/seed" : {
+      "post" : {
+        "operationId" : "seedBoundaries",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "force",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BoundarySeedResultView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-boundaries-controller" ]
+      }
+    },
     "/api/v1/atlas/health" : {
       "get" : {
         "operationId" : "health",
@@ -25,10 +52,523 @@
         },
         "tags" : [ "atlas-health-controller" ]
       }
+    },
+    "/api/v1/atlas/places" : {
+      "get" : {
+        "operationId" : "places",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "q",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "visitStatus",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "UNVISITED", "VISITED", "NEEDS_TRIAGE" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "derivedRole",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "PREFERRED_HOTEL", "MUST_SEE", "FAVORITE", "BACKLOG" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "category",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "account",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "list",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "countryCode",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "admin1Id",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ],
+            "format" : "uuid"
+          }
+        }, {
+          "in" : "query",
+          "name" : "minLng",
+          "required" : false,
+          "schema" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          }
+        }, {
+          "in" : "query",
+          "name" : "minLat",
+          "required" : false,
+          "schema" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          }
+        }, {
+          "in" : "query",
+          "name" : "maxLng",
+          "required" : false,
+          "schema" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          }
+        }, {
+          "in" : "query",
+          "name" : "maxLat",
+          "required" : false,
+          "schema" : {
+            "type" : [ "number", "null" ],
+            "format" : "double"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AtlasPlacesResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
+    "/api/v1/atlas/places/bulk-visit-status" : {
+      "patch" : {
+        "operationId" : "bulkUpdateVisitStatus",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BulkVisitStatusRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BulkVisitStatusResultView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
+    "/api/v1/atlas/places/bulk-visit-status/restore" : {
+      "post" : {
+        "operationId" : "restoreVisitStates",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RestoreVisitStatesRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RestoreVisitStatesResultView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
+    "/api/v1/atlas/places/{id}/visit-status" : {
+      "patch" : {
+        "operationId" : "updateVisitStatus",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpdatePlaceVisitStatusRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PlaceVisitStateView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
+    "/api/v1/atlas/regions" : {
+      "get" : {
+        "operationId" : "regions",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "level",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "default" : "COUNTRY",
+            "enum" : [ "COUNTRY", "ADMIN1" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "countryCode",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "q",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "derivedRole",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "PREFERRED_HOTEL", "MUST_SEE", "FAVORITE", "BACKLOG" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "category",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ],
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "account",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "list",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/RegionSummaryView"
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-regions-controller" ]
+      }
+    },
+    "/api/v1/atlas/regions/{level}/{code}" : {
+      "get" : {
+        "operationId" : "regionDossier",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "level",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "COUNTRY", "ADMIN1" ]
+          }
+        }, {
+          "in" : "path",
+          "name" : "code",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RegionDossierView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-regions-controller" ]
+      }
+    },
+    "/api/v1/atlas/stats" : {
+      "get" : {
+        "operationId" : "stats",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AtlasStatsView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-stats-controller" ]
+      }
+    },
+    "/api/v1/atlas/tiles/regions/{level}/{z}/{x}/{y}.mvt" : {
+      "get" : {
+        "operationId" : "regionTile",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "level",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "COUNTRY", "ADMIN1" ]
+          }
+        }, {
+          "in" : "path",
+          "name" : "z",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "in" : "path",
+          "name" : "x",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "in" : "path",
+          "name" : "y",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }, {
+          "in" : "query",
+          "name" : "countryCode",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/vnd.mapbox-vector-tile" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "byte"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-boundaries-controller" ]
+      }
+    },
+    "/api/v1/imports/local" : {
+      "post" : {
+        "operationId" : "importLocal",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "account",
+          "required" : false,
+          "schema" : {
+            "type" : [ "string", "null" ]
+          }
+        }, {
+          "in" : "query",
+          "name" : "force",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/LocalImportSummaryView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "import-controller" ]
+      }
+    },
+    "/api/v1/imports/status" : {
+      "get" : {
+        "operationId" : "status",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ImportStatusView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "import-controller" ]
+      }
     }
   },
   "components" : {
     "schemas" : {
+      "AccountImportSummaryView" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string"
+          },
+          "contentSha256" : {
+            "type" : "string"
+          },
+          "csvCidMatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "discoveredFiles" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "importRecordsCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "placesCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "placesMerged" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "queuedResolutionJobs" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "skipped" : {
+            "type" : "boolean"
+          },
+          "timelineMarkedTriage" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "timelineMatchedVisited" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "timelineUnmatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accountLabel", "contentSha256", "csvCidMatched", "discoveredFiles", "importRecordsCreated", "placesCreated", "placesMerged", "queuedResolutionJobs", "skipped", "timelineMarkedTriage", "timelineMatchedVisited", "timelineUnmatched" ]
+      },
+      "AccountListFacetView" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string"
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "listName" : {
+            "type" : "string"
+          },
+          "placeCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accountLabel", "listKind", "listName", "placeCount" ]
+      },
       "AtlasHealthView" : {
         "type" : "object",
         "properties" : {
@@ -43,6 +583,521 @@
           }
         },
         "required" : [ "database", "postgisVersion", "status" ]
+      },
+      "AtlasPlaceView" : {
+        "type" : "object",
+        "properties" : {
+          "admin1Code" : {
+            "type" : "string"
+          },
+          "admin1Id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "admin1Name" : {
+            "type" : "string"
+          },
+          "canonicalName" : {
+            "type" : "string"
+          },
+          "category" : {
+            "type" : "string",
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+          },
+          "categorySource" : {
+            "type" : "string",
+            "enum" : [ "HEURISTIC", "OPEN_CATALOG", "MANUAL" ]
+          },
+          "cityName" : {
+            "type" : "string"
+          },
+          "countryCode" : {
+            "type" : "string"
+          },
+          "derivedRole" : {
+            "type" : "string",
+            "enum" : [ "PREFERRED_HOTEL", "MUST_SEE", "FAVORITE", "BACKLOG" ]
+          },
+          "firstVisitedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "lastVisitedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lat" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "lng" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "memberships" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PlaceMembershipView"
+            }
+          },
+          "subcategory" : {
+            "type" : "string"
+          },
+          "visitCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "visitSource" : {
+            "type" : "string",
+            "enum" : [ "TIMELINE", "REVIEW", "MANUAL_SINGLE", "MANUAL_BULK" ]
+          },
+          "visitStatus" : {
+            "type" : "string",
+            "enum" : [ "UNVISITED", "VISITED", "NEEDS_TRIAGE" ]
+          }
+        },
+        "required" : [ "canonicalName", "category", "categorySource", "derivedRole", "id", "lat", "lng", "memberships", "visitCount", "visitStatus" ]
+      },
+      "AtlasPlacesResponse" : {
+        "type" : "object",
+        "properties" : {
+          "places" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AtlasPlaceView"
+            }
+          },
+          "totalCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "places", "totalCount" ]
+      },
+      "AtlasStatsView" : {
+        "type" : "object",
+        "properties" : {
+          "accountLists" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AccountListFacetView"
+            }
+          },
+          "categories" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/CategoryStatView"
+            }
+          },
+          "needsTriagePlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "topSubcategories" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/SubcategoryStatView"
+            }
+          },
+          "totalMappedPlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalSavedAdmin1Regions" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalSavedCountries" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "unvisitedPlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "visitedAdmin1Regions" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "visitedCountries" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "visitedPlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accountLists", "categories", "needsTriagePlaces", "topSubcategories", "totalMappedPlaces", "totalSavedAdmin1Regions", "totalSavedCountries", "unvisitedPlaces", "visitedAdmin1Regions", "visitedCountries", "visitedPlaces" ]
+      },
+      "BoundarySeedResultView" : {
+        "type" : "object",
+        "properties" : {
+          "admin1Upserted" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "countriesUpserted" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "placesTagged" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "skipped" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "BulkVisitStatusRequest" : {
+        "type" : "object",
+        "properties" : {
+          "placeIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "format" : "uuid"
+            },
+            "maxItems" : 500,
+            "minItems" : 0
+          },
+          "targetStatus" : {
+            "type" : "string",
+            "enum" : [ "UNVISITED", "VISITED", "NEEDS_TRIAGE" ]
+          }
+        },
+        "required" : [ "placeIds", "targetStatus" ]
+      },
+      "BulkVisitStatusResultView" : {
+        "type" : "object",
+        "properties" : {
+          "previousStates" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/VisitStateSnapshotView"
+            }
+          },
+          "updatedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "previousStates", "updatedCount" ]
+      },
+      "CategoryStatView" : {
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+          },
+          "totalCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "visitedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "category", "totalCount", "visitedCount" ]
+      },
+      "ImportStatusView" : {
+        "type" : "object",
+        "properties" : {
+          "accounts" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "completedBatches" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "lastImportedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "pendingResolutionCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accounts", "completedBatches", "pendingResolutionCount" ]
+      },
+      "LocalImportSummaryView" : {
+        "type" : "object",
+        "properties" : {
+          "accounts" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AccountImportSummaryView"
+            }
+          },
+          "totalCsvCidMatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalPlacesCreated" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalPlacesMerged" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalQueuedResolutionJobs" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalTimelineMarkedTriage" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalTimelineMatchedVisited" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalTimelineUnmatched" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "accounts", "totalCsvCidMatched", "totalPlacesCreated", "totalPlacesMerged", "totalQueuedResolutionJobs", "totalTimelineMarkedTriage", "totalTimelineMatchedVisited", "totalTimelineUnmatched" ]
+      },
+      "PlaceMembershipView" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string"
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "listName" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "savedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "sourceUrl" : {
+            "type" : "string"
+          },
+          "tags" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "accountLabel", "listKind", "listName" ]
+      },
+      "PlaceVisitStateView" : {
+        "type" : "object",
+        "properties" : {
+          "firstVisitedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastVisitedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "placeId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "previousState" : {
+            "$ref" : "#/components/schemas/VisitStateSnapshotView"
+          },
+          "source" : {
+            "type" : "string",
+            "enum" : [ "TIMELINE", "REVIEW", "MANUAL_SINGLE", "MANUAL_BULK" ]
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "UNVISITED", "VISITED", "NEEDS_TRIAGE" ]
+          },
+          "visitCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "placeId", "previousState", "status", "visitCount" ]
+      },
+      "RegionDossierView" : {
+        "type" : "object",
+        "properties" : {
+          "childRegions" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RegionSummaryView"
+            }
+          },
+          "places" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AtlasPlaceView"
+            }
+          },
+          "region" : {
+            "$ref" : "#/components/schemas/RegionSummaryView"
+          }
+        },
+        "required" : [ "childRegions", "places", "region" ]
+      },
+      "RegionSummaryView" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "completionRatio" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "countryCode" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "level" : {
+            "type" : "string",
+            "enum" : [ "COUNTRY", "ADMIN1" ]
+          },
+          "maxLat" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "maxLng" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "minLat" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "minLng" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "needsTriagePlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "totalPlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "unvisitedPlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "visitedPlaces" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "code", "completionRatio", "countryCode", "id", "level", "maxLat", "maxLng", "minLat", "minLng", "name", "needsTriagePlaces", "totalPlaces", "unvisitedPlaces", "visitedPlaces" ]
+      },
+      "RestoreVisitStatesRequest" : {
+        "type" : "object",
+        "properties" : {
+          "snapshots" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/VisitStateSnapshotView"
+            },
+            "maxItems" : 500,
+            "minItems" : 0
+          }
+        },
+        "required" : [ "snapshots" ]
+      },
+      "RestoreVisitStatesResultView" : {
+        "type" : "object",
+        "properties" : {
+          "restoredCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "restoredCount" ]
+      },
+      "SubcategoryStatView" : {
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+          },
+          "subcategory" : {
+            "type" : "string"
+          },
+          "totalCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "visitedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "category", "subcategory", "totalCount", "visitedCount" ]
+      },
+      "UpdatePlaceVisitStatusRequest" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string",
+            "enum" : [ "UNVISITED", "VISITED", "NEEDS_TRIAGE" ]
+          }
+        },
+        "required" : [ "status" ]
+      },
+      "VisitStateSnapshotView" : {
+        "type" : "object",
+        "properties" : {
+          "firstVisitedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastVisitedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "placeId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "source" : {
+            "type" : "string",
+            "enum" : [ "TIMELINE", "REVIEW", "MANUAL_SINGLE", "MANUAL_BULK" ]
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "UNVISITED", "VISITED", "NEEDS_TRIAGE" ]
+          },
+          "visitCount" : {
+            "type" : "integer",
+            "format" : "int32",
+            "minimum" : 0
+          }
+        },
+        "required" : [ "placeId", "status", "visitCount" ]
       }
     }
   }

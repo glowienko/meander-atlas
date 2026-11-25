@@ -17,6 +17,11 @@ public record GoogleCid(long unsignedBits) {
         return Long.toUnsignedString(unsignedBits);
     }
 
+    @Override
+    public String toString() {
+        return decimal();
+    }
+
     public static GoogleCid fromUnsignedHex(String hex) {
         Objects.requireNonNull(hex, "hex must not be null");
         return new GoogleCid(Long.parseUnsignedLong(hex, HEX_RADIX));

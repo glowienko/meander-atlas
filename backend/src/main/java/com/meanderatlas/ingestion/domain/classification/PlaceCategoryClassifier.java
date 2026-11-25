@@ -280,10 +280,6 @@ public final class PlaceCategoryClassifier {
 
     private PlaceCategoryClassifier() {}
 
-    public static PlaceClassification classify(String name) {
-        return classify(name, null, null);
-    }
-
     public static PlaceClassification classify(
             String name, @Nullable String note, @Nullable String tags) {
         Objects.requireNonNull(name, "name must not be null");

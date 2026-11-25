@@ -37,10 +37,11 @@ allocate_three_ports() {
 
 PROJECT="meander-atlas-smoke-$$"
 TMP_IMPORTS="$(mktemp -d)"
+TMP_BOUNDARIES="$(mktemp -d)"
 
 cleanup() {
   docker compose -p "$PROJECT" --profile app down -v --remove-orphans >/dev/null 2>&1 || true
-  rm -rf "$TMP_IMPORTS"
+  rm -rf "$TMP_IMPORTS" "$TMP_BOUNDARIES"
 }
 trap cleanup EXIT INT TERM
 
@@ -50,6 +51,7 @@ export POSTGRES_PORT="$PG_PORT"
 export APP_PORT="$BE_PORT"
 export FRONTEND_PORT="$FE_PORT"
 export APP_IMPORTS_DIR="$TMP_IMPORTS"
+export APP_BOUNDARIES_DIR="$TMP_BOUNDARIES"
 
 docker compose -p "$PROJECT" --profile app config -q
 

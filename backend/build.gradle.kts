@@ -6,6 +6,7 @@ import org.springframework.boot.gradle.tasks.bundling.BootJar
 plugins {
     java
     checkstyle
+    jacoco
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dependency.management)
     alias(libs.plugins.errorprone)
@@ -69,6 +70,19 @@ checkstyle {
     maxWarnings = 0
 }
 
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+val jacocoClassDirectories =
+    files(
+        sourceSets.main.get().output.classesDirs.files.map { dir ->
+            fileTree(dir) {
+                exclude("com/meanderatlas/MeanderAtlasApplication.class")
+            }
+        }
+    )
+
 spotless {
     java {
         googleJavaFormat(libs.versions.google.java.format.get()).aosp()
@@ -83,6 +97,10 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.addAll(listOf("-Xlint:all,-processing,-serial", "-Werror"))
     options.errorprone {
         check("NullAway", CheckSeverity.ERROR)
+        check("UnusedMethod", CheckSeverity.ERROR)
+        check("UnusedVariable", CheckSeverity.ERROR)
+        check("UnusedNestedClass", CheckSeverity.ERROR)
+        check("DeadException", CheckSeverity.ERROR)
         option("NullAway:AnnotatedPackages", "com.meanderatlas")
         option("NullAway:JSpecifyMode", "true")
         option("NullAway:HandleTestAssertionLibraries", "true")
@@ -120,6 +138,43 @@ tasks.withType<Test>().configureEach {
 tasks.named<Test>("test") {
     outputs.file(rootProject.file("../contracts/openapi.json"))
     outputs.dir(rootProject.file("../docs/modules"))
+    finalizedBy(tasks.named("jacocoTestReport"))
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    dependsOn(tasks.named<Test>("test"))
+    executionData.setFrom(files(layout.buildDirectory.file("jacoco/test.exec")))
+    classDirectories.setFrom(jacocoClassDirectories)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(true)
+    }
+}
+
+tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    dependsOn(tasks.named<Test>("test"))
+    executionData.setFrom(files(layout.buildDirectory.file("jacoco/test.exec")))
+    classDirectories.setFrom(jacocoClassDirectories)
+    violationRules {
+        rule {
+            element = "BUNDLE"
+            limit {
+                counter = "LINE"
+                value = "COVEREDRATIO"
+                minimum = "0.90".toBigDecimal()
+            }
+            limit {
+                counter = "INSTRUCTION"
+                value = "COVEREDRATIO"
+                minimum = "0.90".toBigDecimal()
+            }
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(tasks.named("jacocoTestCoverageVerification"))
 }
 
 tasks.register<Test>("unitTest") {

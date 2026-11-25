@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/v1/atlas/boundaries/seed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["seedBoundaries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/atlas/health": {
         parameters: {
             query?: never;
@@ -20,14 +36,409 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/atlas/places": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["places"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/atlas/places/bulk-visit-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["bulkUpdateVisitStatus"];
+        trace?: never;
+    };
+    "/api/v1/atlas/places/bulk-visit-status/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restoreVisitStates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/atlas/places/{id}/visit-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateVisitStatus"];
+        trace?: never;
+    };
+    "/api/v1/atlas/regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["regions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/atlas/regions/{level}/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["regionDossier"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/atlas/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/atlas/tiles/regions/{level}/{z}/{x}/{y}.mvt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["regionTile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/local": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["importLocal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccountImportSummaryView: {
+            accountLabel: string;
+            contentSha256: string;
+            /** Format: int32 */
+            csvCidMatched: number;
+            /** Format: int32 */
+            discoveredFiles: number;
+            /** Format: int32 */
+            importRecordsCreated: number;
+            /** Format: int32 */
+            placesCreated: number;
+            /** Format: int32 */
+            placesMerged: number;
+            /** Format: int32 */
+            queuedResolutionJobs: number;
+            skipped: boolean;
+            /** Format: int32 */
+            timelineMarkedTriage: number;
+            /** Format: int32 */
+            timelineMatchedVisited: number;
+            /** Format: int32 */
+            timelineUnmatched: number;
+        };
+        AccountListFacetView: {
+            accountLabel: string;
+            /** @enum {string} */
+            listKind: "STARRED" | "FAVORITE" | "WANT_TO_GO" | "CUSTOM" | "REVIEW";
+            listName: string;
+            /** Format: int32 */
+            placeCount: number;
+        };
         AtlasHealthView: {
             database: string;
             postgisVersion: string;
             status: string;
+        };
+        AtlasPlaceView: {
+            admin1Code?: string;
+            /** Format: uuid */
+            admin1Id?: string;
+            admin1Name?: string;
+            canonicalName: string;
+            /** @enum {string} */
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED";
+            /** @enum {string} */
+            categorySource: "HEURISTIC" | "OPEN_CATALOG" | "MANUAL";
+            cityName?: string;
+            countryCode?: string;
+            /** @enum {string} */
+            derivedRole: "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG";
+            /** Format: date-time */
+            firstVisitedAt?: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            lastVisitedAt?: string;
+            /** Format: double */
+            lat: number;
+            /** Format: double */
+            lng: number;
+            memberships: components["schemas"]["PlaceMembershipView"][];
+            subcategory?: string;
+            /** Format: int32 */
+            visitCount: number;
+            /** @enum {string} */
+            visitSource?: "TIMELINE" | "REVIEW" | "MANUAL_SINGLE" | "MANUAL_BULK";
+            /** @enum {string} */
+            visitStatus: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE";
+        };
+        AtlasPlacesResponse: {
+            places: components["schemas"]["AtlasPlaceView"][];
+            /** Format: int32 */
+            totalCount: number;
+        };
+        AtlasStatsView: {
+            accountLists: components["schemas"]["AccountListFacetView"][];
+            categories: components["schemas"]["CategoryStatView"][];
+            /** Format: int32 */
+            needsTriagePlaces: number;
+            topSubcategories: components["schemas"]["SubcategoryStatView"][];
+            /** Format: int32 */
+            totalMappedPlaces: number;
+            /** Format: int32 */
+            totalSavedAdmin1Regions: number;
+            /** Format: int32 */
+            totalSavedCountries: number;
+            /** Format: int32 */
+            unvisitedPlaces: number;
+            /** Format: int32 */
+            visitedAdmin1Regions: number;
+            /** Format: int32 */
+            visitedCountries: number;
+            /** Format: int32 */
+            visitedPlaces: number;
+        };
+        BoundarySeedResultView: {
+            /** Format: int32 */
+            admin1Upserted?: number;
+            /** Format: int32 */
+            countriesUpserted?: number;
+            /** Format: int32 */
+            placesTagged?: number;
+            skipped?: boolean;
+        };
+        BulkVisitStatusRequest: {
+            placeIds: string[];
+            /** @enum {string} */
+            targetStatus: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE";
+        };
+        BulkVisitStatusResultView: {
+            previousStates: components["schemas"]["VisitStateSnapshotView"][];
+            /** Format: int32 */
+            updatedCount: number;
+        };
+        CategoryStatView: {
+            /** @enum {string} */
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED";
+            /** Format: int32 */
+            totalCount: number;
+            /** Format: int32 */
+            visitedCount: number;
+        };
+        ImportStatusView: {
+            accounts: string[];
+            /** Format: int32 */
+            completedBatches: number;
+            /** Format: date-time */
+            lastImportedAt?: string;
+            /** Format: int32 */
+            pendingResolutionCount: number;
+        };
+        LocalImportSummaryView: {
+            accounts: components["schemas"]["AccountImportSummaryView"][];
+            /** Format: int32 */
+            totalCsvCidMatched: number;
+            /** Format: int32 */
+            totalPlacesCreated: number;
+            /** Format: int32 */
+            totalPlacesMerged: number;
+            /** Format: int32 */
+            totalQueuedResolutionJobs: number;
+            /** Format: int32 */
+            totalTimelineMarkedTriage: number;
+            /** Format: int32 */
+            totalTimelineMatchedVisited: number;
+            /** Format: int32 */
+            totalTimelineUnmatched: number;
+        };
+        PlaceMembershipView: {
+            accountLabel: string;
+            /** @enum {string} */
+            listKind: "STARRED" | "FAVORITE" | "WANT_TO_GO" | "CUSTOM" | "REVIEW";
+            listName: string;
+            note?: string;
+            /** Format: date-time */
+            savedAt?: string;
+            sourceUrl?: string;
+            tags?: string;
+        };
+        PlaceVisitStateView: {
+            /** Format: date-time */
+            firstVisitedAt?: string;
+            /** Format: date-time */
+            lastVisitedAt?: string;
+            /** Format: uuid */
+            placeId: string;
+            previousState: components["schemas"]["VisitStateSnapshotView"];
+            /** @enum {string} */
+            source?: "TIMELINE" | "REVIEW" | "MANUAL_SINGLE" | "MANUAL_BULK";
+            /** @enum {string} */
+            status: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE";
+            /** Format: int32 */
+            visitCount: number;
+        };
+        RegionDossierView: {
+            childRegions: components["schemas"]["RegionSummaryView"][];
+            places: components["schemas"]["AtlasPlaceView"][];
+            region: components["schemas"]["RegionSummaryView"];
+        };
+        RegionSummaryView: {
+            code: string;
+            /** Format: double */
+            completionRatio: number;
+            countryCode: string;
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            level: "COUNTRY" | "ADMIN1";
+            /** Format: double */
+            maxLat: number;
+            /** Format: double */
+            maxLng: number;
+            /** Format: double */
+            minLat: number;
+            /** Format: double */
+            minLng: number;
+            name: string;
+            /** Format: int32 */
+            needsTriagePlaces: number;
+            /** Format: int32 */
+            totalPlaces: number;
+            /** Format: int32 */
+            unvisitedPlaces: number;
+            /** Format: int32 */
+            visitedPlaces: number;
+        };
+        RestoreVisitStatesRequest: {
+            snapshots: components["schemas"]["VisitStateSnapshotView"][];
+        };
+        RestoreVisitStatesResultView: {
+            /** Format: int32 */
+            restoredCount: number;
+        };
+        SubcategoryStatView: {
+            /** @enum {string} */
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED";
+            subcategory: string;
+            /** Format: int32 */
+            totalCount: number;
+            /** Format: int32 */
+            visitedCount: number;
+        };
+        UpdatePlaceVisitStatusRequest: {
+            /** @enum {string} */
+            status: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE";
+        };
+        VisitStateSnapshotView: {
+            /** Format: date-time */
+            firstVisitedAt?: string;
+            /** Format: date-time */
+            lastVisitedAt?: string;
+            /** Format: uuid */
+            placeId: string;
+            /** @enum {string} */
+            source?: "TIMELINE" | "REVIEW" | "MANUAL_SINGLE" | "MANUAL_BULK";
+            /** @enum {string} */
+            status: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE";
+            /** Format: int32 */
+            visitCount: number;
         };
     };
     responses: never;
@@ -38,6 +449,28 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    seedBoundaries: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoundarySeedResultView"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -54,6 +487,254 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AtlasHealthView"];
+                };
+            };
+        };
+    };
+    places: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                visitStatus?: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE" | null;
+                derivedRole?: "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG" | null;
+                category?: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED" | null;
+                account?: string | null;
+                list?: string | null;
+                countryCode?: string | null;
+                admin1Id?: string | null;
+                minLng?: number | null;
+                minLat?: number | null;
+                maxLng?: number | null;
+                maxLat?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AtlasPlacesResponse"];
+                };
+            };
+        };
+    };
+    bulkUpdateVisitStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkVisitStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkVisitStatusResultView"];
+                };
+            };
+        };
+    };
+    restoreVisitStates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreVisitStatesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreVisitStatesResultView"];
+                };
+            };
+        };
+    };
+    updateVisitStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlaceVisitStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceVisitStateView"];
+                };
+            };
+        };
+    };
+    regions: {
+        parameters: {
+            query?: {
+                level?: "COUNTRY" | "ADMIN1";
+                countryCode?: string | null;
+                q?: string | null;
+                derivedRole?: "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG" | null;
+                category?: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED" | null;
+                account?: string | null;
+                list?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionSummaryView"][];
+                };
+            };
+        };
+    };
+    regionDossier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                level: "COUNTRY" | "ADMIN1";
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionDossierView"];
+                };
+            };
+        };
+    };
+    stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AtlasStatsView"];
+                };
+            };
+        };
+    };
+    regionTile: {
+        parameters: {
+            query?: {
+                countryCode?: string | null;
+            };
+            header?: never;
+            path: {
+                level: "COUNTRY" | "ADMIN1";
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.mapbox-vector-tile": string;
+                };
+            };
+        };
+    };
+    importLocal: {
+        parameters: {
+            query?: {
+                account?: string | null;
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalImportSummaryView"];
+                };
+            };
+        };
+    };
+    status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportStatusView"];
                 };
             };
         };

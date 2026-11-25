@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AtlasHealthPill } from "./AtlasHealthPill";
-import { readAtlasViewState, writeAtlasViewState } from "./viewState";
+import { defaultAtlasViewState, readAtlasViewState, writeAtlasViewState } from "./viewState";
 
 describe("AtlasHealthPill", () => {
   it("renders live PostGIS health status and toggles projection controls", () => {
@@ -56,15 +56,39 @@ describe("AtlasHealthPill", () => {
 });
 
 describe("viewState URL serialization", () => {
-  it("defaults to clean URL for globe and preserves other query params on round-trip", () => {
-    expect(readAtlasViewState("")).toEqual({ projection: "globe" });
-    expect(writeAtlasViewState({ projection: "globe" }, "")).toBe("");
+  it("defaults to clean URL for globe and preserves unknown query params across filters and region", () => {
+    const defaults = defaultAtlasViewState();
+    expect(readAtlasViewState("")).toEqual(defaults);
+    expect(writeAtlasViewState(defaults, "")).toBe("");
 
-    const serialized = writeAtlasViewState({ projection: "mercator" }, "?foo=bar");
-    expect(serialized).toContain("foo=bar");
+    const filteredState = {
+      ...defaults,
+      projection: "mercator" as const,
+      q: "wawel",
+      visitStatus: "VISITED" as const,
+      derivedRole: "MUST_SEE" as const,
+      category: "LANDMARK" as const,
+      account: "personal",
+      list: "Starred",
+      regionLevel: "COUNTRY" as const,
+      regionCode: "PL",
+      statsOpen: true,
+    };
+
+    const serialized = writeAtlasViewState(filteredState, "?basemap=offline");
+    expect(serialized).toContain("basemap=offline");
     expect(serialized).toContain("view=map");
-    expect(readAtlasViewState(serialized)).toEqual({ projection: "mercator" });
+    expect(serialized).toContain("q=wawel");
+    expect(serialized).toContain("status=VISITED");
+    expect(serialized).toContain("role=MUST_SEE");
+    expect(serialized).toContain("category=LANDMARK");
+    expect(serialized).toContain("account=personal");
+    expect(serialized).toContain("list=Starred");
+    expect(serialized).toContain("regionLevel=COUNTRY");
+    expect(serialized).toContain("region=PL");
+    expect(serialized).toContain("stats=1");
+    expect(readAtlasViewState(serialized)).toEqual(filteredState);
 
-    expect(writeAtlasViewState({ projection: "globe" }, serialized)).toBe("?foo=bar");
+    expect(writeAtlasViewState(defaults, serialized)).toBe("?basemap=offline");
   });
 });

@@ -2,6 +2,7 @@ package com.meanderatlas.atlas.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.PlaceCategory;
 import java.util.List;
