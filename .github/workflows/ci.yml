@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    name: ci
+  verify:
+    name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -51,22 +51,45 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm --dir frontend install --frozen-lockfile
 
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+
       - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --dir frontend exec playwright install-deps chromium
+
+      - name: Cache gitleaks
+        id: gitleaks-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/gitleaks
+          key: gitleaks-${{ runner.os }}-8.30.1
 
       - name: Install gitleaks
         shell: bash
         run: |
-          GITLEAKS_VERSION="8.30.1"
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
-          gitleaks version
+          mkdir -p "$HOME/.local/bin"
+          if [[ "${{ steps.gitleaks-cache.outputs.cache-hit }}" != "true" ]]; then
+            GITLEAKS_VERSION="8.30.1"
+            curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+            tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+            install -m 0755 /tmp/gitleaks "$HOME/.local/bin/gitleaks"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/gitleaks" version
 
       - name: Run verify gate
         env:
           CI: "true"
-        run: ./scripts/verify.sh --docker
+        run: ./scripts/verify.sh
 
       - name: Upload Playwright visual proof
         if: always()
@@ -75,3 +98,42 @@ jobs:
           name: phase0-visual-proof
           path: artifacts/proof/
           if-no-files-found: ignore
+
+  docker-smoke:
+    name: docker-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 26
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run Docker Compose smoke test
+        shell: bash
+        env:
+          COMPOSE_BAKE: "true"
+        run: |
+          cat > /tmp/compose.ci-cache.yml << 'EOF'
+          services:
+            backend:
+              build:
+                cache_from:
+                  - type=gha,scope=backend
+                cache_to:
+                  - type=gha,mode=max,scope=backend
+            frontend:
+              build:
+                cache_from:
+                  - type=gha,scope=frontend
+                cache_to:
+                  - type=gha,mode=max,scope=frontend
+          EOF
+          COMPOSE_FILE="compose.yml:/tmp/compose.ci-cache.yml" ./scripts/verify-docker.sh
