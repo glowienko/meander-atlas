@@ -17,8 +17,17 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.docs.Documenter;
@@ -47,9 +56,20 @@ class ArchitectureTest {
         "org.locationtech.jts..",
         "org.springframework.web.reactive.."
     };
+    private static final Class<?>[] MUTABLE_COLLECTION_CLASSES = {
+        ArrayList.class,
+        LinkedList.class,
+        HashSet.class,
+        LinkedHashSet.class,
+        TreeSet.class,
+        HashMap.class,
+        LinkedHashMap.class,
+        TreeMap.class
+    };
     private static final Set<String> INTERNAL_SUBPACKAGES =
             Set.of("domain", "application", "adapter");
     private static final int EXPECTED_SYNTHETIC_VIOLATIONS = 2;
+    private static final int EXPECTED_MUTABLE_VIOLATIONS = 3;
 
     private static final JavaClasses PRODUCTION_CLASSES =
             new ClassFileImporter()
@@ -140,6 +160,30 @@ class ArchitectureTest {
     }
 
     @Test
+    void productionCodeEmbracesImmutableCollections() {
+        noClasses()
+                .should()
+                .dependOnClassesThat()
+                .belongToAnyOf(MUTABLE_COLLECTION_CLASSES)
+                .check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    void immutabilityRuleRejectsMutableCollections() {
+        JavaClasses syntheticClasses =
+                new ClassFileImporter().importClasses(SyntheticMutableHolder.class);
+        var result =
+                noClasses()
+                        .should()
+                        .dependOnClassesThat()
+                        .belongToAnyOf(MUTABLE_COLLECTION_CLASSES)
+                        .evaluate(syntheticClasses);
+
+        assertThat(result.hasViolation()).isTrue();
+        assertThat(result.getFailureReport().getDetails()).hasSize(EXPECTED_MUTABLE_VIOLATIONS);
+    }
+
+    @Test
     void testsAvoidMockitoInFavorOfInMemoryFakes() {
         noClasses()
                 .should()
@@ -199,5 +243,20 @@ class ArchitectureTest {
         }
 
         public void leakyParam(List<AtlasHealthRepository> repositories) {}
+    }
+
+    static class SyntheticMutableHolder {
+
+        List<String> mutableList() {
+            return new ArrayList<>();
+        }
+
+        Set<String> mutableSet() {
+            return new HashSet<>();
+        }
+
+        Map<String, String> mutableMap() {
+            return new HashMap<>();
+        }
     }
 }

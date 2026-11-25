@@ -7,17 +7,14 @@ import java.nio.file.Path;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-final class FixtureArchiveSupport {
+public final class FixtureArchiveSupport {
 
     private static final String FIXTURES_DIR = "../fixtures";
-    private static final String TAKEOUT_ZIP_NAME = "synthetic-takeout-pl-en.zip";
-    private static final String TIMELINE_JSON_NAME = "synthetic-timeline.json";
-    private static final String ZIP_SLIP_MESSAGE = "Zip entry escapes target directory: ";
 
     private FixtureArchiveSupport() {}
 
-    static Path extractSyntheticTakeout(Path targetDir) throws IOException {
-        Path zipPath = fixturePath(TAKEOUT_ZIP_NAME);
+    public static Path extractSyntheticTakeout(Path targetDir) throws IOException {
+        Path zipPath = fixturePath("synthetic-takeout-pl-en.zip");
         Path normalizedRoot = targetDir.toAbsolutePath().normalize();
         try (InputStream in = Files.newInputStream(zipPath);
                 ZipInputStream zis = new ZipInputStream(in)) {
@@ -25,7 +22,7 @@ final class FixtureArchiveSupport {
             while ((entry = zis.getNextEntry()) != null) {
                 Path destination = normalizedRoot.resolve(entry.getName()).normalize();
                 if (!destination.startsWith(normalizedRoot)) {
-                    throw new IOException(ZIP_SLIP_MESSAGE + entry.getName());
+                    throw new IOException("Zip entry escapes target directory: " + entry.getName());
                 }
                 if (entry.isDirectory()) {
                     Files.createDirectories(destination);
@@ -42,8 +39,8 @@ final class FixtureArchiveSupport {
         return normalizedRoot;
     }
 
-    static Path syntheticTimelinePath() {
-        return fixturePath(TIMELINE_JSON_NAME);
+    public static Path syntheticTimelinePath() {
+        return fixturePath("synthetic-timeline.json");
     }
 
     private static Path fixturePath(String fileName) {

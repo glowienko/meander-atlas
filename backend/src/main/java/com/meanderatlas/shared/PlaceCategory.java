@@ -1,4 +1,4 @@
-package com.meanderatlas.atlas;
+package com.meanderatlas.shared;
 
 public enum PlaceCategory {
     RESTAURANT,

@@ -6,12 +6,10 @@ public record GoogleCid(long unsignedBits) {
 
     private static final long ZERO_CID = 0L;
     private static final int HEX_RADIX = 16;
-    private static final String ZERO_CID_MESSAGE = "GoogleCid must be non-zero";
-    private static final String NULL_INPUT_MESSAGE = "GoogleCid input must not be null";
 
     public GoogleCid {
         if (unsignedBits == ZERO_CID) {
-            throw new IllegalArgumentException(ZERO_CID_MESSAGE);
+            throw new IllegalArgumentException("GoogleCid must be non-zero");
         }
     }
 
@@ -20,12 +18,12 @@ public record GoogleCid(long unsignedBits) {
     }
 
     public static GoogleCid fromUnsignedHex(String hex) {
-        Objects.requireNonNull(hex, NULL_INPUT_MESSAGE);
+        Objects.requireNonNull(hex, "hex must not be null");
         return new GoogleCid(Long.parseUnsignedLong(hex, HEX_RADIX));
     }
 
     public static GoogleCid fromUnsignedDecimal(String decimal) {
-        Objects.requireNonNull(decimal, NULL_INPUT_MESSAGE);
+        Objects.requireNonNull(decimal, "decimal must not be null");
         return new GoogleCid(Long.parseUnsignedLong(decimal));
     }
 }

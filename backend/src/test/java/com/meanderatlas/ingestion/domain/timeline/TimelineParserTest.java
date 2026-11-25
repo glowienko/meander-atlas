@@ -1,7 +1,8 @@
-package com.meanderatlas.ingestion.domain;
+package com.meanderatlas.ingestion.domain.timeline;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
 import com.meanderatlas.shared.GeoPoint;
 import java.io.IOException;
 import java.time.Instant;

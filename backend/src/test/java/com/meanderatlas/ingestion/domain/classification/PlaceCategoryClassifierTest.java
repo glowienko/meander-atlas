@@ -1,9 +1,12 @@
-package com.meanderatlas.ingestion.domain;
+package com.meanderatlas.ingestion.domain.classification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.meanderatlas.atlas.CategorySource;
-import com.meanderatlas.atlas.PlaceCategory;
+import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
+import com.meanderatlas.ingestion.domain.takeout.ParsedSavedCsvRow;
+import com.meanderatlas.ingestion.domain.takeout.TakeoutCsvParser;
+import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.PlaceCategory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -99,13 +102,14 @@ class PlaceCategoryClassifierTest {
         List<ParsedSavedCsvRow> rows =
                 TakeoutCsvParser.parse(root.resolve("Takeout/Zapisano/Chcę odwiedzić.csv"));
 
-        assertThat(rows).hasSize(15);
-        for (ParsedSavedCsvRow row : rows) {
-            PlaceClassification result =
-                    PlaceCategoryClassifier.classify(row.title(), row.note(), row.tags());
-            assertThat(result.source()).isEqualTo(CategorySource.HEURISTIC);
-            assertThat(result.category()).isNotEqualTo(PlaceCategory.UNCATEGORIZED);
-        }
+        assertThat(rows)
+                .hasSize(15)
+                .allSatisfy(row -> {
+                    PlaceClassification result =
+                            PlaceCategoryClassifier.classify(row.title(), row.note(), row.tags());
+                    assertThat(result.source()).isEqualTo(CategorySource.HEURISTIC);
+                    assertThat(result.category()).isNotEqualTo(PlaceCategory.UNCATEGORIZED);
+                });
     }
 
     private static void assertClassified(

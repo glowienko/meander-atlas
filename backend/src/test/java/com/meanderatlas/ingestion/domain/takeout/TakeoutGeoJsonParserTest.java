@@ -1,9 +1,11 @@
-package com.meanderatlas.ingestion.domain;
+package com.meanderatlas.ingestion.domain.takeout;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.meanderatlas.atlas.ListKind;
+import com.meanderatlas.ingestion.domain.FixtureArchiveSupport;
+import com.meanderatlas.ingestion.domain.GoogleCid;
 import com.meanderatlas.shared.GeoPoint;
+import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.VisitSource;
 import java.io.IOException;
 import java.nio.file.Path;

@@ -1,24 +1,19 @@
-package com.meanderatlas.ingestion.domain;
+package com.meanderatlas.ingestion.domain.classification;
 
-import com.meanderatlas.atlas.PlaceCategory;
+import com.meanderatlas.ingestion.domain.TextNormalizer;
+import com.meanderatlas.shared.PlaceCategory;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 
 public final class PlaceCategoryClassifier {
 
-    private static final String WORD_START = "(?:^|[^a-z0-9])(?:";
     private static final String WORD_END = ")(?:$|[^a-z0-9])";
-    private static final String RAW_WORD_START = "(?:^|[^\\p{L}0-9])(?:";
-    private static final String RAW_WORD_END = ")(?:$|[^\\p{L}0-9])";
-    private static final String SUFFIX_START = "(?:^|[a-z0-9\\s-])(?:";
-    private static final String ALTERNATION = "|";
-    private static final String SPACE = " ";
-    private static final String NULL_NAME_MESSAGE = "name must not be null";
     private static final PlaceClassification UNCATEGORIZED =
             PlaceClassification.heuristic(PlaceCategory.UNCATEGORIZED, null);
 
@@ -291,16 +286,17 @@ public final class PlaceCategoryClassifier {
 
     public static PlaceClassification classify(
             String name, @Nullable String note, @Nullable String tags) {
-        Objects.requireNonNull(name, NULL_NAME_MESSAGE);
+        Objects.requireNonNull(name, "name must not be null");
         PlaceClassification fromName = classifyText(name);
         if (fromName.category() != PlaceCategory.UNCATEGORIZED) {
             return fromName;
         }
-        String secondary = combineSecondary(note, tags);
-        if (secondary == null) {
-            return UNCATEGORIZED;
-        }
-        return classifyText(secondary);
+        String secondary =
+                Stream.of(note, tags)
+                        .map(TextNormalizer::trimToNull)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.joining(" "));
+        return secondary.isEmpty() ? UNCATEGORIZED : classifyText(secondary);
     }
 
     private static PlaceClassification classifyText(String text) {
@@ -310,63 +306,57 @@ public final class PlaceCategoryClassifier {
         }
         String loweredRaw = trimmed.toLowerCase(Locale.ROOT);
         String folded = TextNormalizer.normalizeFolded(trimmed);
-        for (KeywordRule rule : RULES) {
-            String candidate = rule.matchFolded() ? folded : loweredRaw;
-            if (rule.pattern().matcher(candidate).find()) {
-                return PlaceClassification.heuristic(rule.category(), rule.subcategory());
-            }
-        }
-        return UNCATEGORIZED;
-    }
-
-    private static @Nullable String combineSecondary(@Nullable String note, @Nullable String tags) {
-        String cleanNote = TextNormalizer.trimToNull(note);
-        String cleanTags = TextNormalizer.trimToNull(tags);
-        if (cleanNote == null && cleanTags == null) {
-            return null;
-        }
-        if (cleanNote == null) {
-            return cleanTags;
-        }
-        if (cleanTags == null) {
-            return cleanNote;
-        }
-        return cleanNote + SPACE + cleanTags;
+        return RULES.stream()
+                .filter(rule -> rule.matches(folded, loweredRaw))
+                .findFirst()
+                .map(KeywordRule::toClassification)
+                .orElse(UNCATEGORIZED);
     }
 
     private static KeywordRule words(
             PlaceCategory category, String subcategory, String... keywords) {
-        String joined =
-                Arrays.stream(keywords)
-                        .map(Pattern::quote)
-                        .collect(Collectors.joining(ALTERNATION));
-        return new KeywordRule(
-                category, subcategory, Pattern.compile(WORD_START + joined + WORD_END), true);
+        return compileRule(category, subcategory, "(?:^|[^a-z0-9])(?:", WORD_END, true, keywords);
     }
 
     private static KeywordRule rawWords(
             PlaceCategory category, String subcategory, String... keywords) {
-        String joined =
-                Arrays.stream(keywords)
-                        .map(Pattern::quote)
-                        .collect(Collectors.joining(ALTERNATION));
-        return new KeywordRule(
+        return compileRule(
                 category,
                 subcategory,
-                Pattern.compile(RAW_WORD_START + joined + RAW_WORD_END),
-                false);
+                "(?:^|[^\\p{L}0-9])(?:",
+                ")(?:$|[^\\p{L}0-9])",
+                false,
+                keywords);
     }
 
     private static KeywordRule suffixes(
             PlaceCategory category, String subcategory, String... keywords) {
+        return compileRule(
+                category, subcategory, "(?:^|[a-z0-9\\s-])(?:", WORD_END, true, keywords);
+    }
+
+    private static KeywordRule compileRule(
+            PlaceCategory category,
+            String subcategory,
+            String prefix,
+            String suffix,
+            boolean matchFolded,
+            String... keywords) {
         String joined =
-                Arrays.stream(keywords)
-                        .map(Pattern::quote)
-                        .collect(Collectors.joining(ALTERNATION));
+                Arrays.stream(keywords).map(Pattern::quote).collect(Collectors.joining("|"));
         return new KeywordRule(
-                category, subcategory, Pattern.compile(SUFFIX_START + joined + WORD_END), true);
+                category, subcategory, Pattern.compile(prefix + joined + suffix), matchFolded);
     }
 
     private record KeywordRule(
-            PlaceCategory category, String subcategory, Pattern pattern, boolean matchFolded) {}
+            PlaceCategory category, String subcategory, Pattern pattern, boolean matchFolded) {
+
+        boolean matches(String folded, String loweredRaw) {
+            return pattern.matcher(matchFolded ? folded : loweredRaw).find();
+        }
+
+        PlaceClassification toClassification() {
+            return PlaceClassification.heuristic(category, subcategory);
+        }
+    }
 }

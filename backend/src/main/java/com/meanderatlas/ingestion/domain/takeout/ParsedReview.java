@@ -1,5 +1,6 @@
-package com.meanderatlas.ingestion.domain;
+package com.meanderatlas.ingestion.domain.takeout;
 
+import com.meanderatlas.ingestion.domain.GoogleCid;
 import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.VisitSource;
 import java.time.Instant;
@@ -21,15 +22,12 @@ public record ParsedReview(
 
     private static final int MIN_STAR_RATING = 1;
     private static final int MAX_STAR_RATING = 5;
-    private static final String NULL_SOURCE_FILE_MESSAGE = "sourceFile must not be null";
-    private static final String NULL_VISIT_SOURCE_MESSAGE = "visitSource must not be null";
-    private static final String INVALID_RATING_MESSAGE = "starRating must be between 1 and 5";
 
     public ParsedReview {
-        Objects.requireNonNull(sourceFile, NULL_SOURCE_FILE_MESSAGE);
-        Objects.requireNonNull(visitSource, NULL_VISIT_SOURCE_MESSAGE);
+        Objects.requireNonNull(sourceFile, "sourceFile must not be null");
+        Objects.requireNonNull(visitSource, "visitSource must not be null");
         if (starRating != null && (starRating < MIN_STAR_RATING || starRating > MAX_STAR_RATING)) {
-            throw new IllegalArgumentException(INVALID_RATING_MESSAGE);
+            throw new IllegalArgumentException("starRating must be between 1 and 5");
         }
     }
 }

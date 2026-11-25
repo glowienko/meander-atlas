@@ -1,5 +1,5 @@
 @NullMarked
-@ApplicationModule(allowedDependencies = {"shared", "atlas"})
+@ApplicationModule(allowedDependencies = {"shared"})
 package com.meanderatlas.ingestion;
 
 import org.jspecify.annotations.NullMarked;
