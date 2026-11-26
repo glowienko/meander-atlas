@@ -1,5 +1,6 @@
 package com.meanderatlas.atlas.domain.boundaries;
 
+import com.meanderatlas.atlas.domain.RegionCodeNormalizer;
 import com.meanderatlas.atlas.domain.RegionLevel;
 import java.io.IOException;
 import java.io.Reader;
@@ -16,6 +17,7 @@ import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -30,28 +32,27 @@ public final class NaturalEarthGeoJsonParser {
 
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
     private static final String INVALID_CODE_SENTINEL = "-99";
-    private static final String TILDE = "~";
-    private static final String HYPHEN = "-";
-    private static final String EMPTY_CODE = "";
+    private static final int ISO_ALPHA2_LENGTH = 2;
     private static final Set<String> POLYGON_TYPES = Set.of("Polygon", "MultiPolygon");
     private static final List<String> COUNTRY_CODE_KEYS = List.of("ISO_A2_EH", "ISO_A2", "ADM0_A3");
     private static final List<String> COUNTRY_NAME_KEYS = List.of("ADMIN", "NAME", "NAME_LONG");
-    private static final List<String> ADMIN1_COUNTRY_KEYS = List.of("iso_a2", "adm0_a3");
     private static final List<String> ADMIN1_NAME_KEYS = List.of("name", "name_en", "gn_name");
 
     private NaturalEarthGeoJsonParser() {}
 
     public static List<BoundaryFeature> parseCountries(Path geoJsonFile) throws IOException {
-        Objects.requireNonNull(geoJsonFile, "geoJsonFile must not be null");
-        try (Reader reader = Files.newBufferedReader(geoJsonFile, StandardCharsets.UTF_8)) {
-            return parseCountries(reader);
-        }
+        return parseFile(geoJsonFile, NaturalEarthGeoJsonParser::parseCountries);
     }
 
     public static List<BoundaryFeature> parseAdmin1(Path geoJsonFile) throws IOException {
+        return parseFile(geoJsonFile, NaturalEarthGeoJsonParser::parseAdmin1);
+    }
+
+    private static List<BoundaryFeature> parseFile(
+            Path geoJsonFile, Function<Reader, List<BoundaryFeature>> parser) throws IOException {
         Objects.requireNonNull(geoJsonFile, "geoJsonFile must not be null");
         try (Reader reader = Files.newBufferedReader(geoJsonFile, StandardCharsets.UTF_8)) {
-            return parseAdmin1(reader);
+            return parser.apply(reader);
         }
     }
 
@@ -95,8 +96,13 @@ public final class NaturalEarthGeoJsonParser {
             return Optional.empty();
         }
         JsonNode properties = feature.path("properties");
-        String code = firstCode(properties, COUNTRY_CODE_KEYS);
-        String name = firstText(properties, COUNTRY_NAME_KEYS);
+        String code =
+                firstProperty(
+                        properties,
+                        COUNTRY_CODE_KEYS,
+                        NaturalEarthGeoJsonParser::normalizeValidCode);
+        String name =
+                firstProperty(properties, COUNTRY_NAME_KEYS, RegionCodeNormalizer::trimToNull);
         if (code == null || name == null) {
             return Optional.empty();
         }
@@ -115,15 +121,14 @@ public final class NaturalEarthGeoJsonParser {
             return Optional.empty();
         }
         JsonNode properties = feature.path("properties");
-        String iso3166_2 = normalizeValidIso3166(findProperty(properties, "iso_3166_2"));
+        String rawIso3166_2 = findProperty(properties, "iso_3166_2");
+        String iso3166_2 = normalizeValidIso3166(rawIso3166_2);
         String adm1Code = normalizeValidCode(findProperty(properties, "adm1_code"));
-        String name = firstText(properties, ADMIN1_NAME_KEYS);
+        String name = firstProperty(properties, ADMIN1_NAME_KEYS, RegionCodeNormalizer::trimToNull);
         if (name == null || (iso3166_2 == null && adm1Code == null)) {
             return Optional.empty();
         }
-        String countryCode =
-                Optional.ofNullable(firstCode(properties, ADMIN1_COUNTRY_KEYS))
-                        .orElseGet(() -> deriveCountryCodeFromIso(iso3166_2));
+        String countryCode = resolveAdmin1CountryCode(properties, rawIso3166_2);
         if (countryCode == null) {
             return Optional.empty();
         }
@@ -134,6 +139,16 @@ public final class NaturalEarthGeoJsonParser {
                         countryCode,
                         name,
                         JSON_MAPPER.writeValueAsString(geometry)));
+    }
+
+    private static @Nullable String resolveAdmin1CountryCode(
+            JsonNode properties, @Nullable String rawIso3166_2) {
+        return Optional.ofNullable(normalizeValidCode(findProperty(properties, "iso_a2")))
+                .or(() -> Optional.ofNullable(deriveCountryCodeFromIso(rawIso3166_2)))
+                .or(() ->
+                        Optional.ofNullable(
+                                normalizeValidCode(findProperty(properties, "adm0_a3"))))
+                .orElse(null);
     }
 
     private static Optional<BoundaryFeature> resolveAdmin1(
@@ -178,17 +193,10 @@ public final class NaturalEarthGeoJsonParser {
         return POLYGON_TYPES.contains(type) && coordinates.isArray() && !coordinates.isEmpty();
     }
 
-    private static @Nullable String firstCode(JsonNode properties, List<String> keys) {
+    private static @Nullable String firstProperty(
+            JsonNode properties, List<String> keys, UnaryOperator<@Nullable String> normalizer) {
         return keys.stream()
-                .map(key -> normalizeValidCode(findProperty(properties, key)))
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static @Nullable String firstText(JsonNode properties, List<String> keys) {
-        return keys.stream()
-                .map(key -> trimToNull(findProperty(properties, key)))
+                .map(key -> normalizer.apply(findProperty(properties, key)))
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
@@ -214,37 +222,34 @@ public final class NaturalEarthGeoJsonParser {
 
     private static @Nullable String normalizeValidIso3166(@Nullable String raw) {
         String code = normalizeValidCode(raw);
-        if (code == null || code.contains(TILDE)) {
+        if (code == null || code.contains("~")) {
             return null;
         }
         return code;
     }
 
     private static @Nullable String normalizeValidCode(@Nullable String raw) {
-        String trimmed = trimToNull(raw);
+        String trimmed = RegionCodeNormalizer.trimToNull(raw);
         if (trimmed == null || INVALID_CODE_SENTINEL.equals(trimmed)) {
             return null;
         }
         return trimmed.toUpperCase(Locale.ROOT);
     }
 
-    private static @Nullable String deriveCountryCodeFromIso(@Nullable String iso3166_2) {
-        if (iso3166_2 == null) {
+    private static @Nullable String deriveCountryCodeFromIso(@Nullable String rawIso3166_2) {
+        String normalized = normalizeValidCode(rawIso3166_2);
+        if (normalized == null) {
             return null;
         }
-        int dashIndex = iso3166_2.indexOf(HYPHEN);
+        int dashIndex = normalized.indexOf('-');
         if (dashIndex <= 0) {
             return null;
         }
-        return normalizeValidCode(iso3166_2.substring(0, dashIndex));
-    }
-
-    private static @Nullable String trimToNull(@Nullable String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+        String prefix = normalized.substring(0, dashIndex).trim();
+        boolean isTwoLetterIso =
+                prefix.length() == ISO_ALPHA2_LENGTH
+                        && prefix.chars().allMatch(Character::isLetter);
+        return isTwoLetterIso ? prefix : null;
     }
 
     private static <T> T withFeatureStream(Reader reader, Function<Stream<JsonNode>, T> fn) {
@@ -304,7 +309,7 @@ public final class NaturalEarthGeoJsonParser {
             String geometryJson) {
 
         private RawAdmin1 {
-            Objects.requireNonNull(countryCode, EMPTY_CODE);
+            Objects.requireNonNull(countryCode, "countryCode must not be null");
         }
     }
 }

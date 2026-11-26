@@ -6,6 +6,7 @@ import com.meanderatlas.atlas.AtlasPlaceView;
 import com.meanderatlas.atlas.AtlasStatsView;
 import com.meanderatlas.atlas.CategoryStatView;
 import com.meanderatlas.atlas.PlaceMembershipView;
+import com.meanderatlas.atlas.RegionFilterQuery;
 import com.meanderatlas.atlas.RegionScope;
 import com.meanderatlas.atlas.RegionSummaryView;
 import com.meanderatlas.atlas.SubcategoryStatView;
@@ -18,6 +19,7 @@ import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
 import com.meanderatlas.atlas.domain.stats.AtlasStats;
 import com.meanderatlas.atlas.domain.stats.RegionSummary;
+import com.meanderatlas.atlas.domain.stats.RegionSummaryFilter;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
 
@@ -38,6 +40,11 @@ final class AtlasViewMapper {
                 query.countryCode(),
                 query.admin1Id(),
                 bbox);
+    }
+
+    static RegionSummaryFilter toRegionSummaryFilter(RegionFilterQuery query) {
+        return new RegionSummaryFilter(
+                query.q(), query.derivedRole(), query.category(), query.account(), query.list());
     }
 
     static RegionLevel toRegionLevel(RegionScope scope) {

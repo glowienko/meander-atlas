@@ -82,7 +82,7 @@ public class AtlasFacade {
     }
 
     public List<RegionSummaryView> regionSummaries(
-            RegionScope scope, @Nullable String countryCode, AtlasPlaceFilterQuery filter) {
+            RegionScope scope, @Nullable String countryCode, RegionFilterQuery filter) {
         return getRegionSummaries.execute(scope, countryCode, filter);
     }
 

@@ -2,24 +2,19 @@ package com.meanderatlas.atlas.application;
 
 import com.meanderatlas.atlas.ImportedPlaceUpsertCommand;
 import com.meanderatlas.atlas.UpsertedPlaceView;
+import com.meanderatlas.atlas.application.ImportedPlaceMerger.ExistingPlaceMerge;
+import com.meanderatlas.atlas.application.ImportedPlaceMerger.InitialVisitDetails;
+import com.meanderatlas.atlas.application.ImportedPlaceMerger.MembershipDetails;
 import com.meanderatlas.atlas.domain.DerivedRoleResolver;
-import com.meanderatlas.atlas.domain.PlaceVisitState;
+import com.meanderatlas.atlas.domain.RegionCodeNormalizer;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
-import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CurrentUserProvider;
 import com.meanderatlas.shared.DerivedRole;
-import com.meanderatlas.shared.ListKind;
-import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
-import com.meanderatlas.shared.VisitSource;
-import com.meanderatlas.shared.VisitStatus;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,136 +27,116 @@ public class UpsertImportedPlace {
 
     private final AtlasPlaceRepository placeRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final ImportedPlaceMerger placeMerger;
 
     public UpsertImportedPlace(
-            AtlasPlaceRepository placeRepository, CurrentUserProvider currentUserProvider) {
+            AtlasPlaceRepository placeRepository,
+            CurrentUserProvider currentUserProvider,
+            ImportedPlaceMerger placeMerger) {
         this.placeRepository = placeRepository;
         this.currentUserProvider = currentUserProvider;
+        this.placeMerger = placeMerger;
     }
 
     @Transactional
     public UpsertedPlaceView execute(ImportedPlaceUpsertCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         UserId userId = currentUserProvider.currentUserId();
-        String fallbackCountryCode = normalizeCountryCode(command.countryCode());
+        String fallbackCountryCode =
+                RegionCodeNormalizer.normalizeCountryCode(command.countryCode());
+        MembershipDetails membership =
+                new MembershipDetails(
+                        command.accountLabel(),
+                        command.listName(),
+                        command.listKind(),
+                        command.note(),
+                        command.tags(),
+                        command.sourceUrl(),
+                        command.savedAt());
+        InitialVisitDetails initialVisit =
+                InitialVisitDetails.ofNullable(
+                        command.initialVisitStatus(),
+                        command.initialVisitSource(),
+                        command.observedAt());
 
-        Optional<MatchedPlace> existing =
-                placeRepository.findCanonicalMatch(
+        return placeRepository
+                .findCanonicalMatch(
                         userId,
                         command.googlePlaceId(),
                         command.googleCid(),
                         command.coordinates(),
                         command.canonicalName(),
                         DEDUPE_RADIUS_METERS,
-                        MIN_TRIGRAM_SIMILARITY);
+                        MIN_TRIGRAM_SIMILARITY)
+                .map(matched ->
+                        mergeExisting(
+                                userId,
+                                matched,
+                                command,
+                                membership,
+                                fallbackCountryCode,
+                                initialVisit))
+                .orElseGet(() ->
+                        insertNew(userId, command, membership, fallbackCountryCode, initialVisit));
+    }
 
-        if (existing.isEmpty()) {
-            DerivedRole initialRole =
-                    DerivedRoleResolver.resolve(command.category(), List.of(command.listKind()));
-            PlaceId placeId =
-                    placeRepository.insertImportedPlace(
-                            userId,
-                            command.canonicalName(),
-                            command.coordinates(),
-                            command.coordSource(),
-                            command.googlePlaceId(),
-                            command.googleCid(),
-                            command.category(),
-                            command.subcategory(),
-                            command.categorySource(),
-                            initialRole,
-                            fallbackCountryCode,
-                            command.cityName());
-            placeRepository.upsertMembership(
-                    userId,
-                    placeId,
-                    command.accountLabel(),
-                    command.listName(),
-                    command.listKind(),
-                    command.note(),
-                    command.tags(),
-                    command.sourceUrl(),
-                    command.savedAt());
-            PlaceVisitState initialState = PlaceVisitState.unvisited(placeId, userId);
-            PlaceVisitState appliedState = applyInitialVisit(initialState, command);
-            placeRepository.upsertVisitStates(List.of(appliedState));
-            return new UpsertedPlaceView(placeId, true);
-        }
-
-        MatchedPlace matched = existing.get();
+    private UpsertedPlaceView insertNew(
+            UserId userId,
+            ImportedPlaceUpsertCommand command,
+            MembershipDetails membership,
+            @Nullable String fallbackCountryCode,
+            @Nullable InitialVisitDetails initialVisit) {
+        DerivedRole initialRole =
+                DerivedRoleResolver.resolve(command.category(), List.of(command.listKind()));
+        PlaceId placeId =
+                placeRepository.insertImportedPlace(
+                        userId,
+                        command.canonicalName(),
+                        command.coordinates(),
+                        command.coordSource(),
+                        command.googlePlaceId(),
+                        command.googleCid(),
+                        command.category(),
+                        command.subcategory(),
+                        command.categorySource(),
+                        initialRole,
+                        fallbackCountryCode,
+                        command.cityName());
         placeRepository.upsertMembership(
                 userId,
-                matched.id(),
-                command.accountLabel(),
-                command.listName(),
-                command.listKind(),
-                command.note(),
-                command.tags(),
-                command.sourceUrl(),
-                command.savedAt());
+                placeId,
+                membership.accountLabel(),
+                membership.listName(),
+                membership.listKind(),
+                membership.note(),
+                membership.tags(),
+                membership.sourceUrl(),
+                membership.savedAt());
+        placeMerger.initializeVisitState(userId, placeId, initialVisit);
+        return new UpsertedPlaceView(placeId, true);
+    }
 
-        List<ListKind> allKinds =
-                Stream.concat(
-                                placeRepository.findMembershipListKinds(matched.id()).stream(),
-                                Stream.of(command.listKind()))
-                        .distinct()
-                        .toList();
-
-        boolean canUpgradeCategory =
-                matched.categorySource() != CategorySource.MANUAL
-                        && matched.category() == PlaceCategory.UNCATEGORIZED
-                        && command.category() != PlaceCategory.UNCATEGORIZED;
-        PlaceCategory effectiveCategory =
-                canUpgradeCategory ? command.category() : matched.category();
-        DerivedRole resolvedRole = DerivedRoleResolver.resolve(effectiveCategory, allKinds);
-
+    private UpsertedPlaceView mergeExisting(
+            UserId userId,
+            MatchedPlace matched,
+            ImportedPlaceUpsertCommand command,
+            MembershipDetails membership,
+            @Nullable String fallbackCountryCode,
+            @Nullable InitialVisitDetails initialVisit) {
         String backfillPlaceId = matched.googlePlaceId() == null ? command.googlePlaceId() : null;
         Long backfillCid = matched.googleCid() == null ? command.googleCid() : null;
-
-        placeRepository.updatePlaceAfterMerge(
+        placeMerger.mergeIntoExisting(
                 userId,
-                matched.id(),
-                resolvedRole,
-                canUpgradeCategory ? command.category() : null,
-                canUpgradeCategory ? command.subcategory() : null,
-                canUpgradeCategory ? command.categorySource() : null,
-                backfillPlaceId,
-                backfillCid,
-                fallbackCountryCode);
-
-        if (command.initialVisitStatus() != null && command.initialVisitSource() != null) {
-            PlaceVisitState current =
-                    placeRepository
-                            .findVisitState(userId, matched.id())
-                            .orElseGet(() -> PlaceVisitState.unvisited(matched.id(), userId));
-            PlaceVisitState next = applyInitialVisit(current, command);
-            if (!next.equals(current)) {
-                placeRepository.upsertVisitStates(List.of(next));
-            }
-        }
+                new ExistingPlaceMerge(
+                        matched,
+                        command.category(),
+                        command.subcategory(),
+                        command.categorySource(),
+                        membership,
+                        backfillPlaceId,
+                        backfillCid,
+                        fallbackCountryCode,
+                        initialVisit));
         return new UpsertedPlaceView(matched.id(), false);
-    }
-
-    private static PlaceVisitState applyInitialVisit(
-            PlaceVisitState current, ImportedPlaceUpsertCommand command) {
-        VisitStatus status = command.initialVisitStatus();
-        VisitSource source = command.initialVisitSource();
-        if (status == null || source == null) {
-            return current;
-        }
-        if (source == VisitSource.REVIEW
-                && current.status() == VisitStatus.VISITED
-                && current.source() == VisitSource.REVIEW) {
-            return current;
-        }
-        return current.apply(status, source, command.observedAt());
-    }
-
-    private static @Nullable String normalizeCountryCode(@Nullable String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 }

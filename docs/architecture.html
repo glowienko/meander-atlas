@@ -1,0 +1,2195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeanderAtlas — Interactive Architecture Explorer</title>
+  <style>
+    :root {
+      --background: #FAF9F6;
+      --card: #FFFFFF;
+      --content: #F4F2EC;
+      --border: #DDD8CC;
+      --card-border: #E7E3D8;
+      --foreground: #1C1917;
+      --muted-foreground: #57534E;
+      --code-foreground: #292524;
+      --primary: #1D4ED8;
+      --primary-foreground: #FFFFFF;
+      --link: #1D4ED8;
+      --warning: #D97706;
+      --chart-1: #2563EB;
+      --chart-2: #0D9488;
+      --chart-3: #7C3AED;
+      --chart-4: #EA580C;
+      --chart-5: #4F46E5;
+      --chart-6: #64748B;
+    }
+
+    :root[data-theme="dark"] {
+      --background: #141311;
+      --card: #1C1B18;
+      --content: #25231F;
+      --border: #38342D;
+      --card-border: #2F2C26;
+      --foreground: #F5F3EE;
+      --muted-foreground: #A8A29E;
+      --code-foreground: #E7E5E4;
+      --primary: #60A5FA;
+      --primary-foreground: #0F172A;
+      --link: #93C5FD;
+      --warning: #FBBF24;
+      --chart-1: #60A5FA;
+      --chart-2: #2DD4BF;
+      --chart-3: #A78BFA;
+      --chart-4: #FB923C;
+      --chart-5: #818CF8;
+      --chart-6: #94A3B8;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--background);
+      color: var(--foreground);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input {
+      font: inherit;
+      color: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .page-shell {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .header-card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .header-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .title-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .subtitle {
+      margin: 2px 0 0;
+      font-size: 12px;
+      color: var(--muted-foreground);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+      color: var(--muted-foreground);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .controls-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .search-wrap {
+      position: relative;
+      width: 288px;
+      max-width: 100%;
+    }
+
+    .search-input {
+      width: 100%;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+      color: var(--foreground);
+      outline: none;
+    }
+
+    .search-input::placeholder {
+      color: var(--muted-foreground);
+    }
+
+    .search-input:focus {
+      border-color: var(--primary);
+    }
+
+    .search-dropdown {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 30;
+      max-height: 288px;
+      overflow-y: auto;
+      border-radius: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+    }
+
+    .search-item {
+      width: 100%;
+      text-align: left;
+      padding: 10px;
+      border: 0;
+      border-bottom: 1px solid var(--card-border);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .search-item:last-child {
+      border-bottom: 0;
+    }
+
+    .search-item:hover {
+      background: var(--content);
+    }
+
+    .btn-secondary {
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+      color: var(--muted-foreground);
+      white-space: nowrap;
+    }
+
+    .btn-secondary:hover {
+      color: var(--foreground);
+      border-color: var(--border);
+    }
+
+    .btn-primary {
+      width: 100%;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: 0;
+      background: var(--primary);
+      color: var(--primary-foreground);
+    }
+
+    .nav-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--card-border);
+    }
+
+    .tab-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tab-btn {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      background: var(--content);
+      color: var(--muted-foreground);
+    }
+
+    .tab-btn:hover {
+      color: var(--foreground);
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: var(--primary-foreground);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted-foreground);
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (min-width: 1024px) {
+      .workspace-grid {
+        grid-template-columns: minmax(0, 1fr) 360px;
+      }
+      .inspector-card {
+        position: sticky;
+        top: 16px;
+      }
+    }
+
+    .stage-card {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .view-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .filter-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .filter-btn {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--card-border);
+      background: var(--content);
+      color: var(--muted-foreground);
+    }
+
+    .filter-btn:hover {
+      color: var(--foreground);
+    }
+
+    .filter-btn.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: var(--primary-foreground);
+      font-weight: 500;
+    }
+
+    .stage-scroll {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .inspector-card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .inspector-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 8px;
+    }
+
+    .inspector-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .inspector-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .path-box {
+      border-radius: 8px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+      padding: 8px;
+      font-size: 12px;
+      color: var(--code-foreground);
+      word-break: break-word;
+    }
+
+    .section-divider {
+      padding-top: 10px;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .section-kicker {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted-foreground);
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip-btn {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+      color: var(--foreground);
+    }
+
+    .chip-btn:hover {
+      border-color: var(--primary);
+    }
+
+    .flow-list {
+      max-width: 760px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .flow-card {
+      width: 100%;
+      text-align: left;
+      border-radius: 12px;
+      padding: 14px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+      transition: border-color 150ms ease;
+    }
+
+    .flow-card:hover,
+    .flow-card.selected {
+      border-color: var(--primary);
+    }
+
+    .flow-card.selected {
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    .flow-arrow {
+      display: flex;
+      justify-content: center;
+      padding: 4px 0;
+    }
+
+    .fe-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px;
+    }
+
+    .fe-card {
+      text-align: left;
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--content);
+      border: 1px solid var(--card-border);
+    }
+
+    .fe-card:hover,
+    .fe-card.selected {
+      border-color: var(--primary);
+    }
+
+    .fe-card.selected {
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    .svg-board {
+      width: 100%;
+      height: auto;
+      user-select: none;
+      display: block;
+    }
+
+    .svg-node {
+      cursor: pointer;
+      transition: opacity 150ms ease;
+    }
+
+    .svg-node:hover rect.node-bg {
+      stroke-width: 2.2;
+    }
+
+    .svg-edge {
+      fill: none;
+      transition: opacity 150ms ease, stroke-width 150ms ease;
+      pointer-events: none;
+    }
+
+    .dimmed {
+      opacity: 0.22;
+    }
+
+    .edge-dimmed {
+      opacity: 0.08;
+    }
+
+    .edge-active {
+      opacity: 0.95;
+      stroke-width: 2.2;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    ul.fn-list {
+      margin: 0;
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="card header-card">
+      <div class="header-top">
+        <div class="brand-group">
+          <div class="brand-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--chart-1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M3 12h18"></path>
+              <path d="M12 3a13 13 0 0 1 0 18"></path>
+              <path d="M12 3a13 13 0 0 0 0 18"></path>
+            </svg>
+          </div>
+          <div>
+            <div class="title-row">
+              <h1 class="page-title">MeanderAtlas Codebase Explorer</h1>
+              <span class="pill mono">v0.1 · PR #14</span>
+            </div>
+            <p class="subtitle">
+              Spring Boot 4.1 Modulith + PostGIS 3.5 + React 19 / MapLibre GL JS — click any block, class, flow step, or table to trace dependencies.
+            </p>
+          </div>
+        </div>
+
+        <div class="controls-group">
+          <div class="search-wrap">
+            <input
+              id="global-search"
+              type="search"
+              placeholder="Search class, endpoint, table, hook..."
+              class="search-input"
+            />
+            <div id="search-results" class="search-dropdown hidden"></div>
+          </div>
+          <button id="theme-toggle-btn" type="button" class="btn-secondary">Dark Mode</button>
+          <button id="clear-selection-btn" type="button" class="btn-secondary">Reset</button>
+        </div>
+      </div>
+
+      <nav class="nav-row">
+        <div id="tab-bar" class="tab-bar"></div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-1)"></span>atlas</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-2)"></span>ingestion</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-3)"></span>shared</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-4)"></span>frontend / edge</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--chart-5)"></span>database / disk</span>
+        </div>
+      </nav>
+    </header>
+
+    <main class="workspace-grid">
+      <section class="card stage-card">
+        <div id="view-toolbar" class="view-toolbar"></div>
+        <div id="view-stage" class="stage-scroll"></div>
+      </section>
+
+      <aside class="card inspector-card">
+        <div class="inspector-header">
+          <h2 class="inspector-title">Inspector</h2>
+          <span id="inspector-badge" class="pill">Select a node</span>
+        </div>
+        <div id="inspector-body" class="inspector-body"></div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const MODULE_COLORS = {
+      atlas: "var(--chart-1)",
+      ingestion: "var(--chart-2)",
+      shared: "var(--chart-3)",
+      frontend: "var(--chart-4)",
+      database: "var(--chart-5)",
+      infra: "var(--chart-6)"
+    };
+
+    const NODES = {
+      "hl-frontend": {
+        id: "hl-frontend",
+        title: "React 19 + MapLibre SPA",
+        module: "frontend",
+        layer: "Client UI",
+        tab: "overview",
+        path: "frontend/src/App.tsx",
+        tx: null,
+        summary: "Warm-Paper (#FAF9F6) interactive globe & map client. Syncs filters and active region into URL query params, renders places and vector region polygons via raw MapLibre GL JS, and coordinates mutations via TanStack Query + typed openapi-fetch.",
+        functions: [
+          "AtlasShell (App.tsx) — top-level state, selection, undo toast, bulk dialog",
+          "AtlasMapView — raw MapLibre globe/mercator + MVT /api/v1/atlas/tiles/regions/{level}/{z}/{x}/{y}.mvt",
+          "viewState.ts — URL <-> AtlasViewState + antimeridian isPlaceInViewport()",
+          "features/atlas/* & features/ingestion/* — UI panels & query hooks"
+        ],
+        dependsOn: ["hl-edge", "hl-atlas-web", "hl-ingestion-web"],
+        jumpTab: "frontend-db",
+        jumpLabel: "Open Frontend & DB View"
+      },
+      "hl-edge": {
+        id: "hl-edge",
+        title: "Caddy 2 + OpenAPI Contract Loop",
+        module: "infra",
+        layer: "Edge & Type Safety",
+        tab: "overview",
+        path: "contracts/openapi.json -> frontend/src/api/schema.d.ts",
+        tx: null,
+        summary: "Caddy proxies /api/v1/* and MVT tiles to the Spring Boot backend and serves static SPA assets. Build-time OpenAPI drift checks guarantee the TypeScript client matches Spring MVC controllers.",
+        functions: [
+          "OpenApiExportTest generates contracts/openapi.json from SpringDoc",
+          "pnpm --dir frontend run gen:api generates frontend/src/api/schema.d.ts",
+          "api/client.ts wraps openapi-fetch with typed query/body helpers",
+          "verify.sh fails on OpenAPI or schema.d.ts drift"
+        ],
+        dependsOn: ["hl-atlas-web", "hl-ingestion-web"],
+        jumpTab: "frontend-db",
+        jumpLabel: "Inspect API Client"
+      },
+      "hl-ingestion-web": {
+        id: "hl-ingestion-web",
+        title: "ingestion Module",
+        module: "ingestion",
+        layer: "Spring Modulith (@ApplicationModule)",
+        tab: "overview",
+        path: "backend/src/main/java/com/meanderatlas/ingestion/",
+        tx: "TransactionOperations (two-pass import)",
+        summary: "Imports Google Takeout (Saved Places JSON, Reviews JSON, Saved CSVs) and Timeline.json from local disk, deduplicates accounts by SHA-256, queues unresolved coordinate jobs, and delegates canonical place merging + Timeline reconciliation to AtlasFacade.",
+        functions: [
+          "ImportController: POST /api/v1/imports/local, GET /api/v1/imports/status",
+          "ImportFacade -> ImportLocalDirectory & GetImportStatus",
+          "Parsers: TakeoutGeoJsonParser, TakeoutCsvParser, CsvRecordReader, TimelineParser, GoogleCidDecoder, PlaceCategoryClassifier",
+          "Allowed dependencies: shared + atlas (only via AtlasFacade)"
+        ],
+        dependsOn: ["hl-atlas-facade", "hl-shared", "hl-db-ingestion", "hl-disk-imports"],
+        jumpTab: "backend",
+        jumpLabel: "Explore ingestion in Backend Map"
+      },
+      "hl-atlas-web": {
+        id: "hl-atlas-web",
+        title: "atlas Web & Startup Entry Points",
+        module: "atlas",
+        layer: "Web Adapters & Runners",
+        tab: "overview",
+        path: "backend/src/main/java/com/meanderatlas/atlas/adapter/web/",
+        tx: null,
+        summary: "5 Spring MVC controllers + RFC 9457 ProblemDetail exception handler + startup BoundaryAutoSeeder. Every controller delegates exclusively to AtlasFacade.",
+        functions: [
+          "AtlasPlacesController: GET /places, PATCH /{id}/visit-status, PATCH /bulk-visit-status, POST /bulk-visit-status/restore",
+          "AtlasRegionsController: GET /regions, GET /regions/{level}/{code}",
+          "AtlasBoundariesController: POST /boundaries/seed, GET /tiles/regions/{level}/{z}/{x}/{y}.mvt",
+          "AtlasStatsController & AtlasHealthController + BoundaryAutoSeeder"
+        ],
+        dependsOn: ["hl-atlas-facade"],
+        jumpTab: "backend",
+        jumpLabel: "Explore Controllers in Backend Map"
+      },
+      "hl-atlas-facade": {
+        id: "hl-atlas-facade",
+        title: "atlas Module (Core Domain & Spatial Engine)",
+        module: "atlas",
+        layer: "Spring Modulith (@ApplicationModule)",
+        tab: "overview",
+        path: "backend/src/main/java/com/meanderatlas/atlas/",
+        tx: "@Transactional / @Transactional(readOnly=true) / TransactionOperations",
+        summary: "Owns canonical places, memberships, visit states, and Natural Earth boundaries. All public cross-module entry points sit on AtlasFacade (13 methods), backed by single-use-case application services, pure Java 25 domain logic, and NamedParameterJdbcTemplate PostGIS repositories.",
+        functions: [
+          "AtlasFacade: single public module API (checked by ArchitectureTest)",
+          "Use cases: QueryAtlasPlaces, GetRegionSummaries, GetRegionDossier, GetAtlasStats, UpdatePlaceVisitStatus, BulkUpdatePlaceVisitStatus, RestorePlaceVisitStates, UpsertImportedPlace, AttachCsvMembershipByCid, ReconcileTimelineVisit, SeedRegionBoundaries, GetRegionMvtTile, GetAtlasHealth",
+          "Domain: PlaceVisitState, DerivedRoleResolver, NaturalEarthGeoJsonParser, BoundingBox",
+          "Allowed dependencies: shared only"
+        ],
+        dependsOn: ["hl-shared", "hl-db-atlas", "hl-disk-boundaries"],
+        jumpTab: "backend",
+        jumpLabel: "Explore atlas Internals"
+      },
+      "hl-shared": {
+        id: "hl-shared",
+        title: "shared Kernel",
+        module: "shared",
+        layer: "Shared Primitives & Enums",
+        tab: "overview",
+        path: "backend/src/main/java/com/meanderatlas/shared/",
+        tx: null,
+        summary: "Cross-module value primitives, domain enums, and CurrentUserProvider SPI. Neither atlas nor ingestion domain classes import Spring or JDBC; shared holds types safe for facades and domain models alike.",
+        functions: [
+          "Value objects: UserId, PlaceId, GeoPoint (validates lat/lng bounds)",
+          "Enums: PlaceCategory, CategorySource, DerivedRole, ListKind, VisitStatus, VisitSource (outranks precedence), CoordSource",
+          "CurrentUserProvider + ConfiguredCurrentUserProvider (single-user v0.1 config)"
+        ],
+        dependsOn: [],
+        jumpTab: "backend",
+        jumpLabel: "Inspect in Backend Map"
+      },
+      "hl-db-atlas": {
+        id: "hl-db-atlas",
+        title: "PostgreSQL 17 + PostGIS (atlas tables)",
+        module: "database",
+        layer: "Persistence Schema",
+        tab: "overview",
+        path: "backend/src/main/resources/db/migration/V1..V3",
+        tx: "Owned by atlas",
+        summary: "Stores canonical Point(4326) places, visit state machine rows, multi-account list memberships, and MultiPolygon(4326) Natural Earth boundaries with geometry & geography GiST indexes and pg_trgm trigram index.",
+        functions: [
+          "places (geom GiST, geom::geography GiST, canonical_name GIN trgm, unique user+google_place_id / user+google_cid)",
+          "place_visit_state (PK/FK place_id, CHECK invariants for UNVISITED / NEEDS_TRIAGE / VISITED)",
+          "place_memberships (UNIQUE place_id + account_label + list_name)",
+          "region_boundaries (geom + simplified_geom + geom::geography GiST)"
+        ],
+        dependsOn: [],
+        jumpTab: "frontend-db",
+        jumpLabel: "Open PostGIS Schema"
+      },
+      "hl-db-ingestion": {
+        id: "hl-db-ingestion",
+        title: "PostgreSQL 17 (ingestion tables)",
+        module: "database",
+        layer: "Persistence Schema",
+        tab: "overview",
+        path: "backend/src/main/resources/db/migration/V2__living_atlas_schema.sql",
+        tx: "Owned by ingestion",
+        summary: "Tracks idempotent import batches by content SHA-256, raw parsed JSONB records, and pending coordinate-lookup jobs for rows without coordinates or CID match.",
+        functions: [
+          "import_batches (UNIQUE user_id + account_label + content_sha256)",
+          "import_records (FK batch_id ON DELETE CASCADE, payload_json JSONB)",
+          "resolution_jobs (partial queue index WHERE status = 'PENDING')"
+        ],
+        dependsOn: [],
+        jumpTab: "frontend-db",
+        jumpLabel: "Open PostGIS Schema"
+      },
+      "hl-disk-imports": {
+        id: "hl-disk-imports",
+        title: "Local Takeout & Timeline Files",
+        module: "infra",
+        layer: "External Filesystem (APP_IMPORTS_DIR)",
+        tab: "overview",
+        path: "${user.home}/meander-atlas-data/imports",
+        tx: null,
+        summary: "Per-account subdirectories containing raw Google Takeout Saved Places.json, Reviews.json, Saved CSV lists, and Timeline.json semanticSegments.",
+        functions: [
+          "Read by LocalDirectoryImportAdapter",
+          "SHA-256 computed across relative path + file bytes for idempotency",
+          "Never committed to git (enforced by scripts/check-privacy.sh)"
+        ],
+        dependsOn: []
+      },
+      "hl-disk-boundaries": {
+        id: "hl-disk-boundaries",
+        title: "Natural Earth 1:10m GeoJSON",
+        module: "infra",
+        layer: "External Filesystem (APP_BOUNDARIES_DIR)",
+        tab: "overview",
+        path: "${user.home}/meander-atlas-data/boundaries",
+        tx: null,
+        summary: "Pinned Natural Earth v5.1.2 ne_10m_admin_0_countries.geojson and ne_10m_admin_1_states_provinces.geojson (~74 MB) downloaded by scripts/download-boundaries.sh.",
+        functions: [
+          "Stream-parsed outside DB transactions by NaturalEarthGeoJsonParser",
+          "Seeded on startup (BoundaryAutoSeeder) or POST /api/v1/atlas/boundaries/seed"
+        ],
+        dependsOn: []
+      },
+      "hl-guardrails": {
+        id: "hl-guardrails",
+        title: "Deterministic Guardrails & Tests",
+        module: "infra",
+        layer: "ArchUnit + Checkstyle + NullAway + JaCoCo",
+        tab: "overview",
+        path: "backend/src/test/java/com/meanderatlas/ArchitectureTest.java",
+        tx: null,
+        summary: "Automated architectural and quality enforcement ensuring module boundaries, immutability, null-safety, zero comments in src/, zero dead code, and >=90% JaCoCo coverage.",
+        functions: [
+          "ApplicationModules.verify() + Documenter -> docs/modules/",
+          "No Spring/SQL in ..domain.., no Mockito, no mutable collections",
+          "beCalledInProductionOrBeEntryPoint() dead-code ArchUnit rule",
+          "TransactionRollbackE2eTest + PostGIS Testcontainers E2E + Playwright proof"
+        ],
+        dependsOn: ["hl-atlas-facade", "hl-ingestion-web"]
+      },
+
+      "AtlasHealthController": {
+        id: "AtlasHealthController", title: "AtlasHealthController", module: "atlas", layer: "Web Adapter", col: 0, row: 0,
+        path: "atlas/adapter/web/AtlasHealthController.java", tx: null,
+        summary: "Exposes GET /api/v1/atlas/health returning service status and live PostGIS version.",
+        functions: ["GET /api/v1/atlas/health -> AtlasHealthView"],
+        dependsOn: ["AtlasFacade"]
+      },
+      "AtlasPlacesController": {
+        id: "AtlasPlacesController", title: "AtlasPlacesController", module: "atlas", layer: "Web Adapter", col: 0, row: 1,
+        path: "atlas/adapter/web/AtlasPlacesController.java", tx: null,
+        summary: "Handles place search/filtering, single visit status updates, bulk visit updates, and bulk undo restore.",
+        functions: [
+          "GET /api/v1/atlas/places (q, visitStatus, derivedRole, category, account, list, countryCode, admin1Id, bbox)",
+          "PATCH /api/v1/atlas/places/{id}/visit-status",
+          "PATCH /api/v1/atlas/places/bulk-visit-status",
+          "POST /api/v1/atlas/places/bulk-visit-status/restore"
+        ],
+        dependsOn: ["AtlasFacade"]
+      },
+      "AtlasRegionsController": {
+        id: "AtlasRegionsController", title: "AtlasRegionsController", module: "atlas", layer: "Web Adapter", col: 0, row: 2,
+        path: "atlas/adapter/web/AtlasRegionsController.java", tx: null,
+        summary: "Serves filtered country/admin1 region rollups and detailed region dossiers.",
+        functions: [
+          "GET /api/v1/atlas/regions?level=COUNTRY|ADMIN1&countryCode=...&filters",
+          "GET /api/v1/atlas/regions/{level}/{code} -> RegionDossierView"
+        ],
+        dependsOn: ["AtlasFacade"]
+      },
+      "AtlasStatsController": {
+        id: "AtlasStatsController", title: "AtlasStatsController", module: "atlas", layer: "Web Adapter", col: 0, row: 3,
+        path: "atlas/adapter/web/AtlasStatsController.java", tx: null,
+        summary: "Returns aggregate travel metrics, category breakdowns, top subcategories, and account/list facets.",
+        functions: ["GET /api/v1/atlas/stats -> AtlasStatsView"],
+        dependsOn: ["AtlasFacade"]
+      },
+      "AtlasBoundariesController": {
+        id: "AtlasBoundariesController", title: "AtlasBoundariesController", module: "atlas", layer: "Web Adapter", col: 0, row: 4,
+        path: "atlas/adapter/web/AtlasBoundariesController.java", tx: null,
+        summary: "Triggers boundary seeding and serves Mapbox Vector Tiles (.mvt) with 1h public cache headers or 204 No Content for empty ocean tiles.",
+        functions: [
+          "POST /api/v1/atlas/boundaries/seed?force=false",
+          "GET /api/v1/atlas/tiles/regions/{level}/{z}/{x}/{y}.mvt"
+        ],
+        dependsOn: ["AtlasFacade"]
+      },
+      "AtlasExceptionHandler": {
+        id: "AtlasExceptionHandler", title: "AtlasExceptionHandler", module: "atlas", layer: "Web Advice", col: 0, row: 5,
+        path: "atlas/adapter/web/AtlasExceptionHandler.java", tx: null,
+        summary: "Maps domain IllegalArgumentException to HTTP 400 and NoSuchElementException (missing/unowned place or region) to HTTP 404 RFC 9457 ProblemDetail.",
+        functions: ["handleBadRequest -> 400 ProblemDetail", "handleNotFound -> 404 ProblemDetail"],
+        dependsOn: []
+      },
+      "BoundaryAutoSeeder": {
+        id: "BoundaryAutoSeeder", title: "BoundaryAutoSeeder", module: "atlas", layer: "Startup Runner", col: 0, row: 6,
+        path: "atlas/adapter/persistence/BoundaryAutoSeeder.java", tx: null,
+        summary: "ApplicationRunner (enabled when app.boundaries-auto-seed=true) that seeds missing Natural Earth boundaries on boot.",
+        functions: ["run() -> atlasFacade.seedBoundaries(false)"],
+        dependsOn: ["AtlasFacade"]
+      },
+      "ImportController": {
+        id: "ImportController", title: "ImportController", module: "ingestion", layer: "Web Adapter", col: 0, row: 7,
+        path: "ingestion/adapter/web/ImportController.java", tx: null,
+        summary: "Triggers local directory import and reports pending resolution jobs + completed batches.",
+        functions: [
+          "POST /api/v1/imports/local?account=...&force=false",
+          "GET /api/v1/imports/status -> ImportStatusView"
+        ],
+        dependsOn: ["ImportFacade"]
+      },
+
+      "AtlasFacade": {
+        id: "AtlasFacade", title: "AtlasFacade", module: "atlas", layer: "Module Public API", col: 1, row: 2,
+        path: "atlas/AtlasFacade.java", tx: null,
+        summary: "Single public facade for the atlas module. Exposes 13 methods accepting/returning only JDK, shared, and root-package DTO records.",
+        functions: [
+          "Read: health, regionMvtTile, places, regionSummaries, regionDossier, stats",
+          "Write: seedBoundaries, updatePlaceVisitStatus, bulkUpdatePlaceVisitStatus, restorePlaceVisitStates",
+          "Ingestion SPI: upsertImportedPlace, attachCsvMembershipByCid, reconcileTimelineVisit"
+        ],
+        dependsOn: [
+          "GetAtlasHealth", "SeedRegionBoundaries", "GetRegionMvtTile", "QueryAtlasPlaces",
+          "GetRegionSummaries", "GetRegionDossier", "GetAtlasStats",
+          "UpdatePlaceVisitStatus", "BulkUpdatePlaceVisitStatus", "RestorePlaceVisitStates",
+          "UpsertImportedPlace", "AttachCsvMembershipByCid", "ReconcileTimelineVisit"
+        ]
+      },
+      "ImportFacade": {
+        id: "ImportFacade", title: "ImportFacade", module: "ingestion", layer: "Module Public API", col: 1, row: 7,
+        path: "ingestion/ImportFacade.java", tx: null,
+        summary: "Single public facade for the ingestion module.",
+        functions: ["importLocalDirectory(account, force)", "status()"],
+        dependsOn: ["ImportLocalDirectory", "GetImportStatus"]
+      },
+
+      "GetAtlasHealth": {
+        id: "GetAtlasHealth", title: "GetAtlasHealth", module: "atlas", layer: "Use Case (Read)", col: 2, row: 0,
+        path: "atlas/application/GetAtlasHealth.java", tx: null,
+        summary: "Fetches PostGIS library version and builds AtlasHealthView.",
+        functions: ["execute() -> AtlasHealthView"],
+        dependsOn: ["AtlasHealthRepository"]
+      },
+      "QueryAtlasPlaces": {
+        id: "QueryAtlasPlaces", title: "QueryAtlasPlaces", module: "atlas", layer: "Use Case (Read)", col: 2, row: 1,
+        path: "atlas/application/QueryAtlasPlaces.java", tx: "@Transactional(readOnly = true)",
+        summary: "Converts AtlasPlaceFilterQuery into PlaceQueryFilter (validating BoundingBox), queries places + memberships, and maps AtlasPlaceView list.",
+        functions: ["execute(AtlasPlaceFilterQuery) -> AtlasPlacesResponse"],
+        dependsOn: ["AtlasPlaceRepository", "AtlasViewMapper", "SharedKernel"]
+      },
+      "GetRegionSummaries": {
+        id: "GetRegionSummaries", title: "GetRegionSummaries", module: "atlas", layer: "Use Case (Read)", col: 2, row: 2,
+        path: "atlas/application/GetRegionSummaries.java", tx: "@Transactional(readOnly = true)",
+        summary: "Normalizes countryCode filter and retrieves aggregated COUNTRY or ADMIN1 summaries.",
+        functions: ["execute(RegionScope, countryCode, RegionFilterQuery)"],
+        dependsOn: ["AtlasStatsRepository", "RegionCodeNormalizer", "AtlasViewMapper", "SharedKernel"]
+      },
+      "GetRegionDossier": {
+        id: "GetRegionDossier", title: "GetRegionDossier", module: "atlas", layer: "Use Case (Read)", col: 2, row: 3,
+        path: "atlas/application/GetRegionDossier.java", tx: "@Transactional(readOnly = true)",
+        summary: "Consistent snapshot across 2-3 queries: summary for target region, child ADMIN1 summaries (if COUNTRY), and unfiltered places inside the region.",
+        functions: ["execute(RegionScope, code) -> RegionDossierView"],
+        dependsOn: ["AtlasStatsRepository", "AtlasPlaceRepository", "RegionCodeNormalizer", "AtlasViewMapper", "SharedKernel"]
+      },
+      "GetAtlasStats": {
+        id: "GetAtlasStats", title: "GetAtlasStats", module: "atlas", layer: "Use Case (Read)", col: 2, row: 4,
+        path: "atlas/application/GetAtlasStats.java", tx: "@Transactional(readOnly = true)",
+        summary: "Fetches totals, category counts, top 15 subcategories, and account/list facets under one read-only snapshot.",
+        functions: ["execute() -> AtlasStatsView"],
+        dependsOn: ["AtlasStatsRepository", "AtlasViewMapper", "SharedKernel"]
+      },
+      "GetRegionMvtTile": {
+        id: "GetRegionMvtTile", title: "GetRegionMvtTile", module: "atlas", layer: "Use Case (Read)", col: 2, row: 5,
+        path: "atlas/application/GetRegionMvtTile.java", tx: null,
+        summary: "Validates z in [0,14] and x/y in [0, 2^z), normalizes countryCode, and fetches MVT byte payload.",
+        functions: ["execute(RegionScope, z, x, y, countryCode) -> byte[]"],
+        dependsOn: ["RegionBoundaryRepository", "RegionCodeNormalizer"]
+      },
+      "SeedRegionBoundaries": {
+        id: "SeedRegionBoundaries", title: "SeedRegionBoundaries", module: "atlas", layer: "Use Case (Write)", col: 2, row: 6,
+        path: "atlas/application/SeedRegionBoundaries.java", tx: "TransactionOperations",
+        summary: "Parses ~74 MB Natural Earth GeoJSON files outside any DB transaction, then runs batched upserts and untagged-place spatial assignment inside TransactionOperations.",
+        functions: ["execute(force) -> BoundarySeedResultView", "parseAndUpsertLevel()", "assignRegionsInTransaction()"],
+        dependsOn: ["RegionBoundaryRepository", "NaturalEarthGeoJsonParser"]
+      },
+      "UpdatePlaceVisitStatus": {
+        id: "UpdatePlaceVisitStatus", title: "UpdatePlaceVisitStatus", module: "atlas", layer: "Use Case (Write)", col: 2, row: 7,
+        path: "atlas/application/UpdatePlaceVisitStatus.java", tx: "@Transactional",
+        summary: "Enforces ownership via AtlasPlaceRepository.requireOwned(), applies MANUAL_SINGLE transition via PlaceVisitState.apply(), returns new state + previous snapshot for undo.",
+        functions: ["execute(placeId, request) -> PlaceVisitStateView"],
+        dependsOn: ["AtlasPlaceRepository", "PlaceVisitState", "AtlasViewMapper", "SharedKernel"]
+      },
+      "BulkUpdatePlaceVisitStatus": {
+        id: "BulkUpdatePlaceVisitStatus", title: "BulkUpdatePlaceVisitStatus", module: "atlas", layer: "Use Case (Write)", col: 2, row: 8,
+        path: "atlas/application/BulkUpdatePlaceVisitStatus.java", tx: "@Transactional",
+        summary: "Validates all distinct placeIds via requireAllOwned(), computes MANUAL_BULK transitions, batch-upserts only changed rows, and returns previousStates snapshots.",
+        functions: ["execute(BulkVisitStatusRequest) -> BulkVisitStatusResultView"],
+        dependsOn: ["AtlasPlaceRepository", "PlaceVisitState", "AtlasViewMapper", "SharedKernel"]
+      },
+      "RestorePlaceVisitStates": {
+        id: "RestorePlaceVisitStates", title: "RestorePlaceVisitStates", module: "atlas", layer: "Use Case (Write)", col: 2, row: 9,
+        path: "atlas/application/RestorePlaceVisitStates.java", tx: "@Transactional",
+        summary: "Rejects duplicate placeIds, verifies ownership via requireAllOwned(), and atomically restores prior visit snapshots (Undo).",
+        functions: ["execute(RestoreVisitStatesRequest) -> RestoreVisitStatesResultView"],
+        dependsOn: ["AtlasPlaceRepository", "PlaceVisitState", "SharedKernel"]
+      },
+      "UpsertImportedPlace": {
+        id: "UpsertImportedPlace", title: "UpsertImportedPlace", module: "atlas", layer: "Use Case (Write)", col: 2, row: 10,
+        path: "atlas/application/UpsertImportedPlace.java", tx: "@Transactional",
+        summary: "Deduplicates imported place by googlePlaceId -> googleCid -> (50m radius + 0.45 trigram similarity), inserting new or delegating merge to ImportedPlaceMerger.",
+        functions: ["execute(ImportedPlaceUpsertCommand) -> UpsertedPlaceView"],
+        dependsOn: ["AtlasPlaceRepository", "ImportedPlaceMerger", "DerivedRoleResolver", "RegionCodeNormalizer", "SharedKernel"]
+      },
+      "AttachCsvMembershipByCid": {
+        id: "AttachCsvMembershipByCid", title: "AttachCsvMembershipByCid", module: "atlas", layer: "Use Case (Write)", col: 2, row: 11,
+        path: "atlas/application/AttachCsvMembershipByCid.java", tx: "@Transactional",
+        summary: "Pass 2 cross-account linker: matches coord-less CSV rows or coord-less reviews to existing places by googleCid and delegates merge to ImportedPlaceMerger.",
+        functions: ["execute(AttachCsvMembershipCommand) -> boolean"],
+        dependsOn: ["AtlasPlaceRepository", "ImportedPlaceMerger", "SharedKernel"]
+      },
+      "ReconcileTimelineVisit": {
+        id: "ReconcileTimelineVisit", title: "ReconcileTimelineVisit", module: "atlas", layer: "Use Case (Write)", col: 2, row: 12,
+        path: "atlas/application/ReconcileTimelineVisit.java", tx: "@Transactional",
+        summary: "Single-query lookup (googlePlaceId / <=50m EXACT vs 50..150m UNVISITED TRIAGE), optional googlePlaceId backfill, and ReconciliationPolicy outcome classification.",
+        functions: ["execute(TimelineVisitSignal) -> TimelineReconciliationOutcome", "ReconciliationPolicy (EXACT, TRIAGE)"],
+        dependsOn: ["AtlasPlaceRepository", "TimelineMatchCandidate", "PlaceVisitState", "SharedKernel"]
+      },
+      "ImportedPlaceMerger": {
+        id: "ImportedPlaceMerger", title: "ImportedPlaceMerger", module: "atlas", layer: "Application Collaborator", col: 2, row: 13,
+        path: "atlas/application/ImportedPlaceMerger.java", tx: "Joins caller @Transactional",
+        summary: "Spring @Component with injected AtlasPlaceRepository and Parameter Objects (MembershipDetails, InitialVisitDetails, ExistingPlaceMerge). Upserts membership, upgrades UNCATEGORIZED if non-MANUAL, recomputes DerivedRole, and applies initial visit idempotently.",
+        functions: ["initializeVisitState()", "mergeIntoExisting()", "MembershipDetails / InitialVisitDetails / ExistingPlaceMerge"],
+        dependsOn: ["AtlasPlaceRepository", "PlaceVisitState", "DerivedRoleResolver", "SharedKernel"]
+      },
+      "AtlasViewMapper": {
+        id: "AtlasViewMapper", title: "AtlasViewMapper", module: "atlas", layer: "Mapper Utility", col: 2, row: 14,
+        path: "atlas/application/AtlasViewMapper.java", tx: null,
+        summary: "Pure static mapping between root DTOs/queries and internal domain filters/models.",
+        functions: ["toPlaceQueryFilter", "toRegionSummaryFilter", "toPlaceView", "toRegionSummaryView", "toStatsView", "toVisitStateSnapshot"],
+        dependsOn: ["BoundingBox", "SharedKernel"]
+      },
+      "ImportLocalDirectory": {
+        id: "ImportLocalDirectory", title: "ImportLocalDirectory", module: "ingestion", layer: "Use Case (Orchestrator)", col: 2, row: 15,
+        path: "ingestion/application/ImportLocalDirectory.java", tx: "TransactionOperations",
+        summary: "Scans & parses unimported accounts outside DB transaction, then executes Pass 1 (saved places + geocoded reviews) and Pass 2 (coord-less reviews, CSV CID links, resolution_jobs, chronological Timeline reconciliation) atomically inside TransactionOperations.",
+        functions: ["execute(accountFilter, force)", "prepareAccount()", "runPass1()", "runPass2ReconcileLinks()", "runPass2TimelineAndFinalize()", "reconcileByCid()"],
+        dependsOn: ["TripImportSourcePort", "ImportRepository", "AtlasFacade", "TakeoutParsers", "PlaceCategoryClassifier", "SharedKernel"]
+      },
+      "GetImportStatus": {
+        id: "GetImportStatus", title: "GetImportStatus", module: "ingestion", layer: "Use Case (Read)", col: 2, row: 16,
+        path: "ingestion/application/GetImportStatus.java", tx: "@Transactional(readOnly = true)",
+        summary: "Returns pending resolution jobs, completed batch count, distinct account labels, and last import timestamp.",
+        functions: ["execute() -> ImportStatusView"],
+        dependsOn: ["ImportRepository", "SharedKernel"]
+      },
+
+      "PlaceVisitState": {
+        id: "PlaceVisitState", title: "PlaceVisitState", module: "atlas", layer: "Domain Aggregate / Invariant", col: 3, row: 0,
+        path: "atlas/domain/PlaceVisitState.java", tx: null,
+        summary: "Immutable record enforcing status/visitCount/timestamp invariants and source precedence (MANUAL > REVIEW > TIMELINE), plus [firstVisitedAt, lastVisitedAt] idempotency.",
+        functions: ["unvisited()", "isManual()", "apply(status, source, observedAt)"],
+        dependsOn: ["SharedKernel"]
+      },
+      "DerivedRoleResolver": {
+        id: "DerivedRoleResolver", title: "DerivedRoleResolver", module: "atlas", layer: "Domain Policy", col: 3, row: 1,
+        path: "atlas/domain/DerivedRoleResolver.java", tx: null,
+        summary: "Computes DerivedRole from PlaceCategory and all PlaceMembership ListKinds: STARRED + HOTEL -> PREFERRED_HOTEL, STARRED -> MUST_SEE, FAVORITE -> FAVORITE, else BACKLOG.",
+        functions: ["resolve(PlaceCategory, Collection<ListKind>) -> DerivedRole"],
+        dependsOn: ["SharedKernel"]
+      },
+      "RegionCodeNormalizer": {
+        id: "RegionCodeNormalizer", title: "RegionCodeNormalizer", module: "atlas", layer: "Domain Helper", col: 3, row: 2,
+        path: "atlas/domain/RegionCodeNormalizer.java", tx: null,
+        summary: "Normalizes ISO country/region codes (trim + uppercase) and blank strings to null.",
+        functions: ["normalizeCountryCode(raw)", "trimToNull(raw)"],
+        dependsOn: []
+      },
+      "BoundingBox": {
+        id: "BoundingBox", title: "BoundingBox", module: "atlas", layer: "Domain Value", col: 3, row: 3,
+        path: "atlas/domain/places/BoundingBox.java", tx: null,
+        summary: "Validates finite lat/lng bounds, wraps overflowing longitudes, and detects antimeridian crossings (minLng > maxLng).",
+        functions: ["crossesAntimeridian()", "normalizeMaxLongitude()"],
+        dependsOn: []
+      },
+      "NaturalEarthGeoJsonParser": {
+        id: "NaturalEarthGeoJsonParser", title: "NaturalEarthGeoJsonParser", module: "atlas", layer: "Domain Parser", col: 3, row: 4,
+        path: "atlas/domain/boundaries/NaturalEarthGeoJsonParser.java", tx: null,
+        summary: "Streaming Jackson JsonParser that parses 74 MB Natural Earth Country & Admin-1 GeoJSON files without loading the whole tree, resolving ISO-2 prefixes and deduplicating codes.",
+        functions: ["parseCountries(Path)", "parseAdmin1(Path)", "resolveAdmin1CountryCode()"],
+        dependsOn: ["RegionCodeNormalizer"]
+      },
+      "TimelineMatchCandidate": {
+        id: "TimelineMatchCandidate", title: "TimelineMatchCandidate", module: "atlas", layer: "Domain Projection", col: 3, row: 5,
+        path: "atlas/domain/places/TimelineMatchCandidate.java", tx: null,
+        summary: "Carries matched PlaceId, googlePlaceId, full PlaceVisitState, and MatchConfidence (EXACT vs TRIAGE).",
+        functions: ["acceptsGooglePlaceIdBackfill()", "enum MatchConfidence { EXACT, TRIAGE }"],
+        dependsOn: ["PlaceVisitState", "SharedKernel"]
+      },
+      "AtlasPlaceRepository": {
+        id: "AtlasPlaceRepository", title: "AtlasPlaceRepository", module: "atlas", layer: "Domain Port (Interface)", col: 3, row: 6,
+        path: "atlas/domain/places/AtlasPlaceRepository.java", tx: null,
+        summary: "Port for places, memberships, visit states, dedupe matching, and Timeline matching. Also owns Fowler Repository ownership checks via default methods.",
+        functions: ["requireOwned()", "requireAllOwned()", "findPlaces()", "findCanonicalMatch()", "findTimelineMatchCandidate()", "upsertVisitStates()"],
+        dependsOn: ["PlaceVisitState", "BoundingBox", "TimelineMatchCandidate", "SharedKernel"]
+      },
+      "AtlasStatsRepository": {
+        id: "AtlasStatsRepository", title: "AtlasStatsRepository", module: "atlas", layer: "Domain Port (Interface)", col: 3, row: 7,
+        path: "atlas/domain/stats/AtlasStatsRepository.java", tx: null,
+        summary: "Port for aggregated region summaries and overall atlas statistics.",
+        functions: ["findRegionSummaries()", "findRegionSummary()", "fetchStats()"],
+        dependsOn: ["SharedKernel"]
+      },
+      "RegionBoundaryRepository": {
+        id: "RegionBoundaryRepository", title: "RegionBoundaryRepository", module: "atlas", layer: "Domain Port (Interface)", col: 3, row: 8,
+        path: "atlas/domain/boundaries/RegionBoundaryRepository.java", tx: null,
+        summary: "Port for boundary batch upserts, spatial place tagging, and MVT vector tile generation.",
+        functions: ["upsertBoundaries()", "countByLevel()", "assignRegionsToUntaggedPlaces()", "fetchRegionMvtTile()"],
+        dependsOn: []
+      },
+      "AtlasHealthRepository": {
+        id: "AtlasHealthRepository", title: "AtlasHealthRepository", module: "atlas", layer: "Domain Port (Interface)", col: 3, row: 9,
+        path: "atlas/domain/AtlasHealthRepository.java", tx: null,
+        summary: "Port for checking PostGIS availability and version.",
+        functions: ["fetchPostgisVersion()"],
+        dependsOn: []
+      },
+      "TakeoutParsers": {
+        id: "TakeoutParsers", title: "Takeout & Timeline Parsers", module: "ingestion", layer: "Domain Parsers", col: 3, row: 10,
+        path: "ingestion/domain/{takeout,timeline}/", tx: null,
+        summary: "Pure Java 25 parsers for Google Takeout Saved Places GeoJSON, Reviews GeoJSON, multilingual CSV lists (EN/PL), Google CID URL decoding, and Timeline semanticSegments.",
+        functions: ["TakeoutGeoJsonParser", "TakeoutCsvParser + CsvRecordReader", "TimelineParser", "GoogleCidDecoder", "TextNormalizer"],
+        dependsOn: ["SharedKernel"]
+      },
+      "PlaceCategoryClassifier": {
+        id: "PlaceCategoryClassifier", title: "PlaceCategoryClassifier", module: "ingestion", layer: "Domain Classifier", col: 3, row: 11,
+        path: "ingestion/domain/classification/PlaceCategoryClassifier.java", tx: null,
+        summary: "Rule-based multilingual heuristic classifier assigning PlaceCategory + subcategory + CategorySource from title, note, and tags.",
+        functions: ["classify(title, note, tags) -> PlaceClassification"],
+        dependsOn: ["SharedKernel"]
+      },
+      "ImportRepository": {
+        id: "ImportRepository", title: "ImportRepository & SourcePort", module: "ingestion", layer: "Domain Ports", col: 3, row: 12,
+        path: "ingestion/domain/source/", tx: null,
+        summary: "Ports for local/future import source discovery and import batch/record/job persistence.",
+        functions: ["TripImportSourcePort.discoverAccounts()", "ImportRepository (hasCompletedBatch, startOrRestartBatch, insertRecords, enqueueCoordinateLookups, markBatchCompleted, fetchStatus)"],
+        dependsOn: ["SharedKernel"]
+      },
+      "SharedKernel": {
+        id: "SharedKernel", title: "shared Kernel Types", module: "shared", layer: "Shared Kernel", col: 3, row: 13,
+        path: "com/meanderatlas/shared/", tx: null,
+        summary: "Strongly-typed IDs, GeoPoint, domain enums, and CurrentUserProvider.",
+        functions: ["UserId, PlaceId, GeoPoint", "VisitStatus, VisitSource, PlaceCategory, CategorySource, DerivedRole, ListKind, CoordSource", "CurrentUserProvider"],
+        dependsOn: []
+      },
+
+      "JdbcAtlasPlaceRepository": {
+        id: "JdbcAtlasPlaceRepository", title: "JdbcAtlasPlaceRepository", module: "atlas", layer: "JDBC + PostGIS Adapter", col: 4, row: 1,
+        path: "atlas/adapter/persistence/JdbcAtlasPlaceRepository.java", tx: "Participates in caller tx",
+        summary: "NamedParameterJdbcTemplate repository using uuid[] = ANY(:placeIds), dynamic AtlasPlaceFilterSql, antimeridian envelope split, SpatialRegionSql auto-tagging, and unified single-query Timeline spatial matching.",
+        functions: [
+          "findPlaces() -> dynamic WHERE + batch loadMemberships()",
+          "findCanonicalMatch() -> googlePlaceId -> googleCid -> 50m + pg_trgm",
+          "findTimelineMatchCandidate() -> single ST_DWithin(150m) query",
+          "insertImportedPlace() / updatePlaceAfterMerge() / upsertVisitStates() / upsertMembership()"
+        ],
+        dependsOn: ["AtlasPlaceRepository", "AtlasPlaceFilterSql", "SpatialRegionSql", "JdbcRowReaders", "TablesAtlas"]
+      },
+      "AtlasPlaceFilterSql": {
+        id: "AtlasPlaceFilterSql", title: "AtlasPlaceFilterSql", module: "atlas", layer: "SQL Builder Helper", col: 4, row: 2,
+        path: "atlas/adapter/persistence/AtlasPlaceFilterSql.java", tx: null,
+        summary: "Appends parameterized predicates only for non-null filters and escapes LIKE wildcards (\\, %, _) for ILIKE substring search.",
+        functions: ["appendCommonPredicates(Stream.Builder<String>, params, q, derivedRole, category, account, list)"],
+        dependsOn: ["SharedKernel"]
+      },
+      "SpatialRegionSql": {
+        id: "SpatialRegionSql", title: "SpatialRegionSql", module: "atlas", layer: "SQL Spatial Helper", col: 4, row: 3,
+        path: "atlas/adapter/persistence/SpatialRegionSql.java", tx: null,
+        summary: "Two-stage PostGIS country and Admin-1 lookup: exact ST_Covers first, then 15 km ST_DWithin coastal fallback scoped to the resolved country.",
+        functions: ["countryLookupSql(pointExpr)", "admin1LookupSql(pointExpr, resolvedCountryExpr)"],
+        dependsOn: []
+      },
+      "JdbcRowReaders": {
+        id: "JdbcRowReaders", title: "JdbcRowReaders", module: "atlas", layer: "JDBC Helper", col: 4, row: 4,
+        path: "atlas/adapter/persistence/JdbcRowReaders.java", tx: null,
+        summary: "NullAway-safe column readers and JDBC uuid[] array SqlTypeValue builder.",
+        functions: ["requiredUuid", "requiredString", "nullableInstant", "toOffsetDateTime", "uuidArray"],
+        dependsOn: []
+      },
+      "JdbcAtlasStatsRepository": {
+        id: "JdbcAtlasStatsRepository", title: "JdbcAtlasStatsRepository", module: "atlas", layer: "JDBC + PostGIS Adapter", col: 4, row: 5,
+        path: "atlas/adapter/persistence/JdbcAtlasStatsRepository.java", tx: "Participates in caller tx",
+        summary: "Pre-aggregates places by country_code or admin1_id before joining region_boundaries; computes dashboard stats across totals, categories, top subcategories, and account lists.",
+        functions: ["findRegionSummaries()", "findRegionSummary()", "fetchStats()"],
+        dependsOn: ["AtlasStatsRepository", "AtlasPlaceFilterSql", "JdbcRowReaders", "TablesAtlas"]
+      },
+      "JdbcRegionBoundaryRepository": {
+        id: "JdbcRegionBoundaryRepository", title: "JdbcRegionBoundaryRepository", module: "atlas", layer: "JDBC + PostGIS Adapter", col: 4, row: 6,
+        path: "atlas/adapter/persistence/JdbcRegionBoundaryRepository.java", tx: "Participates in caller tx",
+        summary: "Batch-upserts Natural Earth polygons (ST_MakeValid, conditional Mercator clamp, ST_SimplifyPreserveTopology), tags untagged places, and builds 3857 MVT tiles with 64px margin.",
+        functions: ["upsertBoundaries(250/batch)", "assignRegionsToUntaggedPlaces()", "fetchRegionMvtTile()"],
+        dependsOn: ["RegionBoundaryRepository", "SpatialRegionSql", "TablesAtlas"]
+      },
+      "JdbcAtlasHealthRepository": {
+        id: "JdbcAtlasHealthRepository", title: "JdbcAtlasHealthRepository", module: "atlas", layer: "JDBC Adapter", col: 4, row: 7,
+        path: "atlas/adapter/persistence/JdbcAtlasHealthRepository.java", tx: null,
+        summary: "Executes SELECT PostGIS_Lib_Version().",
+        functions: ["fetchPostgisVersion()"],
+        dependsOn: ["AtlasHealthRepository", "TablesAtlas"]
+      },
+      "JdbcImportRepository": {
+        id: "JdbcImportRepository", title: "JdbcImportRepository", module: "ingestion", layer: "JDBC Adapter", col: 4, row: 8,
+        path: "ingestion/adapter/persistence/JdbcImportRepository.java", tx: "Participates in caller tx",
+        summary: "Manages import_batches, 500-row chunked import_records & resolution_jobs inserts, and single-query ARRAY_AGG import status.",
+        functions: ["hasCompletedBatch", "startOrRestartBatch", "insertRecords", "enqueueCoordinateLookups", "markBatchCompleted", "fetchStatus"],
+        dependsOn: ["ImportRepository", "TablesIngestion"]
+      },
+      "LocalDirectoryImportAdapter": {
+        id: "LocalDirectoryImportAdapter", title: "LocalDirectoryImportAdapter", module: "ingestion", layer: "Filesystem Adapter", col: 4, row: 9,
+        path: "ingestion/adapter/fs/LocalDirectoryImportAdapter.java", tx: null,
+        summary: "Walks APP_IMPORTS_DIR per-account directories, classifies CSV/JSON files, and streams SHA-256 content hashes.",
+        functions: ["discoverAccounts(accountFilter)", "detectFileKind()", "computeSha256()"],
+        dependsOn: ["ImportRepository", "TakeoutParsers"]
+      },
+      "TablesAtlas": {
+        id: "TablesAtlas", title: "atlas Tables (PostGIS)", module: "database", layer: "PostgreSQL Tables", col: 4, row: 10,
+        path: "db/migration/V2 & V3", tx: null,
+        summary: "places, place_visit_state, place_memberships, region_boundaries.",
+        functions: ["GiST geometry & geography indexes", "GIN trigram index", "CHECK state constraints"],
+        dependsOn: []
+      },
+      "TablesIngestion": {
+        id: "TablesIngestion", title: "ingestion Tables", module: "database", layer: "PostgreSQL Tables", col: 4, row: 11,
+        path: "db/migration/V2__living_atlas_schema.sql", tx: null,
+        summary: "import_batches, import_records, resolution_jobs.",
+        functions: ["UNIQUE(user_id, account_label, content_sha256)", "PENDING partial queue index"],
+        dependsOn: []
+      },
+
+      "fe-app": {
+        id: "fe-app", title: "App.tsx (AtlasShell)", module: "frontend", layer: "Root Shell",
+        path: "frontend/src/App.tsx", tx: null,
+        summary: "Central coordinator for AtlasViewState (synced to window.location.search), active place selection + fallback, viewport tracking, bulk visit dialog, and undo toast.",
+        functions: ["Syncs URL <-> viewState", "Computes visibleUnvisitedPlaces in viewport (zoom >= 9)", "Coordinates TanStack Query hooks and mutations"],
+        dependsOn: ["fe-viewstate", "fe-hooks", "fe-map", "fe-filters", "fe-dossier", "fe-stats", "fe-place-card", "fe-bulk", "fe-undo", "fe-import-ui"]
+      },
+      "fe-viewstate": {
+        id: "fe-viewstate", title: "viewState.ts", module: "frontend", layer: "URL & Viewport Helpers",
+        path: "frontend/src/features/atlas/viewState.ts", tx: null,
+        summary: "Pure functions parsing/serializing URL query params (preserving hash & unknown params) and checking antimeridian-safe viewport containment.",
+        functions: ["readAtlasViewState(search)", "writeAtlasViewState(state, currentSearch)", "isPlaceInViewport(place, viewport)"],
+        dependsOn: []
+      },
+      "fe-hooks": {
+        id: "fe-hooks", title: "useAtlasQueries + useLocalImport + api/client", module: "frontend", layer: "TanStack Query & OpenAPI Client",
+        path: "frontend/src/features/atlas/useAtlasQueries.ts & frontend/src/api/client.ts", tx: null,
+        summary: "Typed React Query hooks backed by openapi-fetch against schema.d.ts. Mutations invalidate ['atlas'] (and ['ingestion'] after import).",
+        functions: ["useAtlasPlaces, useRegionSummaries, useRegionDossier, useAtlasStats, useAtlasHealth", "useUpdatePlaceVisitStatus, useBulkUpdateVisitStatus, useRestoreVisitStates", "useImportStatus, useTriggerLocalImport"],
+        dependsOn: ["hl-edge"]
+      },
+      "fe-map": {
+        id: "fe-map", title: "AtlasMapView.tsx", module: "frontend", layer: "MapLibre GL JS View",
+        path: "frontend/src/features/atlas/AtlasMapView.tsx", tx: null,
+        summary: "Raw MapLibre map/globe using styleLoadedRef, MVT vector tile choropleth (/api/v1/atlas/tiles/regions/{level}/{z}/{x}/{y}.mvt), GeoJSON place pins, feature-state hover/selection, and fitBounds.",
+        functions: ["Renders COUNTRY or ADMIN1 MVT choropleth + pins", "Emits onSelectRegion / onSelectPlace / onViewportChange"],
+        dependsOn: ["AtlasBoundariesController"]
+      },
+      "fe-filters": {
+        id: "fe-filters", title: "AtlasFilterBar.tsx & AtlasHealthPill.tsx", module: "frontend", layer: "Filter & Status UI",
+        path: "frontend/src/features/atlas/AtlasFilterBar.tsx", tx: null,
+        summary: "Controls search query q, visitStatus, derivedRole, category, account, list, projection toggle (globe/mercator), and PostGIS health pill.",
+        functions: ["Updates AtlasViewState filters", "Displays account/list facets from AtlasStatsView"],
+        dependsOn: ["fe-hooks"]
+      },
+      "fe-dossier": {
+        id: "fe-dossier", title: "RegionDossierDrawer.tsx", module: "frontend", layer: "Region Drawer",
+        path: "frontend/src/features/atlas/RegionDossierDrawer.tsx", tx: null,
+        summary: "Slide-over drawer showing selected country or Admin-1 stats, child Admin-1 drilldowns, and all places inside the region.",
+        functions: ["Reads RegionDossierView", "Drills into child ADMIN1 or selects a place"],
+        dependsOn: ["fe-hooks"]
+      },
+      "fe-stats": {
+        id: "fe-stats", title: "TravelStatsPanel.tsx", module: "frontend", layer: "Analytics Drawer",
+        path: "frontend/src/features/atlas/TravelStatsPanel.tsx", tx: null,
+        summary: "Shows mapped/visited/triage counts, visited countries & Admin-1 counts, category breakdown, and clickable account/list quick-filters.",
+        functions: ["Reads AtlasStatsView", "Applies account/list filter or closes"],
+        dependsOn: ["fe-hooks"]
+      },
+      "fe-place-card": {
+        id: "fe-place-card", title: "PlaceDetailCard.tsx", module: "frontend", layer: "Place Card",
+        path: "frontend/src/features/atlas/PlaceDetailCard.tsx", tx: null,
+        summary: "Displays selected place category, derivedRole, region breadcrumbs, visit history, multi-account memberships/notes, and single-place visit toggle.",
+        functions: ["Triggers PATCH /places/{id}/visit-status"],
+        dependsOn: ["fe-hooks"]
+      },
+      "fe-bulk": {
+        id: "fe-bulk", title: "BulkVisitDialog.tsx", module: "frontend", layer: "Bulk Action Modal",
+        path: "frontend/src/features/atlas/BulkVisitDialog.tsx", tx: null,
+        summary: "Confirms bulk marking of visible unvisited viewport places (zoom >= 9, capped at 200) and captures previousStates snapshots for Undo.",
+        functions: ["Triggers PATCH /places/bulk-visit-status"],
+        dependsOn: ["fe-hooks"]
+      },
+      "fe-undo": {
+        id: "fe-undo", title: "UndoToast.tsx", module: "frontend", layer: "Undo Notification",
+        path: "frontend/src/features/atlas/UndoToast.tsx", tx: null,
+        summary: "Toast offering one-click atomic rollback via POST /places/bulk-visit-status/restore using captured VisitStateSnapshotView[].",
+        functions: ["Triggers POST /places/bulk-visit-status/restore"],
+        dependsOn: ["fe-hooks"]
+      },
+      "fe-import-ui": {
+        id: "fe-import-ui", title: "SyncImportsButton & ImportStatusBadge", module: "frontend", layer: "Ingestion UI",
+        path: "frontend/src/features/ingestion/", tx: null,
+        summary: "Triggers POST /api/v1/imports/local and displays completed batch count, active accounts, and pending coordinate resolution jobs.",
+        functions: ["SyncImportsButton", "ImportStatusBadge"],
+        dependsOn: ["fe-hooks"]
+      },
+
+      "db-region_boundaries": {
+        id: "db-region_boundaries", title: "region_boundaries", module: "database", layer: "atlas Table",
+        path: "V2__living_atlas_schema.sql & V3__geography_gist_indexes.sql", tx: "Owned by atlas",
+        summary: "Stores COUNTRY and ADMIN1 MultiPolygon(4326) boundaries and Mercator-clamped simplified_geom for fast MVT rendering.",
+        functions: [
+          "PK id (uuid), UNIQUE(region_level, code)",
+          "Columns: region_level, code, country_code, name, geom, simplified_geom",
+          "Indexes: idx_region_boundaries_geom, idx_region_boundaries_simplified_geom, idx_region_boundaries_geog (V3)"
+        ],
+        dependsOn: []
+      },
+      "db-places": {
+        id: "db-places", title: "places", module: "database", layer: "atlas Table",
+        path: "V2__living_atlas_schema.sql & V3__geography_gist_indexes.sql", tx: "Owned by atlas",
+        summary: "Canonical user places with Point(4326) geometry, Google Place ID / CID identifiers, category, derived_role, and resolved country/admin1 references.",
+        functions: [
+          "PK id (uuid), FK admin1_id -> region_boundaries(id)",
+          "CHECK: coord_source IS DISTINCT FROM 'GOOGLE_TEMP' OR coord_expires_at IS NOT NULL",
+          "Indexes: idx_places_geom, idx_places_geog (V3), idx_places_user_id, idx_places_canonical_name_trgm (GIN)",
+          "Partial Uniques: uq_places_user_google_place_id, uq_places_user_google_cid"
+        ],
+        dependsOn: ["db-region_boundaries"]
+      },
+      "db-place_visit_state": {
+        id: "db-place_visit_state", title: "place_visit_state", module: "database", layer: "atlas Table",
+        path: "V2__living_atlas_schema.sql", tx: "Owned by atlas",
+        summary: "1:1 visit status machine per place enforcing strict invariants across UNVISITED, NEEDS_TRIAGE, and VISITED.",
+        functions: [
+          "PK/FK place_id -> places(id) ON DELETE CASCADE",
+          "CHECK: UNVISITED => count=0 & null timestamps; NEEDS_TRIAGE => source not null; VISITED => source not null & count>=1",
+          "Index: idx_place_visit_state_user_status (user_id, status)"
+        ],
+        dependsOn: ["db-places"]
+      },
+      "db-place_memberships": {
+        id: "db-place_memberships", title: "place_memberships", module: "database", layer: "atlas Table",
+        path: "V2__living_atlas_schema.sql", tx: "Owned by atlas",
+        summary: "Multi-account Takeout list memberships, notes, tags, and review metadata attached to canonical places.",
+        functions: [
+          "PK id (uuid), FK place_id -> places(id) ON DELETE CASCADE",
+          "UNIQUE (place_id, account_label, list_name)",
+          "Index: idx_place_memberships_user_account (user_id, account_label)"
+        ],
+        dependsOn: ["db-places"]
+      },
+      "db-import_batches": {
+        id: "db-import_batches", title: "import_batches", module: "database", layer: "ingestion Table",
+        path: "V2__living_atlas_schema.sql", tx: "Owned by ingestion",
+        summary: "Idempotency ledger per (user_id, account_label, content_sha256) tracking RUNNING/COMPLETED/FAILED status and record count.",
+        functions: [
+          "PK id (uuid), UNIQUE(user_id, account_label, content_sha256)",
+          "Columns: source_type, status, record_count, started_at, completed_at"
+        ],
+        dependsOn: []
+      },
+      "db-import_records": {
+        id: "db-import_records", title: "import_records", module: "database", layer: "ingestion Table",
+        path: "V2__living_atlas_schema.sql", tx: "Owned by ingestion",
+        summary: "Raw parsed import items (SAVED_CSV, STARRED_GEOJSON, REVIEW_GEOJSON, TIMELINE_VISIT) stored with JSONB payload.",
+        functions: [
+          "PK id (uuid), FK batch_id -> import_batches(id) ON DELETE CASCADE",
+          "Indexes: idx_import_records_batch_id, idx_import_records_user_cid (WHERE google_cid IS NOT NULL)"
+        ],
+        dependsOn: ["db-import_batches"]
+      },
+      "db-resolution_jobs": {
+        id: "db-resolution_jobs", title: "resolution_jobs", module: "database", layer: "ingestion Table",
+        path: "V2__living_atlas_schema.sql", tx: "Owned by ingestion",
+        summary: "Pending coordinate lookup / catalog enrichment queue for coord-less reviews and CSV rows without CID match.",
+        functions: [
+          "PK id (uuid), FK import_record_id -> import_records(id) ON DELETE CASCADE, FK place_id -> places(id) ON DELETE CASCADE",
+          "Partial Queue Index: idx_resolution_jobs_pending_queue (next_run_at) WHERE status = 'PENDING'"
+        ],
+        dependsOn: ["db-import_records", "db-places"]
+      }
+    };
+
+    Object.values(NODES).forEach((n) => {
+      n.usedBy = [];
+    });
+    Object.values(NODES).forEach((n) => {
+      (n.dependsOn || []).forEach((depId) => {
+        if (NODES[depId]) {
+          NODES[depId].usedBy.push(n.id);
+        }
+      });
+    });
+
+    const RUNTIME_FLOWS = [
+      {
+        id: "flow-import",
+        title: "Two-Pass Local Import (POST /api/v1/imports/local)",
+        subtitle: "Parses outside DB transactions, then runs Pass 1 + Pass 2 atomically inside TransactionOperations.",
+        steps: [
+          {
+            title: "1. Discover & SHA-256 Hash",
+            nodeId: "LocalDirectoryImportAdapter",
+            badge: "No Tx · Disk I/O",
+            detail: "Walks APP_IMPORTS_DIR accounts, classifies .csv / .json files via detectFileKind(), computes SHA-256 across relative paths + file bytes."
+          },
+          {
+            title: "2. Skip Unchanged & Parse Files",
+            nodeId: "ImportLocalDirectory",
+            badge: "Read Check · Pure Java",
+            detail: "Checks importRepository.hasCompletedBatch(). For unimported (or force=true) accounts, parses GeoJSON, CSV, and Timeline JSON into immutable records outside DB transaction."
+          },
+          {
+            title: "3. Pass 1: Records + Geocoded Places",
+            nodeId: "UpsertImportedPlace",
+            badge: "TX Start (TransactionOperations)",
+            detail: "startOrRestartBatch + insertRecords (500/chunk). Upserts STARRED_GEOJSON & geocoded REVIEW_GEOJSON via AtlasFacade -> dedupes by googlePlaceId / googleCid / 50m+trigram, tags country+admin1 via SpatialRegionSql."
+          },
+          {
+            title: "4. Pass 2a: Cross-Account CID & Queue",
+            nodeId: "AttachCsvMembershipByCid",
+            badge: "Same TX",
+            detail: "Across all active accounts: matches coord-less reviews & SAVED_CSV rows by googleCid to any Pass-1 place. Unmatched rows enqueue COORDINATE_LOOKUP into resolution_jobs."
+          },
+          {
+            title: "5. Pass 2b: Timeline Reconciliation",
+            nodeId: "ReconcileTimelineVisit",
+            badge: "Same TX",
+            detail: "Sorts Timeline visits chronologically. Single spatial query checks exact (<=50m or googlePlaceId) vs UNVISITED triage (50..150m). ReconciliationPolicy applies precedence & idempotency."
+          },
+          {
+            title: "6. Finalize Batch (or Atomic Rollback)",
+            nodeId: "JdbcImportRepository",
+            badge: "TX Commit / Rollback",
+            detail: "Calls markBatchCompleted(batchId, recordCount). Any runtime exception rolls back all 6 tables atomically (verified by TransactionRollbackE2eTest)."
+          }
+        ]
+      },
+      {
+        id: "flow-explore",
+        title: "Atlas Exploration, Filters & MVT Tiles",
+        subtitle: "URL-backed React state drives typed TanStack queries, dynamic PostGIS SQL, and vector tiles.",
+        steps: [
+          {
+            title: "1. URL State & Query Hooks",
+            nodeId: "fe-viewstate",
+            badge: "Frontend",
+            detail: "readAtlasViewState() restores projection, q, status, role, category, account, list, and region into AtlasShell, triggering useAtlasPlaces, useRegionSummaries, and useRegionDossier."
+          },
+          {
+            title: "2. Dynamic Place Predicate Builder",
+            nodeId: "AtlasPlaceFilterSql",
+            badge: "@Transactional(readOnly=true)",
+            detail: "QueryAtlasPlaces calls JdbcAtlasPlaceRepository.findPlaces(). AtlasPlaceFilterSql appends only active filters, escaping ILIKE wildcards and splitting antimeridian bboxes cleanly."
+          },
+          {
+            title: "3. Pre-Aggregated Region Rollups",
+            nodeId: "JdbcAtlasStatsRepository",
+            badge: "@Transactional(readOnly=true)",
+            detail: "findRegionSummaries switches on COUNTRY vs ADMIN1, aggregates filtered places into region_counts first, then equijoins region_boundaries for totals + simplified bbox."
+          },
+          {
+            title: "4. Vector Tile Choropleth",
+            nodeId: "JdbcRegionBoundaryRepository",
+            badge: "Cache-Control: 1h",
+            detail: "MapLibre fetches /tiles/regions/{level}/{z}/{x}/{y}.mvt. PostGIS intersects simplified_geom against 64px-buffered ST_TileEnvelope and emits ST_AsMVT (or 204 No Content)."
+          }
+        ]
+      },
+      {
+        id: "flow-visit",
+        title: "Visit Status Transitions & Bulk Undo",
+        subtitle: "Fowler Repository ownership verification, domain precedence state machine, and atomic snapshot restore.",
+        steps: [
+          {
+            title: "1. Single or Viewport Bulk Action",
+            nodeId: "fe-bulk",
+            badge: "Frontend UI",
+            detail: "User toggles status in PlaceDetailCard or confirms up to 200 visible unvisited places in BulkVisitDialog (zoom >= 9 via isPlaceInViewport)."
+          },
+          {
+            title: "2. Ownership Check (Repository)",
+            nodeId: "AtlasPlaceRepository",
+            badge: "@Transactional",
+            detail: "UpdatePlaceVisitStatus calls requireOwned(); BulkUpdatePlaceVisitStatus calls requireAllOwned() using Set.copyOf() + = ANY(:placeIds) UUID array check -> 404 on missing/unowned."
+          },
+          {
+            title: "3. Domain Precedence State Machine",
+            nodeId: "PlaceVisitState",
+            badge: "Pure Domain",
+            detail: "PlaceVisitState.apply() enforces invariants and source ranking (MANUAL_SINGLE/MANUAL_BULK > REVIEW > TIMELINE), returning changed transitions + previousStates snapshots."
+          },
+          {
+            title: "4. Undo Toast -> Atomic Restore",
+            nodeId: "RestorePlaceVisitStates",
+            badge: "@Transactional",
+            detail: "UndoToast posts VisitStateSnapshotView[] to /bulk-visit-status/restore. RestorePlaceVisitStates validates no duplicate IDs, checks requireAllOwned(), and batch-upserts prior snapshots."
+          }
+        ]
+      },
+      {
+        id: "flow-boundaries",
+        title: "Boundary Seeding & Spatial Tagging",
+        subtitle: "Streams 74 MB Natural Earth GeoJSON outside transactions, then commits simplified boundaries and tags places.",
+        steps: [
+          {
+            title: "1. Boot Auto-Seed or Manual POST",
+            nodeId: "BoundaryAutoSeeder",
+            badge: "Entry Point",
+            detail: "BoundaryAutoSeeder runs seedBoundaries(false) at startup, or AtlasBoundariesController exposes POST /api/v1/atlas/boundaries/seed?force=true."
+          },
+          {
+            title: "2. Streaming GeoJSON Parse",
+            nodeId: "NaturalEarthGeoJsonParser",
+            badge: "No Tx · ~74 MB Stream",
+            detail: "Streams features via Jackson JsonParser outside any DB transaction. Resolves country codes (ISO_A2_EH -> ISO_A2 -> ADM0_A3) and Admin-1 ISO-2 prefixes + duplicate code fallbacks."
+          },
+          {
+            title: "3. Batched PostGIS Upsert",
+            nodeId: "JdbcRegionBoundaryRepository",
+            badge: "TX per level (250/batch)",
+            detail: "Inside TransactionOperations: ST_MakeValid, conditional Mercator clamp (±85.05112878°) only when out-of-bounds, and ST_SimplifyPreserveTopology into simplified_geom."
+          },
+          {
+            title: "4. Two-Stage Place Tagging",
+            nodeId: "SpatialRegionSql",
+            badge: "TX (assignRegions)",
+            detail: "assignRegionsToUntaggedPlaces() runs ST_Covers first, then 15 km coastal ST_DWithin fallback. Admin-1 fallback filters rb.country_code = resolvedCountry to avoid foreign Admin-1 leaks."
+          }
+        ]
+      }
+    ];
+
+    const state = {
+      tab: "overview",
+      selectedId: "hl-atlas-facade",
+      backendFilter: "all",
+      activeFlow: "flow-import"
+    };
+
+    const TABS = [
+      { id: "overview", label: "1. High-Level Map" },
+      { id: "backend", label: "2. Backend Dependencies" },
+      { id: "flows", label: "3. Core Runtime Flows" },
+      { id: "frontend-db", label: "4. Frontend & PostGIS DB" }
+    ];
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function computeChain(rootId, poolIds) {
+      if (!rootId || !NODES[rootId]) return null;
+      const allowed = new Set(poolIds);
+      if (!allowed.has(rootId)) return null;
+      const up = new Set();
+      const down = new Set();
+      const qUp = [rootId];
+      while (qUp.length) {
+        const cur = qUp.shift();
+        (NODES[cur]?.usedBy || []).forEach((p) => {
+          if (allowed.has(p) && !up.has(p)) {
+            up.add(p);
+            qUp.push(p);
+          }
+        });
+      }
+      const qDown = [rootId];
+      while (qDown.length) {
+        const cur = qDown.shift();
+        (NODES[cur]?.dependsOn || []).forEach((c) => {
+          if (allowed.has(c) && !down.has(c)) {
+            down.add(c);
+            qDown.push(c);
+          }
+        });
+      }
+      return { rootId, up, down, related: new Set([rootId, ...up, ...down]) };
+    }
+
+    function selectNode(id, preferredTab) {
+      if (!NODES[id]) return;
+      state.selectedId = id;
+      if (preferredTab) state.tab = preferredTab;
+      renderAll();
+    }
+
+    function setupThemeToggle() {
+      const btn = document.getElementById("theme-toggle-btn");
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      let theme = prefersDark ? "dark" : "light";
+
+      function applyTheme(next) {
+        theme = next;
+        if (theme === "dark") {
+          document.documentElement.setAttribute("data-theme", "dark");
+          btn.textContent = "Light Mode";
+        } else {
+          document.documentElement.removeAttribute("data-theme");
+          btn.textContent = "Dark Mode";
+        }
+      }
+
+      applyTheme(theme);
+      btn.addEventListener("click", () => applyTheme(theme === "dark" ? "light" : "dark"));
+    }
+
+    function renderTabs() {
+      const bar = document.getElementById("tab-bar");
+      bar.innerHTML = TABS.map((t) => {
+        const active = state.tab === t.id;
+        return `<button type="button" data-tab="${t.id}" class="tab-btn ${active ? "active" : ""}">${esc(t.label)}</button>`;
+      }).join("");
+      bar.querySelectorAll("button").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.tab = btn.dataset.tab;
+          if (state.tab === "overview" && (!NODES[state.selectedId] || NODES[state.selectedId].tab !== "overview")) {
+            state.selectedId = "hl-atlas-facade";
+          } else if (state.tab === "backend" && (!NODES[state.selectedId] || NODES[state.selectedId].col === undefined)) {
+            state.selectedId = "AtlasFacade";
+          } else if (state.tab === "frontend-db" && (!NODES[state.selectedId] || (!state.selectedId.startsWith("fe-") && !state.selectedId.startsWith("db-")))) {
+            state.selectedId = "fe-app";
+          }
+          renderAll();
+        });
+      });
+    }
+
+    function renderOverview() {
+      const toolbar = document.getElementById("view-toolbar");
+      toolbar.innerHTML = `
+        <div class="subtitle" style="margin:0;">
+          High-level architecture &amp; Spring Modulith boundaries — click any box to inspect responsibilities or drill into internals.
+        </div>
+        <div class="mono" style="font-size:12px;color:var(--muted-foreground);">ingestion ──▶ atlas ──▶ shared</div>
+      `;
+
+      const boxes = [
+        { id: "hl-frontend", x: 30, y: 24, w: 390, h: 96, title: "React 19 + Vite 8 + MapLibre SPA", sub: "App.tsx · features/atlas · features/ingestion · TanStack Query" },
+        { id: "hl-edge", x: 470, y: 24, w: 430, h: 96, title: "Caddy 2 Proxy & OpenAPI Sync", sub: "/api/v1/* + .mvt tiles · contracts/openapi.json → schema.d.ts" },
+        { id: "hl-ingestion-web", x: 30, y: 168, w: 360, h: 122, title: "ingestion Module", sub: "ImportController → ImportFacade → ImportLocalDirectory\nTakeout/Timeline Parsers · JdbcImportRepository" },
+        { id: "hl-atlas-web", x: 470, y: 168, w: 430, h: 62, title: "atlas Web & Startup (5 Controllers + AutoSeeder)", sub: "Places · Regions · Stats · Boundaries/MVT · Health · ProblemDetail" },
+        { id: "hl-atlas-facade", x: 470, y: 250, w: 430, h: 132, title: "atlas Module (AtlasFacade + Domain + PostGIS)", sub: "13 Use Cases · ImportedPlaceMerger · PlaceVisitState\nNaturalEarthGeoJsonParser · SpatialRegionSql · AtlasPlaceFilterSql" },
+        { id: "hl-shared", x: 30, y: 332, w: 360, h: 50, title: "shared Kernel (Zero Upward Dependencies)", sub: "UserId · PlaceId · GeoPoint · VisitStatus · VisitSource · PlaceCategory" },
+        { id: "hl-disk-imports", x: 30, y: 424, w: 195, h: 76, title: "APP_IMPORTS_DIR", sub: "Takeout JSON/CSV + Timeline.json\nSHA-256 hashed" },
+        { id: "hl-db-ingestion", x: 245, y: 424, w: 205, h: 76, title: "Postgres (ingestion)", sub: "import_batches · import_records\nresolution_jobs" },
+        { id: "hl-db-atlas", x: 470, y: 424, w: 230, h: 76, title: "PostGIS 3.5 (atlas)", sub: "places · place_visit_state\nplace_memberships · region_boundaries" },
+        { id: "hl-disk-boundaries", x: 720, y: 424, w: 180, h: 76, title: "APP_BOUNDARIES_DIR", sub: "Natural Earth 1:10m GeoJSON\n(~74 MB streamed)" },
+        { id: "hl-guardrails", x: 30, y: 522, w: 870, h: 48, title: "Automated Guardrails: ArchitectureTest (Modulith + No Mockito + Immutable + No Dead Code) · Checkstyle · NullAway · JaCoCo >= 90% · Playwright", sub: "" }
+      ];
+
+      const edges = [
+        { from: "hl-frontend", to: "hl-edge", label: "HTTP / MVT" },
+        { from: "hl-edge", to: "hl-atlas-web", label: "/api/v1/atlas/*" },
+        { from: "hl-edge", to: "hl-ingestion-web", label: "/api/v1/imports/*" },
+        { from: "hl-atlas-web", to: "hl-atlas-facade", label: "AtlasFacade" },
+        { from: "hl-ingestion-web", to: "hl-atlas-facade", label: "AtlasFacade (cross-module)" },
+        { from: "hl-ingestion-web", to: "hl-shared", label: "" },
+        { from: "hl-atlas-facade", to: "hl-shared", label: "" },
+        { from: "hl-ingestion-web", to: "hl-disk-imports", label: "read" },
+        { from: "hl-ingestion-web", to: "hl-db-ingestion", label: "JDBC" },
+        { from: "hl-atlas-facade", to: "hl-db-atlas", label: "PostGIS SQL" },
+        { from: "hl-atlas-facade", to: "hl-disk-boundaries", label: "stream" }
+      ];
+
+      const boxMap = Object.fromEntries(boxes.map((b) => [b.id, b]));
+      const chain = computeChain(state.selectedId, boxes.map((b) => b.id));
+
+      const edgeSvg = edges.map((e) => {
+        const a = boxMap[e.from];
+        const b = boxMap[e.to];
+        const x1 = a.x + a.w / 2;
+        const y1 = a.y + a.h / 2;
+        const x2 = b.x + b.w / 2;
+        const y2 = b.y + b.h / 2;
+        const mx = (x1 + x2) / 2;
+        const my = (y1 + y2) / 2;
+        const active = chain && chain.related.has(e.from) && chain.related.has(e.to);
+        const cls = chain ? (active ? "svg-edge edge-active" : "svg-edge edge-dimmed") : "svg-edge";
+        const stroke = active ? MODULE_COLORS[NODES[e.from].module] : "var(--border)";
+        return `
+          <g>
+            <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls}" stroke="${stroke}" stroke-width="1.6" marker-end="url(#arrow)" />
+            ${e.label ? `<text x="${mx}" y="${my - 4}" text-anchor="middle" fill="var(--muted-foreground)" font-size="12" class="${chain && !active ? "dimmed" : ""}">${esc(e.label)}</text>` : ""}
+          </g>
+        `;
+      }).join("");
+
+      const nodeSvg = boxes.map((b) => {
+        const node = NODES[b.id];
+        const color = MODULE_COLORS[node.module];
+        const isSelected = state.selectedId === b.id;
+        const isDimmed = chain && !chain.related.has(b.id);
+        const lines = b.sub ? b.sub.split("\n") : [];
+        return `
+          <g class="svg-node ${isDimmed ? "dimmed" : ""}" data-node="${b.id}">
+            <rect
+              class="node-bg"
+              x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="10"
+              fill="var(--content)"
+              stroke="${isSelected ? "var(--primary)" : color}"
+              stroke-width="${isSelected ? 2.5 : 1.5}"
+            />
+            <rect x="${b.x}" y="${b.y}" width="6" height="${b.h}" rx="3" fill="${color}" />
+            <text x="${b.x + 16}" y="${b.y + 24}" fill="var(--foreground)" font-size="13" font-weight="600">${esc(b.title)}</text>
+            ${lines.map((ln, idx) => `<text x="${b.x + 16}" y="${b.y + 46 + idx * 18}" fill="var(--muted-foreground)" font-size="12">${esc(ln)}</text>`).join("")}
+          </g>
+        `;
+      }).join("");
+
+      document.getElementById("view-stage").innerHTML = `
+        <svg viewBox="0 0 930 586" class="svg-board" style="min-width:780px;">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--muted-foreground)" />
+            </marker>
+          </defs>
+          ${edgeSvg}
+          ${nodeSvg}
+        </svg>
+      `;
+
+      document.querySelectorAll("[data-node]").forEach((el) => {
+        el.addEventListener("click", () => selectNode(el.dataset.node));
+      });
+    }
+
+    function renderBackend() {
+      const filters = [
+        { id: "all", label: "All Classes" },
+        { id: "atlas", label: "atlas module" },
+        { id: "ingestion", label: "ingestion module" },
+        { id: "shared", label: "shared kernel" },
+        { id: "write-tx", label: "Write Tx" },
+        { id: "read-tx", label: "Read-Only Tx" }
+      ];
+
+      const toolbar = document.getElementById("view-toolbar");
+      toolbar.innerHTML = `
+        <div class="filter-pills">
+          ${filters.map((f) => `
+            <button type="button" data-filter="${f.id}" class="filter-btn ${state.backendFilter === f.id ? "active" : ""}">${esc(f.label)}</button>
+          `).join("")}
+        </div>
+        <div class="subtitle" style="margin:0;">Click any node to isolate its callers &amp; dependencies</div>
+      `;
+
+      toolbar.querySelectorAll("[data-filter]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.backendFilter = btn.dataset.filter;
+          renderBackend();
+        });
+      });
+
+      const backendNodes = Object.values(NODES).filter((n) => n.col !== undefined);
+      const colHeaders = [
+        "1. Entry Points",
+        "2. Facades",
+        "3. Use Cases & Helpers",
+        "4. Pure Domain & Ports",
+        "5. JDBC / FS & Tables"
+      ];
+      const colX = [16, 236, 456, 696, 936];
+      const colW = [196, 196, 216, 216, 216];
+      const boxH = 44;
+      const gapY = 10;
+
+      const byCol = [[], [], [], [], []];
+      backendNodes.forEach((n) => byCol[n.col].push(n));
+      byCol.forEach((list) => list.sort((a, b) => a.row - b.row));
+
+      const coords = {};
+      let maxH = 0;
+      byCol.forEach((list, c) => {
+        const total = list.length * boxH + Math.max(0, list.length - 1) * gapY;
+        const startY = c === 1 ? 230 : 48;
+        list.forEach((n, idx) => {
+          const y = startY + idx * (boxH + gapY);
+          coords[n.id] = { x: colX[c], y, w: colW[c], h: boxH };
+          maxH = Math.max(maxH, y + boxH + 24);
+        });
+        maxH = Math.max(maxH, startY + total + 24);
+      });
+
+      const chain = computeChain(state.selectedId, backendNodes.map((n) => n.id));
+
+      function matchesFilter(n) {
+        if (state.backendFilter === "all") return true;
+        if (state.backendFilter === "write-tx") {
+          return n.tx === "@Transactional" || n.tx === "TransactionOperations" || (n.tx || "").includes("Joins caller");
+        }
+        if (state.backendFilter === "read-tx") {
+          return (n.tx || "").includes("readOnly");
+        }
+        return n.module === state.backendFilter;
+      }
+
+      const headersSvg = colHeaders.map((title, c) => `
+        <text x="${colX[c] + 4}" y="26" fill="var(--muted-foreground)" font-size="12" font-weight="600">${esc(title)}</text>
+      `).join("");
+
+      const edgesSvg = [];
+      backendNodes.forEach((n) => {
+        const from = coords[n.id];
+        (n.dependsOn || []).forEach((targetId) => {
+          const to = coords[targetId];
+          if (!to) return;
+          const x1 = from.x + from.w;
+          const y1 = from.y + from.h / 2;
+          const x2 = to.x;
+          const y2 = to.y + to.h / 2;
+          const cx = (x1 + x2) / 2;
+          const active = chain && chain.related.has(n.id) && chain.related.has(targetId);
+          const filterMatch = matchesFilter(n) || matchesFilter(NODES[targetId]);
+          const cls = chain
+            ? (active ? "svg-edge edge-active" : "svg-edge edge-dimmed")
+            : (filterMatch ? "svg-edge" : "svg-edge edge-dimmed");
+          const stroke = active ? MODULE_COLORS[n.module] : "var(--border)";
+          edgesSvg.push(`<path d="M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}" class="${cls}" stroke="${stroke}" stroke-width="1.3" />`);
+        });
+      });
+
+      const nodesSvg = backendNodes.map((n) => {
+        const box = coords[n.id];
+        const color = MODULE_COLORS[n.module];
+        const isSelected = state.selectedId === n.id;
+        const visibleByFilter = matchesFilter(n);
+        const visibleByChain = !chain || chain.related.has(n.id);
+        const dimmed = !(visibleByFilter && visibleByChain);
+        const txTag = n.tx
+          ? (n.tx.includes("readOnly") ? "RO" : n.tx.includes("TransactionOperations") ? "TxOps" : n.tx.includes("@Transactional") ? "@Tx" : "")
+          : "";
+        return `
+          <g class="svg-node ${dimmed ? "dimmed" : ""}" data-node="${n.id}">
+            <rect
+              class="node-bg"
+              x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="7"
+              fill="var(--content)"
+              stroke="${isSelected ? "var(--primary)" : color}"
+              stroke-width="${isSelected ? 2.4 : 1.3}"
+            />
+            <rect x="${box.x}" y="${box.y}" width="4" height="${box.h}" rx="2" fill="${color}" />
+            <text x="${box.x + 10}" y="${box.y + 18}" fill="var(--foreground)" font-size="12" font-weight="600">${esc(n.title)}</text>
+            <text x="${box.x + 10}" y="${box.y + 34}" fill="var(--muted-foreground)" font-size="12">${esc(n.layer)}${txTag ? " · " + txTag : ""}</text>
+          </g>
+        `;
+      }).join("");
+
+      document.getElementById("view-stage").innerHTML = `
+        <svg viewBox="0 0 1168 ${maxH}" class="svg-board" style="min-width:1040px;">
+          ${headersSvg}
+          ${edgesSvg.join("")}
+          ${nodesSvg}
+        </svg>
+      `;
+
+      document.querySelectorAll("[data-node]").forEach((el) => {
+        el.addEventListener("click", () => selectNode(el.dataset.node));
+      });
+    }
+
+    function renderFlows() {
+      const flow = RUNTIME_FLOWS.find((f) => f.id === state.activeFlow) || RUNTIME_FLOWS[0];
+      const toolbar = document.getElementById("view-toolbar");
+      toolbar.innerHTML = `
+        <div class="filter-pills">
+          ${RUNTIME_FLOWS.map((f) => `
+            <button type="button" data-flow="${f.id}" class="filter-btn ${state.activeFlow === f.id ? "active" : ""}">${esc(f.title.split(" (")[0])}</button>
+          `).join("")}
+        </div>
+        <div class="subtitle" style="margin:0;">Click any step to inspect the backing class</div>
+      `;
+
+      toolbar.querySelectorAll("[data-flow]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.activeFlow = btn.dataset.flow;
+          const first = RUNTIME_FLOWS.find((f) => f.id === state.activeFlow)?.steps[0]?.nodeId;
+          if (first && NODES[first]) state.selectedId = first;
+          renderAll();
+        });
+      });
+
+      const cards = flow.steps.map((step, idx) => {
+        const node = NODES[step.nodeId];
+        const color = node ? MODULE_COLORS[node.module] : "var(--border)";
+        const isSelected = state.selectedId === step.nodeId;
+        return `
+          <div>
+            <button
+              type="button"
+              data-node="${step.nodeId}"
+              class="flow-card ${isSelected ? "selected" : ""}"
+              style="border-left: 4px solid ${color};"
+            >
+              <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+                <span style="font-size:14px;font-weight:600;color:var(--foreground);">${esc(step.title)}</span>
+                <span class="pill mono">${esc(step.badge)}</span>
+              </div>
+              <p class="subtitle" style="margin:0;line-height:1.5;">${esc(step.detail)}</p>
+              <div class="mono" style="margin-top:8px;font-size:12px;color:var(--link);">Inspect ${esc(step.nodeId)} →</div>
+            </button>
+            ${idx < flow.steps.length - 1 ? `
+              <div class="flow-arrow">
+                <svg width="20" height="18" viewBox="0 0 20 18" fill="none" stroke="var(--muted-foreground)" stroke-width="1.8">
+                  <line x1="10" y1="0" x2="10" y2="14"></line>
+                  <polyline points="5,10 10,15 15,10"></polyline>
+                </svg>
+              </div>
+            ` : ""}
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("view-stage").innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="border-radius:8px;background:var(--content);border:1px solid var(--card-border);padding:12px;">
+            <div style="font-size:14px;font-weight:600;color:var(--foreground);">${esc(flow.title)}</div>
+            <div class="subtitle">${esc(flow.subtitle)}</div>
+          </div>
+          <div class="flow-list">${cards}</div>
+        </div>
+      `;
+
+      document.querySelectorAll("[data-node]").forEach((el) => {
+        el.addEventListener("click", () => selectNode(el.dataset.node));
+      });
+    }
+
+    function renderFrontendAndDb() {
+      const toolbar = document.getElementById("view-toolbar");
+      toolbar.innerHTML = `
+        <div class="subtitle" style="margin:0;">
+          Frontend component tree (React 19 + MapLibre) &amp; PostgreSQL 17 / PostGIS 3.5 schema (7 tables). Click any item to inspect.
+        </div>
+        <div class="mono" style="font-size:12px;color:var(--muted-foreground);">V1__init_postgis → V3__geography_gist_indexes</div>
+      `;
+
+      const feCards = [
+        "fe-app", "fe-viewstate", "fe-hooks", "fe-map", "fe-filters",
+        "fe-dossier", "fe-stats", "fe-place-card", "fe-bulk", "fe-undo", "fe-import-ui"
+      ];
+
+      const feHtml = feCards.map((id) => {
+        const n = NODES[id];
+        const isSel = state.selectedId === id;
+        return `
+          <button
+            type="button"
+            data-node="${id}"
+            class="fe-card ${isSel ? "selected" : ""}"
+            style="border-left: 4px solid ${MODULE_COLORS[n.module]};"
+          >
+            <div style="font-size:12px;font-weight:600;color:var(--foreground);">${esc(n.title)}</div>
+            <div style="font-size:12px;color:var(--muted-foreground);margin-top:2px;">${esc(n.layer)}</div>
+          </button>
+        `;
+      }).join("");
+
+      const tables = [
+        { id: "db-region_boundaries", x: 20, y: 20, w: 260, h: 120, cols: ["PK id : uuid", "region_level · code · country_code", "name · geom (MultiPolygon)", "simplified_geom · GiST geog"] },
+        { id: "db-places", x: 330, y: 20, w: 290, h: 140, cols: ["PK id : uuid · user_id", "FK admin1_id → region_boundaries", "geom Point(4326) · GiST geog · trgm", "google_place_id · google_cid (uq)", "category · derived_role · country_code"] },
+        { id: "db-place_visit_state", x: 670, y: 20, w: 260, h: 112, cols: ["PK/FK place_id → places (cascade)", "status (UNVISITED/VISITED/TRIAGE)", "source · visit_count", "first_visited_at · last_visited_at"] },
+        { id: "db-place_memberships", x: 670, y: 156, w: 260, h: 112, cols: ["PK id · FK place_id → places", "UNIQUE(place_id, account, list)", "list_kind · note · tags · source_url", "saved_at"] },
+        { id: "db-import_batches", x: 20, y: 210, w: 260, h: 112, cols: ["PK id · user_id · account_label", "UNIQUE(user, account, sha256)", "source_type · status · record_count", "started_at · completed_at"] },
+        { id: "db-import_records", x: 330, y: 210, w: 290, h: 112, cols: ["PK id · FK batch_id (cascade)", "record_type · source_file", "google_place_id · google_cid · geom", "observed_at · payload_json (JSONB)"] },
+        { id: "db-resolution_jobs", x: 670, y: 292, w: 260, h: 108, cols: ["PK id · FK import_record_id", "FK place_id → places (nullable)", "job_type · status (PENDING idx)", "attempts · next_run_at"] }
+      ];
+
+      const tMap = Object.fromEntries(tables.map((t) => [t.id, t]));
+      const dbEdges = [
+        ["db-places", "db-region_boundaries"],
+        ["db-place_visit_state", "db-places"],
+        ["db-place_memberships", "db-places"],
+        ["db-import_records", "db-import_batches"],
+        ["db-resolution_jobs", "db-import_records"],
+        ["db-resolution_jobs", "db-places"]
+      ];
+
+      const dbEdgesSvg = dbEdges.map(([fromId, toId]) => {
+        const a = tMap[fromId];
+        const b = tMap[toId];
+        const x1 = a.x + a.w / 2;
+        const y1 = a.y + a.h / 2;
+        const x2 = b.x + b.w / 2;
+        const y2 = b.y + b.h / 2;
+        const active = state.selectedId === fromId || state.selectedId === toId;
+        return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${active ? "var(--primary)" : "var(--border)"}" stroke-width="${active ? 2.2 : 1.4}" stroke-dasharray="4 3" />`;
+      }).join("");
+
+      const dbNodesSvg = tables.map((t) => {
+        const n = NODES[t.id];
+        const ownerColor = n.layer.startsWith("atlas") ? MODULE_COLORS.atlas : MODULE_COLORS.ingestion;
+        const isSel = state.selectedId === t.id;
+        return `
+          <g class="svg-node" data-node="${t.id}">
+            <rect class="node-bg" x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}" rx="9" fill="var(--content)" stroke="${isSel ? "var(--primary)" : ownerColor}" stroke-width="${isSel ? 2.4 : 1.5}" />
+            <rect x="${t.x}" y="${t.y}" width="${t.w}" height="28" rx="9" fill="var(--card)" />
+            <rect x="${t.x}" y="${t.y + 18}" width="${t.w}" height="10" fill="var(--card)" />
+            <line x1="${t.x}" y1="${t.y + 28}" x2="${t.x + t.w}" y2="${t.y + 28}" stroke="var(--card-border)" />
+            <circle cx="${t.x + 14}" cy="${t.y + 14}" r="4.5" fill="${ownerColor}" />
+            <text x="${t.x + 25}" y="${t.y + 18}" fill="var(--foreground)" font-size="12" font-weight="700" font-family="monospace">${esc(n.title)}</text>
+            ${t.cols.map((c, idx) => `<text x="${t.x + 12}" y="${t.y + 47 + idx * 18}" fill="var(--muted-foreground)" font-size="12">${esc(c)}</text>`).join("")}
+          </g>
+        `;
+      }).join("");
+
+      document.getElementById("view-stage").innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          <div>
+            <div class="section-kicker" style="margin-bottom:8px;">Frontend Features &amp; State Flow (frontend/src/)</div>
+            <div class="fe-grid">${feHtml}</div>
+          </div>
+          <div>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+              <div class="section-kicker">PostgreSQL 17 + PostGIS 3.5 ER Diagram</div>
+              <span style="font-size:12px;color:var(--muted-foreground);">Blue dot = owned by atlas · Teal dot = owned by ingestion</span>
+            </div>
+            <div class="stage-scroll">
+              <svg viewBox="0 0 950 420" class="svg-board" style="min-width:780px;">
+                ${dbEdgesSvg}
+                ${dbNodesSvg}
+              </svg>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.querySelectorAll("[data-node]").forEach((el) => {
+        el.addEventListener("click", () => selectNode(el.dataset.node));
+      });
+    }
+
+    function renderInspector() {
+      const node = NODES[state.selectedId];
+      const badge = document.getElementById("inspector-badge");
+      const body = document.getElementById("inspector-body");
+
+      if (!node) {
+        badge.textContent = "No selection";
+        badge.style.borderColor = "var(--card-border)";
+        body.innerHTML = `<p style="margin:0;color:var(--muted-foreground);">Click any module, class, flow step, or table to inspect its responsibilities, file path, transaction scope, and connections.</p>`;
+        return;
+      }
+
+      const color = MODULE_COLORS[node.module] || "var(--primary)";
+      badge.textContent = node.module;
+      badge.style.borderColor = color;
+
+      const depsHtml = (node.dependsOn || []).length
+        ? node.dependsOn.filter((id) => NODES[id]).map((id) => `
+            <button type="button" data-jump="${id}" class="chip-btn mono">${esc(NODES[id].title)}</button>
+          `).join("")
+        : `<span style="color:var(--muted-foreground);">None (leaf node)</span>`;
+
+      const usedByHtml = (node.usedBy || []).length
+        ? node.usedBy.filter((id) => NODES[id]).map((id) => `
+            <button type="button" data-jump="${id}" class="chip-btn mono">${esc(NODES[id].title)}</button>
+          `).join("")
+        : `<span style="color:var(--muted-foreground);">Entry point / top-level</span>`;
+
+      body.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div>
+            <h3 style="margin:0;font-size:14px;font-weight:600;color:var(--foreground);">${esc(node.title)}</h3>
+            <div style="font-size:12px;color:var(--muted-foreground);">${esc(node.layer)}</div>
+          </div>
+
+          <div class="path-box mono">${esc(node.path)}</div>
+
+          ${node.tx ? `
+            <div class="pill" style="align-self:flex-start;color:var(--foreground);">
+              <span style="width:8px;height:8px;border-radius:9999px;background:var(--warning);display:inline-block;"></span>
+              Transaction: <span class="mono">${esc(node.tx)}</span>
+            </div>
+          ` : ""}
+
+          <p style="margin:0;font-size:12px;color:var(--foreground);line-height:1.5;">${esc(node.summary)}</p>
+
+          ${node.jumpTab ? `
+            <button type="button" id="inspector-jump-tab" class="btn-primary">
+              ${esc(node.jumpLabel || "Open Detail View")}
+            </button>
+          ` : ""}
+        </div>
+
+        <div class="section-divider">
+          <div class="section-kicker">Key Functions &amp; Contracts</div>
+          <ul class="fn-list">
+            ${(node.functions || []).map((fn) => `<li>${esc(fn)}</li>`).join("")}
+          </ul>
+        </div>
+
+        <div class="section-divider">
+          <div class="section-kicker">Depends On</div>
+          <div class="chip-row">${depsHtml}</div>
+        </div>
+
+        <div class="section-divider">
+          <div class="section-kicker">Used By</div>
+          <div class="chip-row">${usedByHtml}</div>
+        </div>
+      `;
+
+      body.querySelectorAll("[data-jump]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const target = btn.dataset.jump;
+          const tNode = NODES[target];
+          let nextTab = state.tab;
+          if (tNode.tab === "overview" && state.tab !== "overview") nextTab = "overview";
+          else if (tNode.col !== undefined) nextTab = "backend";
+          else if (target.startsWith("fe-") || target.startsWith("db-")) nextTab = "frontend-db";
+          selectNode(target, nextTab);
+        });
+      });
+
+      const jumpBtn = document.getElementById("inspector-jump-tab");
+      if (jumpBtn && node.jumpTab) {
+        jumpBtn.addEventListener("click", () => {
+          state.tab = node.jumpTab;
+          if (node.jumpTab === "backend") state.selectedId = "AtlasFacade";
+          if (node.jumpTab === "frontend-db") state.selectedId = node.module === "database" ? "db-places" : "fe-app";
+          renderAll();
+        });
+      }
+    }
+
+    function setupSearch() {
+      const input = document.getElementById("global-search");
+      const results = document.getElementById("search-results");
+
+      input.addEventListener("input", () => {
+        const q = input.value.trim().toLowerCase();
+        if (!q) {
+          results.classList.add("hidden");
+          results.innerHTML = "";
+          return;
+        }
+        const matches = Object.values(NODES).filter((n) => {
+          const hay = [n.title, n.path, n.summary, ...(n.functions || [])].join(" ").toLowerCase();
+          return hay.includes(q);
+        }).slice(0, 10);
+
+        if (!matches.length) {
+          results.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--muted-foreground);">No matching nodes found.</div>`;
+        } else {
+          results.innerHTML = matches.map((m) => `
+            <button type="button" data-pick="${m.id}" class="search-item">
+              <div style="min-width:0;">
+                <div style="font-size:12px;font-weight:600;color:var(--foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(m.title)}</div>
+                <div class="mono" style="font-size:12px;color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(m.path)}</div>
+              </div>
+              <span class="pill" style="flex-shrink:0;">${esc(m.module)}</span>
+            </button>
+          `).join("");
+          results.querySelectorAll("[data-pick]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const id = btn.dataset.pick;
+              const n = NODES[id];
+              let tab = "overview";
+              if (n.col !== undefined) tab = "backend";
+              else if (id.startsWith("fe-") || id.startsWith("db-")) tab = "frontend-db";
+              results.classList.add("hidden");
+              input.value = "";
+              selectNode(id, tab);
+            });
+          });
+        }
+        results.classList.remove("hidden");
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!results.contains(e.target) && e.target !== input) {
+          results.classList.add("hidden");
+        }
+      });
+
+      document.getElementById("clear-selection-btn").addEventListener("click", () => {
+        state.selectedId = null;
+        state.backendFilter = "all";
+        renderAll();
+      });
+    }
+
+    function renderAll() {
+      renderTabs();
+      if (state.tab === "overview") renderOverview();
+      else if (state.tab === "backend") renderBackend();
+      else if (state.tab === "flows") renderFlows();
+      else renderFrontendAndDb();
+      renderInspector();
+    }
+
+    setupThemeToggle();
+    setupSearch();
+    renderAll();
+  </script>
+</body>
+</html>

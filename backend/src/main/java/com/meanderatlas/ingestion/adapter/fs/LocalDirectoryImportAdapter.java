@@ -85,41 +85,43 @@ class LocalDirectoryImportAdapter implements TripImportSourcePort {
 
     private static Optional<DiscoveredImportFile> classifyFile(Path accountDir, Path file) {
         String fileName = file.getFileName().toString();
+        String relativePath = accountDir.relativize(file).toString().replace('\\', '/');
+        return detectFileKind(fileName)
+                .map(kind -> new DiscoveredImportFile(relativePath, kind, file));
+    }
+
+    private static Optional<ImportFileKind> detectFileKind(String fileName) {
         String lower = fileName.toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".zip")) {
+        int dotIndex = lower.lastIndexOf('.');
+        if (dotIndex < 0) {
             return Optional.empty();
         }
-        String relativePath = accountDir.relativize(file).toString().replace('\\', '/');
-        if (lower.endsWith(".csv")) {
-            if (TakeoutCsvParser.isNonMapsCsv(fileName)) {
-                return Optional.empty();
-            }
-            return Optional.of(
-                    new DiscoveredImportFile(relativePath, ImportFileKind.SAVED_CSV, file));
+        return switch (lower.substring(dotIndex + 1)) {
+            case "csv" ->
+                    TakeoutCsvParser.isNonMapsCsv(fileName)
+                            ? Optional.empty()
+                            : Optional.of(ImportFileKind.SAVED_CSV);
+            case "json" -> classifyJson(fileName, lower);
+            default -> Optional.empty();
+        };
+    }
+
+    private static Optional<ImportFileKind> classifyJson(String fileName, String lowerFileName) {
+        String baseName =
+                TextNormalizer.normalizeFolded(
+                        lowerFileName.substring(0, lowerFileName.length() - ".json".length()));
+        if (IGNORED_JSON_NAMES.contains(baseName)) {
+            return Optional.empty();
         }
-        if (lower.endsWith(".json")) {
-            String baseName =
-                    TextNormalizer.normalizeFolded(
-                            fileName.substring(0, fileName.length() - ".json".length()));
-            if (IGNORED_JSON_NAMES.contains(baseName)) {
-                return Optional.empty();
-            }
-            if (TakeoutGeoJsonParser.isSavedPlacesFile(fileName)) {
-                return Optional.of(
-                        new DiscoveredImportFile(
-                                relativePath, ImportFileKind.STARRED_GEOJSON, file));
-            }
-            if (TakeoutGeoJsonParser.isReviewsFile(fileName)) {
-                return Optional.of(
-                        new DiscoveredImportFile(
-                                relativePath, ImportFileKind.REVIEW_GEOJSON, file));
-            }
-            if ("timeline".equals(baseName)) {
-                return Optional.of(
-                        new DiscoveredImportFile(relativePath, ImportFileKind.TIMELINE_JSON, file));
-            }
+        if (TakeoutGeoJsonParser.isSavedPlacesFile(fileName)) {
+            return Optional.of(ImportFileKind.STARRED_GEOJSON);
         }
-        return Optional.empty();
+        if (TakeoutGeoJsonParser.isReviewsFile(fileName)) {
+            return Optional.of(ImportFileKind.REVIEW_GEOJSON);
+        }
+        return "timeline".equals(baseName)
+                ? Optional.of(ImportFileKind.TIMELINE_JSON)
+                : Optional.empty();
     }
 
     private static boolean isHidden(Path path) {

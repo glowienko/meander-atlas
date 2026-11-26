@@ -11,23 +11,29 @@ public final class TakeoutTestData {
             String name, double lng, double lat, long cid, @Nullable String countryCode) {
         String countryLine =
                 countryCode == null ? "" : "\"country_code\": \"" + countryCode + "\", ";
-        return """
-        {
-          "type": "FeatureCollection",
-          "features": [
-            {
-              "type": "Feature",
-              "geometry": {"type": "Point", "coordinates": [%s, %s]},
-              "properties": {
-                "date": "2025-05-01T10:00:00Z",
-                "google_maps_url": "http://maps.google.com/?cid=%d",
-                "location": {%s"name": "%s"}
-              }
-            }
-          ]
-        }
-        """
-                .formatted(lng, lat, cid, countryLine, name);
+        return String.format(
+                Locale.ROOT,
+                """
+                {
+                  "type": "FeatureCollection",
+                  "features": [
+                    {
+                      "type": "Feature",
+                      "geometry": {"type": "Point", "coordinates": [%s, %s]},
+                      "properties": {
+                        "date": "2025-05-01T10:00:00Z",
+                        "google_maps_url": "http://maps.google.com/?cid=%s",
+                        "location": {%s"name": "%s"}
+                      }
+                    }
+                  ]
+                }
+                """,
+                lng,
+                lat,
+                Long.toUnsignedString(cid),
+                countryLine,
+                name);
     }
 
     public static String singleVisitTimelineJson(

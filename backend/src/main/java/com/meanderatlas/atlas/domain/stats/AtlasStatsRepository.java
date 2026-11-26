@@ -1,7 +1,6 @@
 package com.meanderatlas.atlas.domain.stats;
 
 import com.meanderatlas.atlas.domain.RegionLevel;
-import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.shared.UserId;
 import java.util.List;
 import java.util.Optional;
@@ -13,7 +12,7 @@ public interface AtlasStatsRepository {
             UserId userId,
             RegionLevel level,
             @Nullable String countryCode,
-            PlaceQueryFilter filter);
+            RegionSummaryFilter filter);
 
     Optional<RegionSummary> findRegionSummary(UserId userId, RegionLevel level, String code);
 

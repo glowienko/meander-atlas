@@ -17,7 +17,43 @@ interface AtlasFilterBarProps {
   onClear: () => void;
 }
 
+interface FilterSelectProps {
+  testId: string;
+  ariaLabel: string;
+  emptyLabel: string;
+  value: string;
+  options: readonly { value: string; label: string }[];
+  onChange: (value: string) => void;
+}
+
 const FACET_SEPARATOR = "\u0000";
+
+function FilterSelect({
+  testId,
+  ariaLabel,
+  emptyLabel,
+  value,
+  options,
+  onChange,
+}: FilterSelectProps) {
+  return (
+    <select
+      data-testid={testId}
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 cursor-pointer rounded-full border bg-white/75 px-3 text-[13px] outline-none focus:border-[var(--atlas-accent)]"
+      style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
+    >
+      <option value="">{emptyLabel}</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export function AtlasFilterBar({
   viewState,
@@ -44,7 +80,7 @@ export function AtlasFilterBar({
   return (
     <div
       data-testid="atlas-filter-bar"
-      className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border px-3 py-1.5 text-xs shadow-sm backdrop-blur-md"
+      className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border px-3 py-1.5 text-[13px] shadow-sm backdrop-blur-md"
       style={{
         backgroundColor: "var(--atlas-surface)",
         borderColor: "var(--atlas-border)",
@@ -63,71 +99,44 @@ export function AtlasFilterBar({
           placeholder="Search places, cities, notes..."
           value={viewState.q}
           onChange={(e) => onChange({ ...viewState, q: e.target.value })}
-          className="h-7 w-44 rounded-full border bg-white/70 pl-8 pr-2.5 text-xs outline-none focus:border-[var(--atlas-accent)] sm:w-52"
+          className="h-8 w-44 rounded-full border bg-white/75 pl-8 pr-3 text-[13px] outline-none focus:border-[var(--atlas-accent)] sm:w-52"
           style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
         />
       </label>
 
-      <select
-        data-testid="filter-status"
-        aria-label="Filter by visit status"
+      <FilterSelect
+        testId="filter-status"
+        ariaLabel="Filter by visit status"
+        emptyLabel="All statuses"
         value={viewState.visitStatus}
-        onChange={(e) =>
-          onChange({ ...viewState, visitStatus: e.target.value as VisitStatusFilter })
-        }
-        className="h-7 cursor-pointer rounded-full border bg-white/70 px-2.5 text-xs outline-none focus:border-[var(--atlas-accent)]"
-        style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
-      >
-        <option value="">All statuses</option>
-        {VISIT_STATUS_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        options={VISIT_STATUS_OPTIONS}
+        onChange={(value) => onChange({ ...viewState, visitStatus: value as VisitStatusFilter })}
+      />
 
-      <select
-        data-testid="filter-role"
-        aria-label="Filter by derived role"
+      <FilterSelect
+        testId="filter-role"
+        ariaLabel="Filter by derived role"
+        emptyLabel="All roles"
         value={viewState.derivedRole}
-        onChange={(e) =>
-          onChange({ ...viewState, derivedRole: e.target.value as DerivedRoleFilter })
-        }
-        className="h-7 cursor-pointer rounded-full border bg-white/70 px-2.5 text-xs outline-none focus:border-[var(--atlas-accent)]"
-        style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
-      >
-        <option value="">All roles</option>
-        {DERIVED_ROLE_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        options={DERIVED_ROLE_OPTIONS}
+        onChange={(value) => onChange({ ...viewState, derivedRole: value as DerivedRoleFilter })}
+      />
 
-      <select
-        data-testid="filter-category"
-        aria-label="Filter by category"
+      <FilterSelect
+        testId="filter-category"
+        ariaLabel="Filter by category"
+        emptyLabel="All categories"
         value={viewState.category}
-        onChange={(e) =>
-          onChange({ ...viewState, category: e.target.value as PlaceCategoryFilter })
-        }
-        className="h-7 cursor-pointer rounded-full border bg-white/70 px-2.5 text-xs outline-none focus:border-[var(--atlas-accent)]"
-        style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
-      >
-        <option value="">All categories</option>
-        {CATEGORY_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        options={CATEGORY_OPTIONS}
+        onChange={(value) => onChange({ ...viewState, category: value as PlaceCategoryFilter })}
+      />
 
       <select
         data-testid="filter-account-list"
         aria-label="Filter by account or list"
         value={activeAccountListValue}
         onChange={(e) => handleAccountListChange(e.target.value)}
-        className="h-7 max-w-48 cursor-pointer rounded-full border bg-white/70 px-2.5 text-xs outline-none focus:border-[var(--atlas-accent)]"
+        className="h-8 max-w-52 cursor-pointer rounded-full border bg-white/75 px-3 text-[13px] outline-none focus:border-[var(--atlas-accent)]"
         style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
       >
         <option value="">All lists</option>
@@ -156,10 +165,10 @@ export function AtlasFilterBar({
           type="button"
           data-testid="clear-filters-button"
           onClick={onClear}
-          className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border px-2.5 font-medium transition-colors hover:bg-black/5"
+          className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-full border px-3 font-medium transition-colors hover:bg-black/5"
           style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
         >
-          <X className="h-3 w-3" aria-hidden="true" />
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
           Clear
         </button>
       )}

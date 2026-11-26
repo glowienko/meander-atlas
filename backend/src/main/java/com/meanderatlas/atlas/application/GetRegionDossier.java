@@ -4,18 +4,20 @@ import com.meanderatlas.atlas.AtlasPlaceView;
 import com.meanderatlas.atlas.RegionDossierView;
 import com.meanderatlas.atlas.RegionScope;
 import com.meanderatlas.atlas.RegionSummaryView;
+import com.meanderatlas.atlas.domain.RegionCodeNormalizer;
 import com.meanderatlas.atlas.domain.RegionLevel;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.stats.AtlasStatsRepository;
 import com.meanderatlas.atlas.domain.stats.RegionSummary;
+import com.meanderatlas.atlas.domain.stats.RegionSummaryFilter;
 import com.meanderatlas.shared.CurrentUserProvider;
 import com.meanderatlas.shared.UserId;
 import java.util.List;
-import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class GetRegionDossier {
@@ -33,13 +35,13 @@ public class GetRegionDossier {
         this.currentUserProvider = currentUserProvider;
     }
 
+    @Transactional(readOnly = true)
     public RegionDossierView execute(RegionScope scope, String code) {
         Objects.requireNonNull(scope, "scope must not be null");
         String normalizedCode =
-                Objects.requireNonNull(code, "code must not be null")
-                        .trim()
-                        .toUpperCase(Locale.ROOT);
-        if (normalizedCode.isEmpty()) {
+                RegionCodeNormalizer.normalizeCountryCode(
+                        Objects.requireNonNull(code, "code must not be null"));
+        if (normalizedCode == null) {
             throw new IllegalArgumentException("Region code must not be blank");
         }
         UserId userId = currentUserProvider.currentUserId();
@@ -58,7 +60,7 @@ public class GetRegionDossier {
                                         userId,
                                         RegionLevel.ADMIN1,
                                         summary.countryCode(),
-                                        PlaceQueryFilter.empty())
+                                        RegionSummaryFilter.empty())
                                 .stream()
                                 .map(AtlasViewMapper::toRegionSummaryView)
                                 .toList()

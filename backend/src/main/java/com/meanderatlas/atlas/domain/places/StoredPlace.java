@@ -30,4 +30,27 @@ public record StoredPlace(
         @Nullable String admin1Code,
         @Nullable String admin1Name,
         @Nullable String cityName,
-        List<StoredMembership> memberships) {}
+        List<StoredMembership> memberships) {
+
+    public StoredPlace withMemberships(List<StoredMembership> resolvedMemberships) {
+        return new StoredPlace(
+                id,
+                canonicalName,
+                coordinates,
+                category,
+                subcategory,
+                categorySource,
+                derivedRole,
+                visitStatus,
+                visitSource,
+                visitCount,
+                firstVisitedAt,
+                lastVisitedAt,
+                countryCode,
+                admin1Id,
+                admin1Code,
+                admin1Name,
+                cityName,
+                resolvedMemberships);
+    }
+}

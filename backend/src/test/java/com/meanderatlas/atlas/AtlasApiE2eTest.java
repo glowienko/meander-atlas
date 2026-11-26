@@ -58,11 +58,12 @@ class AtlasApiE2eTest {
         RestClient client =
                 RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
 
-        verifyPlaceFiltering(client);
+        verifyPlaceFiltering(client, ids);
         verifyRegionsAndDossiers(client);
         verifyStats(client);
+        verifyAntimeridianBbox(client);
         verifyVisitStatusAndBulkUndo(client, ids);
-        verifyErrorResponses(client);
+        verifyErrorResponses(client, ids);
     }
 
     private SeededDataset seedAtlasDataset() {
@@ -162,10 +163,10 @@ class AtlasApiE2eTest {
         insertMembership(fushimiId, "secondary", "Want to go", "WANT_TO_GO", "Red torii");
         insertMembership(hotelId, "personal", "Starred", "STARRED", "Basecamp stay");
 
-        return new SeededDataset(wawelId, halaId, fushimiId, hotelId);
+        return new SeededDataset(wawelId, halaId, fushimiId, hotelId, plAdmin1Id);
     }
 
-    private static void verifyPlaceFiltering(RestClient client) {
+    private static void verifyPlaceFiltering(RestClient client, SeededDataset ids) {
         AtlasPlacesResponse allPlaces =
                 client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
         assertThat(allPlaces).isNotNull();
@@ -190,6 +191,52 @@ class AtlasApiE2eTest {
                         .body(AtlasPlacesResponse.class);
         assertThat(krakowBbox).isNotNull();
         assertThat(krakowBbox.totalCount()).isEqualTo(2);
+
+        AtlasPlacesResponse byAdmin1Id =
+                client.get()
+                        .uri("/api/v1/atlas/places?admin1Id={admin1Id}", ids.plAdmin1Id())
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(byAdmin1Id).isNotNull();
+        assertThat(byAdmin1Id.places())
+                .extracting(AtlasPlaceView::canonicalName)
+                .containsExactlyInAnyOrder("Wawel Royal Castle", "Hala Targowa");
+
+        AtlasPlacesResponse literalWildcardPercent =
+                client.get()
+                        .uri("/api/v1/atlas/places?q={q}", "%")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(literalWildcardPercent).isNotNull();
+        assertThat(literalWildcardPercent.totalCount()).isZero();
+
+        AtlasPlacesResponse literalWildcardUnderscore =
+                client.get()
+                        .uri("/api/v1/atlas/places?q={q}", "_")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(literalWildcardUnderscore).isNotNull();
+        assertThat(literalWildcardUnderscore.totalCount()).isZero();
+
+        AtlasPlacesResponse visitedOnly =
+                client.get()
+                        .uri("/api/v1/atlas/places?visitStatus=VISITED")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(visitedOnly).isNotNull();
+        assertThat(visitedOnly.places())
+                .extracting(AtlasPlaceView::canonicalName)
+                .containsExactly("Wawel Royal Castle");
+
+        AtlasPlacesResponse triageOnly =
+                client.get()
+                        .uri("/api/v1/atlas/places?visitStatus=NEEDS_TRIAGE")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(triageOnly).isNotNull();
+        assertThat(triageOnly.places())
+                .extracting(AtlasPlaceView::canonicalName)
+                .containsExactly("Fushimi Inari Taisha");
     }
 
     private static void verifyRegionsAndDossiers(RestClient client) {
@@ -200,6 +247,16 @@ class AtlasApiE2eTest {
                         .body(new ParameterizedTypeReference<>() {});
         assertThat(countries).isNotNull().hasSize(2);
 
+        List<RegionSummaryView> filteredCountries =
+                client.get()
+                        .uri(
+                                "/api/v1/atlas/regions?level=COUNTRY&category=RESTAURANT&derivedRole=FAVORITE")
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<>() {});
+        assertThat(filteredCountries).isNotNull().hasSize(1);
+        assertThat(filteredCountries.getFirst().code()).isEqualTo("PL-API");
+        assertThat(filteredCountries.getFirst().totalPlaces()).isEqualTo(1);
+
         List<RegionSummaryView> plAdmin1Regions =
                 client.get()
                         .uri("/api/v1/atlas/regions?level=ADMIN1&countryCode= pl-api ")
@@ -207,6 +264,14 @@ class AtlasApiE2eTest {
                         .body(new ParameterizedTypeReference<>() {});
         assertThat(plAdmin1Regions).isNotNull().hasSize(1);
         assertThat(plAdmin1Regions.getFirst().code()).isEqualTo("PL-12-API");
+
+        List<RegionSummaryView> sacralAdmin1Regions =
+                client.get()
+                        .uri("/api/v1/atlas/regions?level=ADMIN1&category=SACRAL")
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<>() {});
+        assertThat(sacralAdmin1Regions).isNotNull().hasSize(1);
+        assertThat(sacralAdmin1Regions.getFirst().code()).isEqualTo("JP-26-API");
 
         RegionDossierView polandDossier =
                 client.get()
@@ -243,6 +308,29 @@ class AtlasApiE2eTest {
         assertThat(stats.visitedAdmin1Regions()).isEqualTo(1);
         assertThat(stats.totalSavedAdmin1Regions()).isEqualTo(2);
         assertThat(stats.accountLists()).hasSize(3);
+    }
+
+    private void verifyAntimeridianBbox(RestClient client) {
+        UUID fijiId = UUID.randomUUID();
+        UUID samoaId = UUID.randomUUID();
+        insertPlaceWithoutRegion(fijiId, "Fiji Reef", 179.5, -18.0);
+        insertPlaceWithoutRegion(samoaId, "Samoa Bay", -175.0, -14.0);
+        try {
+            AtlasPlacesResponse pacific =
+                    client.get()
+                            .uri(
+                                    "/api/v1/atlas/places?minLng=170.0&minLat=-25.0&maxLng=-170.0&maxLat=0.0")
+                            .retrieve()
+                            .body(AtlasPlacesResponse.class);
+            assertThat(pacific).isNotNull();
+            assertThat(pacific.places())
+                    .extracting(AtlasPlaceView::canonicalName)
+                    .containsExactlyInAnyOrder("Fiji Reef", "Samoa Bay");
+        } finally {
+            jdbc.update(
+                    "DELETE FROM places WHERE id IN (:ids)",
+                    Map.of("ids", List.of(fijiId, samoaId)));
+        }
     }
 
     private static void verifyVisitStatusAndBulkUndo(RestClient client, SeededDataset ids) {
@@ -295,9 +383,22 @@ class AtlasApiE2eTest {
         assertThat(wawelAfterUndo.visitStatus()).isEqualTo(VisitStatus.VISITED);
         assertThat(wawelAfterUndo.visitSource()).isEqualTo(VisitSource.TIMELINE);
         assertThat(wawelAfterUndo.visitCount()).isEqualTo(2);
+
+        BulkVisitStatusResultView noOpTriage =
+                client.patch()
+                        .uri("/api/v1/atlas/places/bulk-visit-status")
+                        .body(
+                                new BulkVisitStatusRequest(
+                                        List.of(ids.wawelId()), VisitStatus.NEEDS_TRIAGE))
+                        .retrieve()
+                        .body(BulkVisitStatusResultView.class);
+        assertThat(noOpTriage).isNotNull();
+        assertThat(noOpTriage.updatedCount()).isZero();
+        assertThat(noOpTriage.previousStates()).isEmpty();
     }
 
-    private static void verifyErrorResponses(RestClient client) {
+    private static void verifyErrorResponses(RestClient client, SeededDataset ids) {
+        UUID unknownId = UUID.randomUUID();
         assertThatThrownBy(() ->
                         client.get()
                                 .uri("/api/v1/atlas/regions/COUNTRY/UNKNOWN")
@@ -308,6 +409,80 @@ class AtlasApiE2eTest {
         assertThatThrownBy(() ->
                         client.get()
                                 .uri("/api/v1/atlas/places?minLng=19.0")
+                                .retrieve()
+                                .toBodilessEntity())
+                .isInstanceOf(HttpClientErrorException.BadRequest.class);
+
+        assertThatThrownBy(() ->
+                        client.patch()
+                                .uri("/api/v1/atlas/places/{id}/visit-status", unknownId)
+                                .body(new UpdatePlaceVisitStatusRequest(VisitStatus.VISITED))
+                                .retrieve()
+                                .toBodilessEntity())
+                .isInstanceOf(HttpClientErrorException.NotFound.class);
+
+        assertThatThrownBy(() ->
+                        client.patch()
+                                .uri("/api/v1/atlas/places/bulk-visit-status")
+                                .body(
+                                        new BulkVisitStatusRequest(
+                                                List.of(unknownId), VisitStatus.VISITED))
+                                .retrieve()
+                                .toBodilessEntity())
+                .isInstanceOf(HttpClientErrorException.NotFound.class);
+
+        assertThatThrownBy(() ->
+                        client.post()
+                                .uri("/api/v1/atlas/places/bulk-visit-status/restore")
+                                .body(
+                                        new RestoreVisitStatesRequest(
+                                                List.of(
+                                                        new VisitStateSnapshotView(
+                                                                unknownId,
+                                                                VisitStatus.UNVISITED,
+                                                                null,
+                                                                0,
+                                                                null,
+                                                                null))))
+                                .retrieve()
+                                .toBodilessEntity())
+                .isInstanceOf(HttpClientErrorException.NotFound.class);
+
+        assertThatThrownBy(() ->
+                        client.patch()
+                                .uri("/api/v1/atlas/places/bulk-visit-status")
+                                .body(new BulkVisitStatusRequest(List.of(), VisitStatus.VISITED))
+                                .retrieve()
+                                .toBodilessEntity())
+                .isInstanceOf(HttpClientErrorException.BadRequest.class);
+
+        VisitStateSnapshotView dupSnapshot =
+                new VisitStateSnapshotView(
+                        ids.halaId(), VisitStatus.UNVISITED, null, 0, null, null);
+        assertThatThrownBy(() ->
+                        client.post()
+                                .uri("/api/v1/atlas/places/bulk-visit-status/restore")
+                                .body(
+                                        new RestoreVisitStatesRequest(
+                                                List.of(dupSnapshot, dupSnapshot)))
+                                .retrieve()
+                                .toBodilessEntity())
+                .isInstanceOf(HttpClientErrorException.BadRequest.class);
+
+        VisitStateSnapshotView invalidVisitedSnapshot =
+                new VisitStateSnapshotView(
+                        ids.halaId(),
+                        VisitStatus.VISITED,
+                        VisitSource.MANUAL_SINGLE,
+                        0,
+                        null,
+                        null);
+        assertThatThrownBy(() ->
+                        client.post()
+                                .uri("/api/v1/atlas/places/bulk-visit-status/restore")
+                                .body(
+                                        new RestoreVisitStatesRequest(
+                                                List.of(invalidVisitedSnapshot)))
                                 .retrieve()
                                 .toBodilessEntity())
                 .isInstanceOf(HttpClientErrorException.BadRequest.class);
@@ -404,6 +579,24 @@ class AtlasApiE2eTest {
                                 Types.TIMESTAMP_WITH_TIMEZONE));
     }
 
+    private void insertPlaceWithoutRegion(UUID id, String name, double lng, double lat) {
+        jdbc.update(
+                """
+                INSERT INTO places
+                    (id, user_id, canonical_name, geom, coord_source,
+                     category, category_source, derived_role)
+                VALUES
+                    (:id, :userId, :name, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), 'TAKEOUT',
+                     'LANDMARK', 'HEURISTIC', 'BACKLOG')
+                """,
+                new MapSqlParameterSource()
+                        .addValue("id", id)
+                        .addValue("userId", USER_ID)
+                        .addValue("name", name)
+                        .addValue("lng", lng)
+                        .addValue("lat", lat));
+    }
+
     private void insertMembership(
             UUID placeId, String account, String listName, String listKind, String note) {
         jdbc.update(
@@ -423,5 +616,6 @@ class AtlasApiE2eTest {
                         "note", note));
     }
 
-    private record SeededDataset(UUID wawelId, UUID halaId, UUID fushimiId, UUID hotelId) {}
+    private record SeededDataset(
+            UUID wawelId, UUID halaId, UUID fushimiId, UUID hotelId, UUID plAdmin1Id) {}
 }

@@ -1,7 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AtlasHealthPill } from "./AtlasHealthPill";
-import { defaultAtlasViewState, readAtlasViewState, writeAtlasViewState } from "./viewState";
+import {
+  defaultAtlasViewState,
+  isPlaceInViewport,
+  readAtlasViewState,
+  writeAtlasViewState,
+} from "./viewState";
 
 describe("AtlasHealthPill", () => {
   it("renders live PostGIS health status and toggles projection controls", () => {
@@ -90,5 +95,54 @@ describe("viewState URL serialization", () => {
     expect(readAtlasViewState(serialized)).toEqual(filteredState);
 
     expect(writeAtlasViewState(defaults, serialized)).toBe("?basemap=offline");
+
+    const fallbackCountry = readAtlasViewState("?region=PL");
+    expect(fallbackCountry.regionLevel).toBe("COUNTRY");
+    expect(fallbackCountry.regionCode).toBe("PL");
+  });
+
+  it("handles standard, antimeridian, unwrapped, and full-world viewports", () => {
+    expect(
+      isPlaceInViewport(
+        { lat: 50.0, lng: 19.9 },
+        { minLng: 19.0, minLat: 49.0, maxLng: 21.0, maxLat: 51.0 },
+      ),
+    ).toBe(true);
+    expect(
+      isPlaceInViewport(
+        { lat: 52.0, lng: 19.9 },
+        { minLng: 19.0, minLat: 49.0, maxLng: 21.0, maxLat: 51.0 },
+      ),
+    ).toBe(false);
+    expect(
+      isPlaceInViewport(
+        { lat: -18.0, lng: 179.5 },
+        { minLng: 170.0, minLat: -25.0, maxLng: -170.0, maxLat: 0.0 },
+      ),
+    ).toBe(true);
+    expect(
+      isPlaceInViewport(
+        { lat: -14.0, lng: -175.0 },
+        { minLng: 170.0, minLat: -25.0, maxLng: -170.0, maxLat: 0.0 },
+      ),
+    ).toBe(true);
+    expect(
+      isPlaceInViewport(
+        { lat: -14.0, lng: 10.0 },
+        { minLng: 170.0, minLat: -25.0, maxLng: -170.0, maxLat: 0.0 },
+      ),
+    ).toBe(false);
+    expect(
+      isPlaceInViewport(
+        { lat: -14.0, lng: -175.0 },
+        { minLng: 170.0, minLat: -25.0, maxLng: 190.0, maxLat: 0.0 },
+      ),
+    ).toBe(true);
+    expect(
+      isPlaceInViewport(
+        { lat: 10.0, lng: 0.0 },
+        { minLng: -240.0, minLat: -85.0, maxLng: 240.0, maxLat: 85.0 },
+      ),
+    ).toBe(true);
   });
 });

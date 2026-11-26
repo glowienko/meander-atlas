@@ -5,7 +5,10 @@ import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 
 public record PlaceVisitState(
@@ -30,8 +33,6 @@ public record PlaceVisitState(
             "visitCount must be at least 1 when status is VISITED";
     private static final String INVALID_UNVISITED_STATE_MESSAGE =
             "UNVISITED state must have zero visits and no visit timestamps";
-    private static final String SNAPSHOT_IDENTITY_MISMATCH_MESSAGE =
-            "Snapshot placeId and userId must match current visit state";
 
     public PlaceVisitState {
         Objects.requireNonNull(placeId, NULL_PLACE_ID_MESSAGE);
@@ -55,6 +56,10 @@ public record PlaceVisitState(
     public static PlaceVisitState unvisited(PlaceId placeId, UserId userId) {
         return new PlaceVisitState(
                 placeId, userId, VisitStatus.UNVISITED, null, ZERO_VISITS, null, null);
+    }
+
+    public boolean isManual() {
+        return source != null && source.isManual();
     }
 
     public PlaceVisitState apply(
@@ -92,15 +97,13 @@ public record PlaceVisitState(
         };
     }
 
-    public PlaceVisitState restoreFrom(PlaceVisitState snapshot) {
-        Objects.requireNonNull(snapshot, SNAPSHOT_IDENTITY_MISMATCH_MESSAGE);
-        if (!placeId.equals(snapshot.placeId) || !userId.equals(snapshot.userId)) {
-            throw new IllegalArgumentException(SNAPSHOT_IDENTITY_MISMATCH_MESSAGE);
-        }
-        return snapshot;
-    }
-
     private PlaceVisitState applyVisited(VisitSource incomingSource, @Nullable Instant observedAt) {
+        if (status == VisitStatus.VISITED
+                && incomingSource == VisitSource.TIMELINE
+                && source == VisitSource.TIMELINE
+                && isAlreadyObserved(observedAt)) {
+            return this;
+        }
         int nextCount =
                 incomingSource.isManual()
                         ? Math.max(SINGLE_VISIT, visitCount)
@@ -117,25 +120,31 @@ public record PlaceVisitState(
                 nextLast);
     }
 
+    private boolean isAlreadyObserved(@Nullable Instant observedAt) {
+        if (observedAt == null) {
+            return true;
+        }
+        if (firstVisitedAt == null || lastVisitedAt == null) {
+            return false;
+        }
+        return !observedAt.isBefore(firstVisitedAt) && !observedAt.isAfter(lastVisitedAt);
+    }
+
     private static @Nullable Instant earliest(
             @Nullable Instant current, @Nullable Instant candidate) {
-        if (current == null) {
-            return candidate;
-        }
-        if (candidate == null) {
-            return current;
-        }
-        return candidate.isBefore(current) ? candidate : current;
+        return Stream.concat(
+                        Optional.ofNullable(current).stream(),
+                        Optional.ofNullable(candidate).stream())
+                .min(Comparator.naturalOrder())
+                .orElse(null);
     }
 
     private static @Nullable Instant latest(
             @Nullable Instant current, @Nullable Instant candidate) {
-        if (current == null) {
-            return candidate;
-        }
-        if (candidate == null) {
-            return current;
-        }
-        return candidate.isAfter(current) ? candidate : current;
+        return Stream.concat(
+                        Optional.ofNullable(current).stream(),
+                        Optional.ofNullable(candidate).stream())
+                .max(Comparator.naturalOrder())
+                .orElse(null);
     }
 }

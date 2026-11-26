@@ -1,6 +1,7 @@
 import net.ltgt.gradle.errorprone.CheckSeverity
 import net.ltgt.gradle.errorprone.errorprone
 import org.gradle.language.jvm.tasks.ProcessResources
+import org.gradle.testing.jacoco.tasks.JacocoReportBase
 import org.springframework.boot.gradle.tasks.bundling.BootJar
 
 plugins {
@@ -141,10 +142,13 @@ tasks.named<Test>("test") {
     finalizedBy(tasks.named("jacocoTestReport"))
 }
 
-tasks.named<JacocoReport>("jacocoTestReport") {
+tasks.withType<JacocoReportBase>().configureEach {
     dependsOn(tasks.named<Test>("test"))
     executionData.setFrom(files(layout.buildDirectory.file("jacoco/test.exec")))
     classDirectories.setFrom(jacocoClassDirectories)
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
     reports {
         xml.required.set(true)
         html.required.set(true)
@@ -153,9 +157,6 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 }
 
 tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
-    dependsOn(tasks.named<Test>("test"))
-    executionData.setFrom(files(layout.buildDirectory.file("jacoco/test.exec")))
-    classDirectories.setFrom(jacocoClassDirectories)
     violationRules {
         rule {
             element = "BUNDLE"

@@ -1,8 +1,8 @@
 package com.meanderatlas.atlas.adapter.web;
 
 import com.meanderatlas.atlas.AtlasFacade;
-import com.meanderatlas.atlas.AtlasPlaceFilterQuery;
 import com.meanderatlas.atlas.RegionDossierView;
+import com.meanderatlas.atlas.RegionFilterQuery;
 import com.meanderatlas.atlas.RegionScope;
 import com.meanderatlas.atlas.RegionSummaryView;
 import com.meanderatlas.shared.DerivedRole;
@@ -36,21 +36,7 @@ class AtlasRegionsController {
             @RequestParam(required = false) @Nullable String account,
             @RequestParam(required = false) @Nullable String list) {
         return atlasFacade.regionSummaries(
-                level,
-                countryCode,
-                new AtlasPlaceFilterQuery(
-                        q,
-                        null,
-                        derivedRole,
-                        category,
-                        account,
-                        list,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null));
+                level, countryCode, new RegionFilterQuery(q, derivedRole, category, account, list));
     }
 
     @GetMapping(value = "/{level}/{code}", produces = MediaType.APPLICATION_JSON_VALUE)

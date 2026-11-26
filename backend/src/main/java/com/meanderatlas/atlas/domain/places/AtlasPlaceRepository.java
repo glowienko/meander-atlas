@@ -10,7 +10,9 @@ import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
@@ -26,6 +28,23 @@ public interface AtlasPlaceRepository {
     boolean existsPlaceForUser(UserId userId, PlaceId placeId);
 
     Set<PlaceId> findOwnedPlaceIds(UserId userId, List<PlaceId> placeIds);
+
+    default void requireOwned(UserId userId, PlaceId placeId) {
+        if (!existsPlaceForUser(userId, placeId)) {
+            throw new NoSuchElementException("Place not found: " + placeId.value());
+        }
+    }
+
+    default void requireAllOwned(UserId userId, Collection<PlaceId> placeIds) {
+        Set<PlaceId> distinctIds = Set.copyOf(placeIds);
+        if (distinctIds.isEmpty()) {
+            return;
+        }
+        Set<PlaceId> ownedIds = findOwnedPlaceIds(userId, List.copyOf(distinctIds));
+        if (ownedIds.size() != distinctIds.size()) {
+            throw new NoSuchElementException("One or more places were not found");
+        }
+    }
 
     void upsertVisitStates(List<PlaceVisitState> states);
 
@@ -78,14 +97,12 @@ public interface AtlasPlaceRepository {
             @Nullable Long googleCidToBackfill,
             @Nullable String fallbackCountryCode);
 
-    Optional<TimelineMatchCandidate> findExactOrNearTimelineMatch(
+    Optional<TimelineMatchCandidate> findTimelineMatchCandidate(
             UserId userId,
             @Nullable String googlePlaceId,
             GeoPoint coordinates,
-            double exactRadiusMeters);
-
-    Optional<PlaceId> findUnvisitedTriageCandidate(
-            UserId userId, GeoPoint coordinates, double minRadiusMeters, double maxRadiusMeters);
+            double exactRadiusMeters,
+            double triageMaxRadiusMeters);
 
     void backfillGooglePlaceId(UserId userId, PlaceId placeId, String googlePlaceId);
 }

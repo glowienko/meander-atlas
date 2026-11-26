@@ -9,6 +9,7 @@ import com.meanderatlas.shared.CurrentUserProvider;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class QueryAtlasPlaces {
@@ -22,6 +23,7 @@ public class QueryAtlasPlaces {
         this.currentUserProvider = currentUserProvider;
     }
 
+    @Transactional(readOnly = true)
     public AtlasPlacesResponse execute(AtlasPlaceFilterQuery query) {
         Objects.requireNonNull(query, "query must not be null");
         PlaceQueryFilter filter = AtlasViewMapper.toPlaceQueryFilter(query);

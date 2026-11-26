@@ -1,9 +1,9 @@
 package com.meanderatlas.atlas.application;
 
 import com.meanderatlas.atlas.RegionScope;
+import com.meanderatlas.atlas.domain.RegionCodeNormalizer;
 import com.meanderatlas.atlas.domain.RegionLevel;
 import com.meanderatlas.atlas.domain.boundaries.RegionBoundaryRepository;
-import java.util.Locale;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
@@ -30,20 +30,12 @@ public class GetRegionMvtTile {
             throw new IllegalArgumentException(
                     "Tile x/y out of bounds for zoom " + z + ": " + x + "," + y);
         }
-        String normalizedCountryCode = normalizeCountryCode(countryCode);
+        String normalizedCountryCode = RegionCodeNormalizer.normalizeCountryCode(countryCode);
         RegionLevel level =
                 switch (scope) {
                     case COUNTRY -> RegionLevel.COUNTRY;
                     case ADMIN1 -> RegionLevel.ADMIN1;
                 };
         return regionBoundaryRepository.fetchRegionMvtTile(level, z, x, y, normalizedCountryCode);
-    }
-
-    private static @Nullable String normalizeCountryCode(@Nullable String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 }

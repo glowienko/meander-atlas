@@ -3,10 +3,15 @@ package com.meanderatlas.atlas.adapter.web;
 import com.meanderatlas.atlas.AtlasFacade;
 import com.meanderatlas.atlas.BoundarySeedResultView;
 import com.meanderatlas.atlas.RegionScope;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import java.time.Duration;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +39,26 @@ class AtlasBoundariesController {
         return atlasFacade.seedBoundaries(force);
     }
 
+    @ApiResponses({
+        @ApiResponse(
+                responseCode = "200",
+                description = "Mapbox Vector Tile payload",
+                content =
+                        @Content(
+                                mediaType = "application/vnd.mapbox-vector-tile",
+                                schema = @Schema(type = "string", format = "binary"))),
+        @ApiResponse(
+                responseCode = "204",
+                description = "No features in requested tile",
+                content = @Content),
+        @ApiResponse(
+                responseCode = "400",
+                description = "Invalid tile zoom or coordinates",
+                content =
+                        @Content(
+                                mediaType = "application/problem+json",
+                                schema = @Schema(implementation = ProblemDetail.class)))
+    })
     @GetMapping(
             value = "/tiles/regions/{level}/{z}/{x}/{y}.mvt",
             produces = "application/vnd.mapbox-vector-tile")

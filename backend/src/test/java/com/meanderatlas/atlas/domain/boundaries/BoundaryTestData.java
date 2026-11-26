@@ -9,6 +9,17 @@ public final class BoundaryTestData {
 
     private static final String COUNTRIES_FILE = "ne_10m_admin_0_countries.geojson";
     private static final String ADMIN1_FILE = "ne_10m_admin_1_states_provinces.geojson";
+    private static final String POLAND_COUNTRY_FEATURE =
+            """
+            {
+              "type": "Feature",
+              "properties": {"ISO_A2_EH": "PL", "ADMIN": "Poland"},
+              "geometry": {
+                "type": "MultiPolygon",
+                "coordinates": [[[[18.0, 49.0], [22.0, 49.0], [22.0, 54.4], [18.0, 54.4], [18.0, 49.0]]]]
+              }
+            }
+            """;
 
     private BoundaryTestData() {}
 
@@ -30,47 +41,34 @@ public final class BoundaryTestData {
     }
 
     public static String polandAndAntarcticaGeoJson() {
-        return """
-        {
-          "type": "FeatureCollection",
-          "features": [
-            {
-              "type": "Feature",
-              "properties": {"ISO_A2_EH": "PL", "ADMIN": "Poland"},
-              "geometry": {
-                "type": "MultiPolygon",
-                "coordinates": [[[[18.0, 49.0], [22.0, 49.0], [22.0, 54.4], [18.0, 54.4], [18.0, 49.0]]]]
-              }
-            },
-            {
-              "type": "Feature",
-              "properties": {"ISO_A2_EH": "AQ", "ADMIN": "Antarctica"},
-              "geometry": {
-                "type": "Polygon",
-                "coordinates": [[[-180.0, -89.9], [180.0, -89.9], [180.0, -70.0], [-180.0, -70.0], [-180.0, -89.9]]]
-              }
-            }
-          ]
-        }
-        """;
+        return featureCollection(
+                POLAND_COUNTRY_FEATURE,
+                """
+                {
+                  "type": "Feature",
+                  "properties": {"ISO_A2_EH": "AQ", "ADMIN": "Antarctica"},
+                  "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-180.0, -89.9], [180.0, -89.9], [180.0, -70.0], [-180.0, -70.0], [-180.0, -89.9]]]
+                  }
+                }
+                """);
     }
 
     public static String singlePolandCountryGeoJson() {
+        return featureCollection(POLAND_COUNTRY_FEATURE);
+    }
+
+    private static String featureCollection(String... features) {
         return """
         {
           "type": "FeatureCollection",
           "features": [
-            {
-              "type": "Feature",
-              "properties": {"ISO_A2_EH": "PL", "ADMIN": "Poland"},
-              "geometry": {
-                "type": "MultiPolygon",
-                "coordinates": [[[[18.0, 49.0], [22.0, 49.0], [22.0, 54.4], [18.0, 54.4], [18.0, 49.0]]]]
-              }
-            }
+            %s
           ]
         }
-        """;
+        """
+                .formatted(String.join(",\n", features));
     }
 
     public static String singleMalopolskieAdmin1GeoJson() {
@@ -240,6 +238,17 @@ public final class BoundaryTestData {
               "type": "Feature",
               "properties": {"iso_3166_2": "GB-SCT", "iso_a2": "-99", "name": "   "},
               "geometry": {"type": "Polygon", "coordinates": [[[-4,55],[-2,55],[-2,58],[-4,58],[-4,55]]]}
+            },
+            {
+              "type": "Feature",
+              "properties": {
+                "iso_3166_2": "-99",
+                "adm1_code": "SOL-01",
+                "iso_a2": "-99",
+                "adm0_a3": "SOL",
+                "name": "Maroodi Jeex"
+              },
+              "geometry": {"type": "Polygon", "coordinates": [[[44,9],[45,9],[45,10],[44,10],[44,9]]]}
             }
           ]
         }

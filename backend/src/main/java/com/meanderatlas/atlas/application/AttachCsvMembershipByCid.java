@@ -1,19 +1,13 @@
 package com.meanderatlas.atlas.application;
 
 import com.meanderatlas.atlas.AttachCsvMembershipCommand;
-import com.meanderatlas.atlas.domain.DerivedRoleResolver;
+import com.meanderatlas.atlas.application.ImportedPlaceMerger.ExistingPlaceMerge;
+import com.meanderatlas.atlas.application.ImportedPlaceMerger.InitialVisitDetails;
+import com.meanderatlas.atlas.application.ImportedPlaceMerger.MembershipDetails;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
-import com.meanderatlas.atlas.domain.places.MatchedPlace;
-import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CurrentUserProvider;
-import com.meanderatlas.shared.DerivedRole;
-import com.meanderatlas.shared.ListKind;
-import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.UserId;
-import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.stream.Stream;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,60 +16,53 @@ public class AttachCsvMembershipByCid {
 
     private final AtlasPlaceRepository placeRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final ImportedPlaceMerger placeMerger;
 
     public AttachCsvMembershipByCid(
-            AtlasPlaceRepository placeRepository, CurrentUserProvider currentUserProvider) {
+            AtlasPlaceRepository placeRepository,
+            CurrentUserProvider currentUserProvider,
+            ImportedPlaceMerger placeMerger) {
         this.placeRepository = placeRepository;
         this.currentUserProvider = currentUserProvider;
+        this.placeMerger = placeMerger;
     }
 
     @Transactional
     public boolean execute(AttachCsvMembershipCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         UserId userId = currentUserProvider.currentUserId();
-        Optional<MatchedPlace> matchedOpt =
-                placeRepository.findByGoogleCid(userId, command.googleCid());
-        if (matchedOpt.isEmpty()) {
-            return false;
-        }
+        MembershipDetails membership =
+                new MembershipDetails(
+                        command.accountLabel(),
+                        command.listName(),
+                        command.listKind(),
+                        command.note(),
+                        command.tags(),
+                        command.sourceUrl(),
+                        command.savedAt());
+        InitialVisitDetails initialVisit =
+                InitialVisitDetails.ofNullable(
+                        command.initialVisitStatus(),
+                        command.initialVisitSource(),
+                        command.observedAt());
 
-        MatchedPlace matched = matchedOpt.get();
-        placeRepository.upsertMembership(
-                userId,
-                matched.id(),
-                command.accountLabel(),
-                command.listName(),
-                command.listKind(),
-                command.note(),
-                command.tags(),
-                command.sourceUrl(),
-                null);
-
-        List<ListKind> allKinds =
-                Stream.concat(
-                                placeRepository.findMembershipListKinds(matched.id()).stream(),
-                                Stream.of(command.listKind()))
-                        .distinct()
-                        .toList();
-
-        boolean canUpgradeCategory =
-                matched.categorySource() != CategorySource.MANUAL
-                        && matched.category() == PlaceCategory.UNCATEGORIZED
-                        && command.category() != PlaceCategory.UNCATEGORIZED;
-        PlaceCategory effectiveCategory =
-                canUpgradeCategory ? command.category() : matched.category();
-        DerivedRole resolvedRole = DerivedRoleResolver.resolve(effectiveCategory, allKinds);
-
-        placeRepository.updatePlaceAfterMerge(
-                userId,
-                matched.id(),
-                resolvedRole,
-                canUpgradeCategory ? command.category() : null,
-                canUpgradeCategory ? command.subcategory() : null,
-                canUpgradeCategory ? command.categorySource() : null,
-                null,
-                null,
-                null);
-        return true;
+        return placeRepository
+                .findByGoogleCid(userId, command.googleCid())
+                .map(matched -> {
+                    placeMerger.mergeIntoExisting(
+                            userId,
+                            new ExistingPlaceMerge(
+                                    matched,
+                                    command.category(),
+                                    command.subcategory(),
+                                    command.categorySource(),
+                                    membership,
+                                    null,
+                                    null,
+                                    null,
+                                    initialVisit));
+                    return true;
+                })
+                .orElse(false);
     }
 }

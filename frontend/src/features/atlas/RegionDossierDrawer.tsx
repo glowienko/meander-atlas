@@ -50,7 +50,7 @@ export function RegionDossierDrawer({
       >
         <div className="min-w-0">
           <div
-            className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider"
+            className="flex items-center gap-1 text-[13px] font-medium"
             style={{ color: "var(--atlas-muted)" }}
           >
             <button type="button" onClick={onClose} className="cursor-pointer hover:underline">
@@ -58,7 +58,7 @@ export function RegionDossierDrawer({
             </button>
             {region && region.level === "ADMIN1" && (
               <>
-                <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                 <button
                   type="button"
                   onClick={() => onSelectRegion("COUNTRY", region.countryCode)}
@@ -70,13 +70,13 @@ export function RegionDossierDrawer({
             )}
             {region && (
               <>
-                <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>{region.code}</span>
               </>
             )}
           </div>
-          <h2 className="font-editorial mt-0.5 truncate text-xl font-semibold">
-            {isLoading ? "Loading region..." : (region?.name ?? "Region Dossier")}
+          <h2 className="font-editorial mt-0.5 truncate text-lg font-semibold">
+            {isLoading ? "Loading region..." : (region?.name ?? "Region dossier")}
           </h2>
         </div>
 
@@ -93,17 +93,14 @@ export function RegionDossierDrawer({
 
       <div className="flex-1 overflow-y-auto px-4 py-3.5">
         {isError && (
-          <p className="text-xs" style={{ color: "var(--atlas-danger)" }}>
+          <p className="text-[13px]" style={{ color: "var(--atlas-danger)" }}>
             Could not load region dossier.
           </p>
         )}
 
         {dossier && region && (
-          <div className="space-y-4">
-            <div
-              className="flex items-center gap-3.5 rounded-xl border bg-white/60 p-3"
-              style={{ borderColor: "var(--atlas-border)" }}
-            >
+          <div className="divide-y" style={{ borderColor: "var(--atlas-border)" }}>
+            <div className="flex items-center gap-3.5 rounded-xl bg-white/55 p-3">
               <svg
                 data-testid="region-completion-ring"
                 width="60"
@@ -146,9 +143,9 @@ export function RegionDossierDrawer({
 
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold tabular-nums">
-                  {region.visitedPlaces} of {region.totalPlaces} visited — {pct}%
+                  {region.visitedPlaces} of {region.totalPlaces} visited ({pct}%)
                 </div>
-                <div className="mt-0.5 text-xs" style={{ color: "var(--atlas-muted)" }}>
+                <div className="mt-0.5 text-[13px]" style={{ color: "var(--atlas-muted)" }}>
                   {region.unvisitedPlaces} bucket list · {region.needsTriagePlaces} triage
                 </div>
                 {unvisitedCandidates.length > 0 && (
@@ -159,7 +156,7 @@ export function RegionDossierDrawer({
                     onClick={() =>
                       onOpenBulkVisit(unvisitedCandidates, `Mark ${region.name} places visited`)
                     }
-                    className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                     style={{ backgroundColor: "var(--atlas-accent)" }}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -170,12 +167,12 @@ export function RegionDossierDrawer({
             </div>
 
             {dossier.childRegions.length > 0 && (
-              <div>
+              <div className="py-3.5" style={{ borderColor: "var(--atlas-border)" }}>
                 <h3
-                  className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                  className="mb-2 text-[13px] font-semibold"
                   style={{ color: "var(--atlas-muted)" }}
                 >
-                  Admin-1 Regions ({dossier.childRegions.length})
+                  Admin-1 regions ({dossier.childRegions.length})
                 </h3>
                 <div className="flex flex-wrap gap-1.5">
                   {dossier.childRegions.map((child) => (
@@ -183,7 +180,7 @@ export function RegionDossierDrawer({
                       key={child.id}
                       type="button"
                       onClick={() => onSelectRegion("ADMIN1", child.code)}
-                      className="cursor-pointer rounded-full border bg-white/70 px-2.5 py-1 text-xs transition-colors hover:border-[var(--atlas-accent)]"
+                      className="cursor-pointer rounded-full border bg-white/75 px-2.5 py-1 text-[13px] tabular-nums transition-colors hover:border-[var(--atlas-accent)]"
                       style={{ borderColor: "var(--atlas-border)" }}
                     >
                       {child.name} ({child.visitedPlaces}/{child.totalPlaces})
@@ -193,19 +190,19 @@ export function RegionDossierDrawer({
               </div>
             )}
 
-            <div>
+            <div className="pt-3.5" style={{ borderColor: "var(--atlas-border)" }}>
               <h3
-                className="mb-2 text-[11px] font-semibold uppercase tracking-wider"
+                className="mb-1.5 text-[13px] font-semibold"
                 style={{ color: "var(--atlas-muted)" }}
               >
-                Saved Places ({dossier.places.length})
+                Saved places ({dossier.places.length})
               </h3>
               {dossier.places.length === 0 ? (
-                <p className="text-xs" style={{ color: "var(--atlas-muted)" }}>
+                <p className="text-[13px]" style={{ color: "var(--atlas-muted)" }}>
                   No mapped places saved in this region yet.
                 </p>
               ) : (
-                <ul className="space-y-2">
+                <ul className="divide-y" style={{ borderColor: "var(--atlas-border)" }}>
                   {dossier.places.map((place) => {
                     const nextStatus: VisitStatus =
                       place.visitStatus === "VISITED" ? "UNVISITED" : "VISITED";
@@ -213,14 +210,14 @@ export function RegionDossierDrawer({
                     return (
                       <li
                         key={place.id}
-                        className="rounded-xl border bg-white/70 p-2.5 text-xs"
+                        className="py-2.5"
                         style={{ borderColor: "var(--atlas-border)" }}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => onSelectPlace(place)}
-                            className="min-w-0 flex-1 cursor-pointer text-left font-semibold hover:underline"
+                            className="min-w-0 flex-1 cursor-pointer text-left text-sm font-semibold hover:underline"
                           >
                             {place.canonicalName}
                           </button>
@@ -228,7 +225,7 @@ export function RegionDossierDrawer({
                             type="button"
                             disabled={isMutating}
                             onClick={() => onToggleVisitStatus(place, nextStatus)}
-                            className="shrink-0 cursor-pointer rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-black/5 disabled:opacity-50"
+                            className="shrink-0 cursor-pointer rounded-full border px-2.5 py-0.5 text-[13px] font-medium transition-colors hover:bg-black/5 disabled:opacity-50"
                             style={{
                               borderColor: "var(--atlas-border)",
                               color:
@@ -242,7 +239,7 @@ export function RegionDossierDrawer({
                         </div>
 
                         <div
-                          className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]"
+                          className="mt-1 flex flex-wrap items-center gap-1.5 text-[13px]"
                           style={{ color: "var(--atlas-muted)" }}
                         >
                           <span>{categoryLabel(place.category)}</span>
@@ -253,17 +250,17 @@ export function RegionDossierDrawer({
 
                         {place.cityName && (
                           <div
-                            className="mt-1 flex items-center gap-1 text-[11px]"
+                            className="mt-1 flex items-center gap-1 text-[13px]"
                             style={{ color: "var(--atlas-muted)" }}
                           >
-                            <MapPin className="h-3 w-3" aria-hidden="true" />
+                            <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
                             <span>{place.cityName}</span>
                           </div>
                         )}
 
                         {firstNote && (
                           <p
-                            className="mt-1 line-clamp-2 text-[11px] italic"
+                            className="mt-1 line-clamp-2 text-[13px] italic"
                             style={{ color: "var(--atlas-muted)" }}
                           >
                             {firstNote}

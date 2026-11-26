@@ -101,6 +101,14 @@ function buildPlacesGeoJson(places: AtlasPlaceView[]): GeoJsonData {
   };
 }
 
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 function emitViewport(map: MapLibreMap, callback: (viewport: MapViewport) => void): void {
   const bounds = map.getBounds();
   callback({
@@ -110,6 +118,62 @@ function emitViewport(map: MapLibreMap, callback: (viewport: MapViewport) => voi
     maxLng: bounds.getEast(),
     maxLat: bounds.getNorth(),
   });
+}
+
+function interactiveLayerIds(map: MapLibreMap, selectedCountryCode: string): string[] {
+  return [
+    "atlas-places-pins",
+    "atlas-places-clusters",
+    ...(selectedCountryCode.length > 0 ? ["atlas-admin1-fill"] : []),
+    "atlas-countries-fill",
+  ].filter((layerId) => Boolean(map.getLayer(layerId)));
+}
+
+function syncRegionFeatureStates(
+  map: MapLibreMap,
+  sourceId: string,
+  summaries: RegionSummaryView[],
+  isSelected: (code: string) => boolean,
+  fallbackSelectedCode?: string,
+): void {
+  if (!map.getSource(sourceId)) {
+    return;
+  }
+  map.removeFeatureState({ source: sourceId, sourceLayer: SOURCE_LAYER_REGIONS });
+  for (const summary of summaries) {
+    map.setFeatureState(
+      {
+        source: sourceId,
+        sourceLayer: SOURCE_LAYER_REGIONS,
+        id: summary.code,
+      },
+      {
+        totalPlaces: summary.totalPlaces,
+        visitedPlaces: summary.visitedPlaces,
+        completionRatio: summary.completionRatio,
+        selected: isSelected(summary.code),
+      },
+    );
+  }
+  if (
+    fallbackSelectedCode &&
+    fallbackSelectedCode.length > 0 &&
+    !summaries.some((summary) => summary.code === fallbackSelectedCode)
+  ) {
+    map.setFeatureState(
+      {
+        source: sourceId,
+        sourceLayer: SOURCE_LAYER_REGIONS,
+        id: fallbackSelectedCode,
+      },
+      {
+        totalPlaces: 0,
+        visitedPlaces: 0,
+        completionRatio: 0,
+        selected: true,
+      },
+    );
+  }
 }
 
 function syncSourcesAndLayers(
@@ -405,12 +469,7 @@ export function AtlasMapView({
     });
 
     map.on("click", (event) => {
-      const candidateLayers = [
-        "atlas-places-pins",
-        "atlas-places-clusters",
-        ...(selectedCountryCodeRef.current.length > 0 ? ["atlas-admin1-fill"] : []),
-        "atlas-countries-fill",
-      ].filter((layerId) => Boolean(map.getLayer(layerId)));
+      const candidateLayers = interactiveLayerIds(map, selectedCountryCodeRef.current);
       if (candidateLayers.length === 0) {
         return;
       }
@@ -438,7 +497,11 @@ export function AtlasMapView({
           const lng = Number(coords[0]);
           const lat = Number(coords[1]);
           void source.getClusterExpansionZoom(props.cluster_id).then((zoom) => {
-            map.easeTo({ center: [lng, lat], zoom, duration: 500 });
+            map.easeTo({
+              center: [lng, lat],
+              zoom,
+              duration: prefersReducedMotion() ? 0 : 500,
+            });
           });
         }
         return;
@@ -453,12 +516,7 @@ export function AtlasMapView({
     });
 
     map.on("mousemove", (event) => {
-      const hoverLayers = [
-        "atlas-places-pins",
-        "atlas-places-clusters",
-        ...(selectedCountryCodeRef.current.length > 0 ? ["atlas-admin1-fill"] : []),
-        "atlas-countries-fill",
-      ].filter((layerId) => Boolean(map.getLayer(layerId)));
+      const hoverLayers = interactiveLayerIds(map, selectedCountryCodeRef.current);
       if (hoverLayers.length === 0) {
         return;
       }
@@ -544,61 +602,19 @@ export function AtlasMapView({
     if (!map || !styleLoadedRef.current || styleRevision === 0) {
       return;
     }
-    if (map.getSource(COUNTRIES_SOURCE_ID)) {
-      map.removeFeatureState({ source: COUNTRIES_SOURCE_ID, sourceLayer: SOURCE_LAYER_REGIONS });
-      for (const summary of countrySummaries) {
-        map.setFeatureState(
-          {
-            source: COUNTRIES_SOURCE_ID,
-            sourceLayer: SOURCE_LAYER_REGIONS,
-            id: summary.code,
-          },
-          {
-            totalPlaces: summary.totalPlaces,
-            visitedPlaces: summary.visitedPlaces,
-            completionRatio: summary.completionRatio,
-            selected: summary.code === selectedCountryCode,
-          },
-        );
-      }
-      if (
-        selectedCountryCode.length > 0 &&
-        !countrySummaries.some((s) => s.code === selectedCountryCode)
-      ) {
-        map.setFeatureState(
-          {
-            source: COUNTRIES_SOURCE_ID,
-            sourceLayer: SOURCE_LAYER_REGIONS,
-            id: selectedCountryCode,
-          },
-          {
-            totalPlaces: 0,
-            visitedPlaces: 0,
-            completionRatio: 0,
-            selected: true,
-          },
-        );
-      }
-    }
-
-    if (map.getSource(ADMIN1_SOURCE_ID)) {
-      map.removeFeatureState({ source: ADMIN1_SOURCE_ID, sourceLayer: SOURCE_LAYER_REGIONS });
-      for (const summary of admin1Summaries) {
-        map.setFeatureState(
-          {
-            source: ADMIN1_SOURCE_ID,
-            sourceLayer: SOURCE_LAYER_REGIONS,
-            id: summary.code,
-          },
-          {
-            totalPlaces: summary.totalPlaces,
-            visitedPlaces: summary.visitedPlaces,
-            completionRatio: summary.completionRatio,
-            selected: selectedRegionLevel === "ADMIN1" && summary.code === selectedRegionCode,
-          },
-        );
-      }
-    }
+    syncRegionFeatureStates(
+      map,
+      COUNTRIES_SOURCE_ID,
+      countrySummaries,
+      (code) => code === selectedCountryCode,
+      selectedCountryCode,
+    );
+    syncRegionFeatureStates(
+      map,
+      ADMIN1_SOURCE_ID,
+      admin1Summaries,
+      (code) => selectedRegionLevel === "ADMIN1" && code === selectedRegionCode,
+    );
   }, [
     countrySummaries,
     admin1Summaries,
@@ -609,8 +625,12 @@ export function AtlasMapView({
   ]);
 
   useEffect(() => {
+    if (!fitBoundsTarget) {
+      lastFitKeyRef.current = null;
+      return;
+    }
     const map = mapRef.current;
-    if (!map || !styleLoadedRef.current || !fitBoundsTarget) {
+    if (!map || !styleLoadedRef.current || styleRevision === 0) {
       return;
     }
     if (lastFitKeyRef.current === fitBoundsTarget.key) {
@@ -626,10 +646,10 @@ export function AtlasMapView({
           [fitBoundsTarget.minLng, fitBoundsTarget.minLat],
           [fitBoundsTarget.maxLng, fitBoundsTarget.maxLat],
         ],
-        { padding: 72, maxZoom: 9, duration: 750 },
+        { padding: 72, maxZoom: 9, duration: prefersReducedMotion() ? 0 : 750 },
       );
     }
-  }, [fitBoundsTarget]);
+  }, [fitBoundsTarget, styleRevision]);
 
   return (
     <section className="h-full w-full" aria-label="MeanderAtlas world globe">
