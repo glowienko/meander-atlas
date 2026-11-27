@@ -22,7 +22,7 @@ import { pinIconId } from "./pinIcons";
 import type { RegionScope } from "./viewState";
 
 export const STREET_ZOOM = 9;
-export const PLACE_DETAIL_ZOOM = 12;
+const PLACE_DETAIL_ZOOM = 12;
 
 const CLUSTER_RADIUS_PX = 44;
 const COUNTRIES_SOURCE_ID = "atlas-countries";

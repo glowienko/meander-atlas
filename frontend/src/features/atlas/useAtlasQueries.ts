@@ -72,7 +72,7 @@ export function useAtlasStats() {
   });
 }
 
-export function useUpdatePlaceVisitStatus() {
+function useUpdatePlaceVisitStatus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ placeId, status }: { placeId: string; status: VisitStatus }) =>

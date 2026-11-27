@@ -10,7 +10,7 @@
 - **Containers & Security:** Temurin 25 (`jdk-noble` → `jre-alpine`), Node 26 (`bookworm-slim` + `npm install -g pnpm`, no Corepack) → `caddy:2-alpine`, `gitleaks`, `scripts/check-privacy.sh`
 
 ## Commands
-- Fast loop (privacy + doc budget + guardrails + unit + compile + NullAway + Checkstyle + FE lint/AST/typecheck/unit): `./scripts/verify.sh --fast`
+- Fast loop (privacy + doc budget + guardrails + unit + compile + NullAway + Checkstyle + FE Biome/ESLint react-hooks/knip/jscpd/AST/typecheck/unit): `./scripts/verify.sh --fast`
 - Full gate (+ gitleaks + Spotless + PostGIS Testcontainers + JaCoCo 90% coverage gate + OpenAPI/doc drift + FE build + Playwright visual proof): `./scripts/verify.sh`
 - Full + containerized stack smoke (`compose --profile app` build, healthchecks, Caddy proxy): `./scripts/verify.sh --docker` (or `./scripts/verify-docker.sh`)
 - Format backend / frontend: `./backend/gradlew -p backend spotlessApply` / `pnpm --dir frontend run format`

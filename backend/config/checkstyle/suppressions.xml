@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+  "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+  "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+<suppressions>
+  <suppress files="[\\/]src[\\/]test[\\/]" checks="MethodLength|FileLength|ParameterNumber|CyclomaticComplexity"/>
+  <suppress files="[\\/]adapter[\\/]persistence[\\/]" checks="MethodLength|FileLength"/>
+  <suppress files="ingestion[\\/]application[\\/]RunEnrichmentBatch\.java" checks="ParameterNumber|IllegalCatch"/>
+  <suppress files="ingestion[\\/]application[\\/]ImportLocalDirectory\.java" checks="FileLength"/>
+  <suppress files="ingestion[\\/]application[\\/]ImportedPlaceDraft\.java" checks="ParameterNumber"/>
+  <suppress files="ingestion[\\/]domain[\\/]classification[\\/]PlaceCategoryClassifier\.java" checks="FileLength"/>
+  <suppress files="ingestion[\\/]domain[\\/]TitleCoordinateParser\.java" checks="ParameterNumber|CyclomaticComplexity"/>
+  <suppress files="ingestion[\\/]domain[\\/]takeout[\\/]CsvRecordReader\.java" checks="CyclomaticComplexity"/>
+  <suppress files="atlas[\\/]adapter[\\/]web[\\/]AtlasPlacesController\.java" checks="ParameterNumber"/>
+  <suppress files="atlas[\\/]application[\\/]SeedRegionBoundaries\.java" checks="CyclomaticComplexity"/>
+  <suppress files="atlas[\\/]application[\\/]ApplyPlaceEnrichment\.java" checks="CyclomaticComplexity"/>
+  <suppress files="atlas[\\/]domain[\\/]places[\\/]BoundingBox\.java" checks="CyclomaticComplexity"/>
+  <suppress files="atlas[\\/]domain[\\/]places[\\/]AtlasPlaceRepository\.java" checks="ParameterNumber"/>
+  <suppress files="atlas[\\/]AtlasFacade\.java" checks="ParameterNumber"/>
+  <suppress files="TestData\.java$" id="jsonTextBlock"/>
+  <suppress files="TransactionRollbackE2eTest\.java" id="jsonTextBlock"/>
+  <suppress files="RegionBoundariesE2eTest\.java" id="jsonTextBlock"/>
+  <suppress files="LocalImportE2eTest\.java" id="jsonTextBlock"/>
+  <suppress files="WikimediaPhotoClientTest\.java" id="jsonTextBlock"/>
+  <suppress files="ImportLocalDirectoryTest\.java" id="jsonTextBlock"/>
+</suppressions>
