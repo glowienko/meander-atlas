@@ -72,6 +72,8 @@ class EnrichmentE2eTest {
 
     @Autowired private NamedParameterJdbcTemplate jdbc;
 
+    @Autowired private ImportFacade importFacade;
+
     @BeforeAll
     static void startMockHttpServer() throws IOException {
         mockApiServer =
@@ -271,6 +273,7 @@ class EnrichmentE2eTest {
         assertThat(afterStatus.pendingEnrichmentCount()).isZero();
         assertThat(afterStatus.approximatePlaceCount()).isZero();
         assertThat(afterStatus.enrichedPlaceCount()).isEqualTo(3);
+        assertThat(afterStatus.failedOrUnresolvableCount()).isEqualTo(1);
         assertThat(afterStatus.enrichmentRunning()).isFalse();
     }
 
@@ -293,6 +296,43 @@ class EnrichmentE2eTest {
 
         assertThat(result).isNotNull();
         assertThat(result.claimedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void startupSweepMaterializesLegacyS2LookupAndAutoEnrichesInBackground()
+            throws InterruptedException {
+        UUID batchId = insertImportBatch();
+        insertCoordinateLookupJob(
+                batchId,
+                "Wawel Royal Castle",
+                "https://www.google.com/maps/place/Wawel/data=!4m2!3m1!1s0x47165b120455da67:0x20000077",
+                "{\"title\":\"Wawel Royal Castle\",\"listName\":\"Want to go\"}");
+
+        importFacade.runStartupSweep();
+
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        long deadlineNanos = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        ImportStatusView status = null;
+        while (System.nanoTime() < deadlineNanos) {
+            status =
+                    client.get()
+                            .uri("/api/v1/imports/status")
+                            .retrieve()
+                            .body(ImportStatusView.class);
+            if (status != null
+                    && !status.enrichmentRunning()
+                    && status.pendingEnrichmentCount() == 0
+                    && status.enrichedPlaceCount() >= 1) {
+                break;
+            }
+            Thread.sleep(50);
+        }
+
+        assertThat(status).isNotNull();
+        assertThat(status.pendingCoordinateLookupCount()).isZero();
+        assertThat(status.pendingEnrichmentCount()).isZero();
+        assertThat(status.enrichedPlaceCount()).isEqualTo(1);
     }
 
     private Map<String, @Nullable Object> placeColumns(UUID placeId) {

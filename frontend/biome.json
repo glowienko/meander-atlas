@@ -77,7 +77,6 @@
         "src/features/atlas/AtlasMapView.tsx",
         "src/features/atlas/PlaceDetailCard.tsx",
         "src/features/atlas/viewState.ts",
-        "src/features/ingestion/ImportStatusBadge.tsx",
         "src/features/atlas/pinIcons.ts"
       ],
       "linter": {

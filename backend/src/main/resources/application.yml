@@ -71,6 +71,8 @@ app:
   boundaries-dir: ${APP_BOUNDARIES_DIR:${user.home}/meander-atlas-data/boundaries}
   boundaries-auto-seed: ${APP_BOUNDARIES_AUTO_SEED:true}
   default-user-id: ${APP_DEFAULT_USER_ID:00000000-0000-0000-0000-000000000001}
+  ingestion:
+    startup-sweep: ${APP_INGESTION_STARTUP_SWEEP:true}
   enrichment:
     enabled: ${APP_ENRICHMENT_ENABLED:false}
     batch-size: ${APP_ENRICHMENT_BATCH_SIZE:25}

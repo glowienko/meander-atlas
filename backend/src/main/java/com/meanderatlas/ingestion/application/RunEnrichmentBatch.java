@@ -124,6 +124,17 @@ public class RunEnrichmentBatch {
         return EnrichmentBatchResultView.backgroundStarted(dryRun, remaining);
     }
 
+    public boolean startBackgroundDrainIfEnabled() {
+        if (!properties.enabled() || stopRequested.get()) {
+            return false;
+        }
+        UserId userId = currentUserProvider.currentUserId();
+        if (countRemaining(userId) <= 0) {
+            return false;
+        }
+        return startDrain(properties.batchSize(), false).startedInBackground();
+    }
+
     private Optional<EnrichmentBatchResultView> rejectUnlessAcquired(
             UserId userId, boolean dryRun) {
         if (!properties.enabled()) {

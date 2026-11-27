@@ -10,6 +10,7 @@ public record ImportStatusSummary(
         int pendingEnrichmentCount,
         int enrichedPlaceCount,
         int approximatePlaceCount,
+        int failedOrUnresolvableCount,
         int completedBatches,
         List<String> accounts,
         @Nullable Instant lastImportedAt) {}

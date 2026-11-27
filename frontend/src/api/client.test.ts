@@ -4,9 +4,7 @@ import {
   BULK_BATCH_SIZE,
   chunkItems,
   patchBulkVisitStatus,
-  postMaterializeOffline,
   postRestoreVisitStates,
-  postRunEnrichment,
   type VisitStateSnapshotView,
 } from "./client";
 
@@ -130,50 +128,5 @@ describe("api client bulk chunking", () => {
     expect(postSpy).toHaveBeenCalledTimes(2);
     expect(batchLengths).toEqual([500, 101]);
     expect(result).toEqual({ restoredCount: 601 });
-  });
-
-  it("posts offline materialization and enrichment batch options", async () => {
-    const postSpy = vi.spyOn(apiClient, "POST").mockImplementation((async (url: string) => {
-      if (url === "/api/v1/imports/materialize-offline") {
-        return {
-          data: {
-            materializedCount: 12,
-            exactFromTitleCount: 2,
-            approxFromS2Count: 10,
-            mergedByCidCount: 1,
-            remainingLookupCount: 0,
-            enqueuedEnrichmentCount: 12,
-          },
-          response: new Response(null, { status: 200 }),
-        };
-      }
-      return {
-        data: {
-          enabled: true,
-          dryRun: false,
-          startedInBackground: true,
-          alreadyRunning: false,
-          claimedCount: 0,
-          matchedCount: 0,
-          upgradedCoordsCount: 0,
-          upgradedCategoryCount: 0,
-          photosAddedCount: 0,
-          failedCount: 0,
-          skippedCount: 0,
-          remainingPendingCount: 12,
-        },
-        response: new Response(null, { status: 200 }),
-      };
-    }) as typeof apiClient.POST);
-
-    const materialized = await postMaterializeOffline();
-    expect(materialized.materializedCount).toBe(12);
-    expect(postSpy).toHaveBeenCalledWith("/api/v1/imports/materialize-offline");
-
-    const enriched = await postRunEnrichment({ limit: 25, dryRun: false, background: true });
-    expect(enriched.startedInBackground).toBe(true);
-    expect(postSpy).toHaveBeenCalledWith("/api/v1/imports/enrich", {
-      params: { query: { limit: 25, dryRun: false, background: true } },
-    });
   });
 });

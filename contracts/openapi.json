@@ -966,6 +966,10 @@
           "enrichmentRunning" : {
             "type" : "boolean"
           },
+          "failedOrUnresolvableCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
           "lastImportedAt" : {
             "type" : "string",
             "format" : "date-time"
@@ -983,7 +987,7 @@
             "format" : "int32"
           }
         },
-        "required" : [ "accounts", "approximatePlaceCount", "completedBatches", "enrichedPlaceCount", "enrichmentRunning", "pendingCoordinateLookupCount", "pendingEnrichmentCount", "pendingResolutionCount" ]
+        "required" : [ "accounts", "approximatePlaceCount", "completedBatches", "enrichedPlaceCount", "enrichmentRunning", "failedOrUnresolvableCount", "pendingCoordinateLookupCount", "pendingEnrichmentCount", "pendingResolutionCount" ]
       },
       "LocalImportSummaryView" : {
         "type" : "object",

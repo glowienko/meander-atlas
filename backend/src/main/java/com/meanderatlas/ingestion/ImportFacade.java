@@ -4,6 +4,7 @@ import com.meanderatlas.ingestion.application.GetImportStatus;
 import com.meanderatlas.ingestion.application.ImportLocalDirectory;
 import com.meanderatlas.ingestion.application.MaterializePendingCoordinateJobs;
 import com.meanderatlas.ingestion.application.RunEnrichmentBatch;
+import com.meanderatlas.ingestion.application.RunStartupIngestionSweep;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 
@@ -14,16 +15,19 @@ public class ImportFacade {
     private final GetImportStatus getImportStatus;
     private final MaterializePendingCoordinateJobs materializePendingCoordinateJobs;
     private final RunEnrichmentBatch runEnrichmentBatch;
+    private final RunStartupIngestionSweep runStartupIngestionSweep;
 
     public ImportFacade(
             ImportLocalDirectory importLocalDirectory,
             GetImportStatus getImportStatus,
             MaterializePendingCoordinateJobs materializePendingCoordinateJobs,
-            RunEnrichmentBatch runEnrichmentBatch) {
+            RunEnrichmentBatch runEnrichmentBatch,
+            RunStartupIngestionSweep runStartupIngestionSweep) {
         this.importLocalDirectory = importLocalDirectory;
         this.getImportStatus = getImportStatus;
         this.materializePendingCoordinateJobs = materializePendingCoordinateJobs;
         this.runEnrichmentBatch = runEnrichmentBatch;
+        this.runStartupIngestionSweep = runStartupIngestionSweep;
     }
 
     public LocalImportSummaryView importLocalDirectory(@Nullable String account, boolean force) {
@@ -44,5 +48,9 @@ public class ImportFacade {
 
     public EnrichmentBatchResultView startEnrichmentDrain(int limit, boolean dryRun) {
         return runEnrichmentBatch.startDrain(limit, dryRun);
+    }
+
+    public void runStartupSweep() {
+        runStartupIngestionSweep.execute();
     }
 }

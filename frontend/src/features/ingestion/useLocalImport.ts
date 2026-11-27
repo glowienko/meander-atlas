@@ -1,19 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  type EnrichmentBatchResultView,
   fetchImportStatus,
   type ImportStatusView,
   type LocalImportSummaryView,
-  type OfflineMaterializationSummaryView,
   postLocalImport,
-  postMaterializeOffline,
-  postRunEnrichment,
 } from "../../api/client";
-
-export interface EnrichmentOptions {
-  limit: number;
-  background: boolean;
-}
 
 type Notify = (message: string) => void;
 
@@ -55,62 +46,18 @@ function describeLocalImport(result: LocalImportSummaryView): string {
   return `Synced ${result.totalPlacesCreated} new, ${result.totalPlacesMerged} merged · ${result.totalQueuedResolutionJobs} awaiting coordinates`;
 }
 
-function describeMaterialization(result: OfflineMaterializationSummaryView): string {
-  return `Materialized ${result.materializedCount} places (${result.exactFromTitleCount} exact, ${result.approxFromS2Count} approx, ${result.mergedByCidCount} merged)`;
-}
-
-function describeEnrichment(result: EnrichmentBatchResultView): string {
-  if (!result.enabled) {
-    return "Open-catalog enrichment is disabled on the server";
-  }
-  if (result.alreadyRunning) {
-    return "Enrichment is already running in the background";
-  }
-  if (result.startedInBackground) {
-    return `Background enrichment started (${result.remainingPendingCount} remaining)`;
-  }
-  return `Enriched ${result.matchedCount}/${result.claimedCount} (${result.upgradedCoordsCount} coords, ${result.upgradedCategoryCount} categories, ${result.photosAddedCount} photos)`;
-}
-
-function useIngestionMutation<TVariables, TResult>(
-  mutationFn: (variables: TVariables) => Promise<TResult>,
-  describe: (result: TResult) => string,
-  failureMessage: string,
-  notify: Notify,
-) {
+export function useImportActions(notify: Notify) {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn,
+  const localImport = useMutation({
+    mutationFn: () => postLocalImport(),
     onSuccess: async (result) => {
-      notify(describe(result));
+      notify(describeLocalImport(result));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["atlas"] }),
         queryClient.invalidateQueries({ queryKey: ["ingestion"] }),
       ]);
     },
-    onError: () => notify(failureMessage),
+    onError: () => notify("Local folder sync failed"),
   });
-}
-
-export function useImportActions(notify: Notify) {
-  return {
-    localImport: useIngestionMutation<void, LocalImportSummaryView>(
-      () => postLocalImport(),
-      describeLocalImport,
-      "Local folder sync failed",
-      notify,
-    ),
-    materialize: useIngestionMutation<void, OfflineMaterializationSummaryView>(
-      () => postMaterializeOffline(),
-      describeMaterialization,
-      "Offline materialization failed",
-      notify,
-    ),
-    enrichment: useIngestionMutation(
-      (options: EnrichmentOptions) => postRunEnrichment(options),
-      describeEnrichment,
-      "Enrichment request failed",
-      notify,
-    ),
-  };
+  return { localImport };
 }

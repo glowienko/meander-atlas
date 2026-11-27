@@ -11,6 +11,7 @@ import com.meanderatlas.atlas.domain.boundaries.BoundaryTestData;
 import com.meanderatlas.atlas.domain.boundaries.RegionBoundaryRepository;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.ingestion.application.ImportLocalDirectory;
+import com.meanderatlas.ingestion.application.RunEnrichmentBatch;
 import com.meanderatlas.ingestion.domain.TakeoutTestData;
 import com.meanderatlas.ingestion.domain.source.AccountImportSource;
 import com.meanderatlas.ingestion.domain.source.DiscoveredImportFile;
@@ -65,6 +66,7 @@ class TransactionRollbackE2eTest {
     @Autowired private RegionBoundaryRepository regionBoundaryRepository;
     @Autowired private ImportRepository importRepository;
     @Autowired private EnrichmentJobRepository enrichmentJobRepository;
+    @Autowired private RunEnrichmentBatch runEnrichmentBatch;
     @Autowired private AtlasFacade atlasFacade;
     @Autowired private NamedParameterJdbcTemplate jdbc;
 
@@ -289,7 +291,8 @@ class TransactionRollbackE2eTest {
                         enrichmentJobRepository,
                         atlasFacade,
                         () -> USER_ID,
-                        transactionOperations);
+                        transactionOperations,
+                        runEnrichmentBatch);
 
         assertThatThrownBy(() -> useCase.execute(null, false))
                 .isInstanceOf(IllegalStateException.class)

@@ -166,6 +166,10 @@ class JdbcImportRepository implements ImportRepository {
                              WHERE user_id = :userId
                                AND geom IS NOT NULL
                                AND coord_source = 'TAKEOUT_S2_APPROX') AS approximate_place_count,
+                            (SELECT COUNT(*)::int
+                             FROM resolution_jobs
+                             WHERE user_id = :userId
+                               AND status IN ('FAILED', 'SKIPPED')) AS failed_or_unresolvable_count,
                             COUNT(*)::int AS completed_batches,
                             COALESCE(
                                 ARRAY_AGG(DISTINCT account_label ORDER BY account_label ASC),
@@ -196,6 +200,7 @@ class JdbcImportRepository implements ImportRepository {
                                     rs.getInt("pending_enrichment_count"),
                                     rs.getInt("enriched_place_count"),
                                     rs.getInt("approximate_place_count"),
+                                    rs.getInt("failed_or_unresolvable_count"),
                                     rs.getInt("completed_batches"),
                                     accounts,
                                     lastImportedAt);

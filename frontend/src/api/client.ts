@@ -15,9 +15,6 @@ export type VisitStateSnapshotView = components["schemas"]["VisitStateSnapshotVi
 export type AccountImportSummaryView = components["schemas"]["AccountImportSummaryView"];
 export type LocalImportSummaryView = components["schemas"]["LocalImportSummaryView"];
 export type ImportStatusView = components["schemas"]["ImportStatusView"];
-export type OfflineMaterializationSummaryView =
-  components["schemas"]["OfflineMaterializationSummaryView"];
-export type EnrichmentBatchResultView = components["schemas"]["EnrichmentBatchResultView"];
 export type CoordSource = AtlasPlaceView["coordSource"];
 export type VisitStatus = AtlasPlaceView["visitStatus"];
 export type DerivedRole = AtlasPlaceView["derivedRole"];
@@ -198,32 +195,6 @@ export async function fetchImportStatus(): Promise<ImportStatusView> {
 
 export async function postLocalImport(): Promise<LocalImportSummaryView> {
   return unwrapResponse(await apiClient.POST("/api/v1/imports/local"), "Local import request");
-}
-
-export async function postMaterializeOffline(): Promise<OfflineMaterializationSummaryView> {
-  return unwrapResponse(
-    await apiClient.POST("/api/v1/imports/materialize-offline"),
-    "Offline materialization request",
-  );
-}
-
-export async function postRunEnrichment(options?: {
-  limit?: number;
-  dryRun?: boolean;
-  background?: boolean;
-}): Promise<EnrichmentBatchResultView> {
-  return unwrapResponse(
-    await apiClient.POST("/api/v1/imports/enrich", {
-      params: {
-        query: {
-          limit: options?.limit,
-          dryRun: options?.dryRun,
-          background: options?.background,
-        },
-      },
-    }),
-    "Enrichment batch request",
-  );
 }
 
 function nonEmpty(value: string | undefined): string | undefined {

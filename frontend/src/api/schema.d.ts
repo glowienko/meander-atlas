@@ -388,6 +388,8 @@ export interface components {
             /** Format: int32 */
             enrichedPlaceCount: number;
             enrichmentRunning: boolean;
+            /** Format: int32 */
+            failedOrUnresolvableCount: number;
             /** Format: date-time */
             lastImportedAt?: string;
             /** Format: int32 */

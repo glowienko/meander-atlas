@@ -261,10 +261,6 @@ function AtlasShell() {
             <ImportStatusBadge
               mappedCount={statsQuery.data?.totalMappedPlaces ?? 0}
               status={importStatusQuery.data}
-              isMaterializing={imports.materialize.isPending}
-              isEnriching={imports.enrichment.isPending}
-              onMaterializeOffline={() => imports.materialize.mutate()}
-              onRunEnrichment={(options) => imports.enrichment.mutate(options)}
             />
           }
         />

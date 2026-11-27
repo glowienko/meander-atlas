@@ -20,46 +20,43 @@ describe("Ingestion components", () => {
     expect(pendingButton).toBeDisabled();
   });
 
-  it("renders ImportStatusBadge with progress counters and materialize/enrich triggers", () => {
-    const onMaterializeOffline = vi.fn();
-    const onRunEnrichment = vi.fn();
+  it("renders calm read-only enrichment status and hides single account label", () => {
     const { rerender } = render(
       <ImportStatusBadge
         mappedCount={1284}
         status={{
-          pendingResolutionCount: 6150,
-          pendingCoordinateLookupCount: 6150,
+          pendingResolutionCount: 15,
+          pendingCoordinateLookupCount: 15,
           pendingEnrichmentCount: 720,
           enrichedPlaceCount: 85,
           approximatePlaceCount: 540,
-          enrichmentRunning: false,
+          failedOrUnresolvableCount: 3,
+          enrichmentRunning: true,
           completedBatches: 2,
           accounts: ["personal", "work"],
           lastImportedAt: "2026-11-24T12:00:00Z",
         }}
-        onMaterializeOffline={onMaterializeOffline}
-        onRunEnrichment={onRunEnrichment}
-        isMaterializing={false}
-        isEnriching={false}
       />,
     );
 
     const badge = screen.getByTestId("import-status-badge");
     expect(badge).toHaveTextContent("1284 mapped");
-    expect(badge).toHaveTextContent("6150 awaiting coordinates");
-    expect(badge).toHaveTextContent("85 enriched · 720 pending enrichment · 540 approximate");
+    expect(badge).toHaveTextContent("15 awaiting coordinates");
+    expect(badge).toHaveTextContent("85 enriched · 540 approximate · 3 skipped");
     expect(badge).toHaveTextContent("2 batches");
-    expect(badge).toHaveTextContent("personal");
-    expect(badge).toHaveTextContent("work");
+    expect(badge).toHaveTextContent("Accounts: personal · work");
 
-    fireEvent.click(screen.getByTestId("materialize-offline-button"));
-    expect(onMaterializeOffline).toHaveBeenCalledTimes(1);
+    const indicator = screen.getByTestId("enrichment-status-indicator");
+    expect(indicator).toHaveTextContent("Enrichment in progress · 735 left");
+    expect(indicator).toHaveAttribute(
+      "title",
+      expect.stringContaining("OpenStreetMap and Wikimedia"),
+    );
 
-    fireEvent.click(screen.getByTestId("enrich-batch-button"));
-    expect(onRunEnrichment).toHaveBeenCalledWith({ limit: 10, background: false });
-
-    fireEvent.click(screen.getByTestId("enrich-all-button"));
-    expect(onRunEnrichment).toHaveBeenCalledWith({ limit: 25, background: true });
+    expect(screen.queryByTestId("materialize-offline-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("enrich-batch-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("enrich-all-button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
 
     rerender(
       <ImportStatusBadge
@@ -67,25 +64,45 @@ describe("Ingestion components", () => {
         status={{
           pendingResolutionCount: 0,
           pendingCoordinateLookupCount: 0,
-          pendingEnrichmentCount: 720,
+          pendingEnrichmentCount: 12,
           enrichedPlaceCount: 95,
-          approximatePlaceCount: 530,
-          enrichmentRunning: true,
-          completedBatches: 2,
+          approximatePlaceCount: 0,
+          failedOrUnresolvableCount: 0,
+          enrichmentRunning: false,
+          completedBatches: 1,
           accounts: ["personal"],
         }}
-        onMaterializeOffline={onMaterializeOffline}
-        onRunEnrichment={onRunEnrichment}
-        isMaterializing={false}
-        isEnriching={false}
       />,
     );
 
-    expect(screen.queryByTestId("materialize-offline-button")).not.toBeInTheDocument();
-    expect(screen.getByTestId("enrichment-running-indicator")).toHaveTextContent(
-      "Enriching in background...",
+    expect(badge).toHaveTextContent("1 batch");
+    expect(badge).not.toHaveTextContent("Accounts:");
+    expect(screen.getByTestId("enrichment-status-indicator")).toHaveTextContent(
+      "Enrichment queued · 12 left",
     );
-    expect(screen.getByTestId("enrich-batch-button")).toBeDisabled();
-    expect(screen.getByTestId("enrich-all-button")).toBeDisabled();
+
+    rerender(
+      <ImportStatusBadge
+        mappedCount={7174}
+        status={{
+          pendingResolutionCount: 0,
+          pendingCoordinateLookupCount: 0,
+          pendingEnrichmentCount: 0,
+          enrichedPlaceCount: 120,
+          approximatePlaceCount: 4,
+          failedOrUnresolvableCount: 0,
+          enrichmentRunning: false,
+          completedBatches: 1,
+          accounts: ["personal"],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("enrichment-status-indicator")).toHaveTextContent(
+      "All 7,174 places up to date",
+    );
+    expect(screen.getByTestId("enrichment-progress-summary")).toHaveTextContent(
+      "120 enriched · 4 approximate",
+    );
   });
 });
