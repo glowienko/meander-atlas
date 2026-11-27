@@ -109,4 +109,20 @@ public interface AtlasPlaceRepository {
             double triageMaxRadiusMeters);
 
     void backfillGooglePlaceId(UserId userId, PlaceId placeId, String googlePlaceId);
+
+    List<PlaceEnrichmentTarget> findEnrichmentTargets(UserId userId, List<PlaceId> placeIds);
+
+    void applyPlaceEnrichment(
+            UserId userId,
+            PlaceId placeId,
+            boolean upgradeCoordinates,
+            @Nullable GeoPoint refinedCoordinates,
+            @Nullable String osmId,
+            boolean upgradeCategory,
+            @Nullable PlaceCategory category,
+            @Nullable String subcategory,
+            DerivedRole derivedRole,
+            @Nullable String cityName,
+            @Nullable String photoUrl,
+            @Nullable String openingHoursJson);
 }

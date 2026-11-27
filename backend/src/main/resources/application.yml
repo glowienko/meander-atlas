@@ -66,3 +66,16 @@ app:
   boundaries-dir: ${APP_BOUNDARIES_DIR:${user.home}/meander-atlas-data/boundaries}
   boundaries-auto-seed: ${APP_BOUNDARIES_AUTO_SEED:true}
   default-user-id: ${APP_DEFAULT_USER_ID:00000000-0000-0000-0000-000000000001}
+  enrichment:
+    enabled: ${APP_ENRICHMENT_ENABLED:false}
+    batch-size: ${APP_ENRICHMENT_BATCH_SIZE:25}
+    request-delay-ms: ${APP_ENRICHMENT_REQUEST_DELAY_MS:1100}
+    max-retries: ${APP_ENRICHMENT_MAX_RETRIES:3}
+    connect-timeout-ms: ${APP_ENRICHMENT_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${APP_ENRICHMENT_READ_TIMEOUT_MS:20000}
+    overpass-url: ${APP_ENRICHMENT_OVERPASS_URL:https://overpass-api.de/api/interpreter}
+    photon-url: ${APP_ENRICHMENT_PHOTON_URL:https://photon.komoot.io/api}
+    wikimedia-commons-api-url: ${APP_ENRICHMENT_WIKIMEDIA_COMMONS_URL:https://commons.wikimedia.org/w/api.php}
+    wikipedia-rest-url-template: ${APP_ENRICHMENT_WIKIPEDIA_REST_URL_TEMPLATE:https://{lang}.wikipedia.org/api/rest_v1}
+    wikidata-api-url: ${APP_ENRICHMENT_WIKIDATA_URL:https://www.wikidata.org/w/api.php}
+    wikimedia-user-agent: ${APP_ENRICHMENT_WIKIMEDIA_USER_AGENT:MeanderAtlas/0.1 (local-personal-atlas)}

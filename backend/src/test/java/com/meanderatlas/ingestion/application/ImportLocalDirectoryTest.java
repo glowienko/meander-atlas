@@ -296,7 +296,8 @@ class ImportLocalDirectoryTest {
 
         @Override
         public ImportStatusSummary fetchStatus(UserId userId) {
-            return new ImportStatusSummary(jobs.size(), completedBatches.size(), List.of(), null);
+            return new ImportStatusSummary(
+                    jobs.size(), jobs.size(), 0, 0, 0, completedBatches.size(), List.of(), null);
         }
     }
 

@@ -8,6 +8,11 @@ import org.jspecify.annotations.Nullable;
 
 public record ImportStatusView(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int pendingResolutionCount,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int pendingCoordinateLookupCount,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int pendingEnrichmentCount,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int enrichedPlaceCount,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int approximatePlaceCount,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean enrichmentRunning,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int completedBatches,
         @NotNull List<String> accounts,
         @Nullable Instant lastImportedAt) {}

@@ -5,17 +5,12 @@ import com.meanderatlas.atlas.AttachCsvMembershipCommand;
 import com.meanderatlas.atlas.ImportedPlaceUpsertCommand;
 import com.meanderatlas.atlas.UpsertedPlaceView;
 import com.meanderatlas.ingestion.OfflineMaterializationSummaryView;
-import com.meanderatlas.ingestion.domain.GoogleCid;
-import com.meanderatlas.ingestion.domain.GoogleCidDecoder;
+import com.meanderatlas.ingestion.application.PendingJobMetadataExtractor.ExtractedJobMetadata;
 import com.meanderatlas.ingestion.domain.GoogleS2CellDecoder;
-import com.meanderatlas.ingestion.domain.TextNormalizer;
-import com.meanderatlas.ingestion.domain.TitleCoordinateParser;
-import com.meanderatlas.ingestion.domain.classification.PlaceCategoryClassifier;
 import com.meanderatlas.ingestion.domain.classification.PlaceClassification;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository.PendingCoordinateJob;
 import com.meanderatlas.ingestion.domain.source.ImportRecordKind;
-import com.meanderatlas.ingestion.domain.takeout.TakeoutCsvParser;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.CurrentUserProvider;
 import com.meanderatlas.shared.GeoPoint;
@@ -31,18 +26,12 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 @Service
 public class MaterializePendingCoordinateJobs {
 
     private static final int BATCH_SIZE = 200;
-    private static final String DEFAULT_LIST_NAME = "Saved Places";
     private static final String LIST_NAME_REVIEWS = "Google Reviews";
-    private static final String FALLBACK_REVIEW_NAME = "Reviewed place";
-    private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
     private final EnrichmentJobRepository enrichmentJobRepository;
     private final AtlasFacade atlasFacade;
@@ -129,36 +118,25 @@ public class MaterializePendingCoordinateJobs {
     }
 
     private BatchTotals materializeCsvJob(PendingCoordinateJob job) {
-        JsonNode payload = parsePayload(job.payloadJson());
-        String title = firstNonBlank(job.rawTitle(), readText(payload, "title"));
-        String url = firstNonBlank(job.rawUrl(), readText(payload, "url"));
-        Long cid = resolveCid(job.googleCid(), url);
-        String listName =
-                Objects.requireNonNullElse(readText(payload, "listName"), DEFAULT_LIST_NAME);
-        ListKind listKind = resolveListKind(readText(payload, "listKind"), listName);
-        String note = firstNonBlank(readText(payload, "note"), readText(payload, "comment"));
-        String tags = readText(payload, "tags");
-        String canonicalTitle = title == null ? DEFAULT_LIST_NAME : title;
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(canonicalTitle, note, tags);
-
-        Optional<GeoPoint> titleCoords = TitleCoordinateParser.parse(title);
+        ExtractedJobMetadata metadata = PendingJobMetadataExtractor.extract(job);
+        Long cid = metadata.cid();
+        Optional<GeoPoint> titleCoords = Optional.ofNullable(metadata.titleCoords());
         if (cid != null) {
             Optional<PlaceId> matchedId =
                     atlasFacade.attachCsvMembershipByCid(
                             new AttachCsvMembershipCommand(
                                     cid,
-                                    canonicalTitle,
+                                    metadata.canonicalTitle(),
                                     titleCoords.orElse(null),
-                                    classification.category(),
-                                    classification.subcategory(),
-                                    classification.source(),
+                                    metadata.classification().category(),
+                                    metadata.classification().subcategory(),
+                                    metadata.classification().source(),
                                     job.accountLabel(),
-                                    listName,
-                                    listKind,
-                                    note,
-                                    tags,
-                                    url,
+                                    metadata.listName(),
+                                    metadata.listKind(),
+                                    metadata.note(),
+                                    metadata.tags(),
+                                    metadata.url(),
                                     null,
                                     null,
                                     null,
@@ -173,35 +151,35 @@ public class MaterializePendingCoordinateJobs {
             UpsertedPlaceView upserted =
                     upsertResolvedCsv(
                             job,
-                            canonicalTitle,
+                            metadata.canonicalTitle(),
                             titleCoords.get(),
                             CoordSource.TAKEOUT,
                             cid,
-                            classification,
-                            listName,
-                            listKind,
-                            note,
-                            tags,
-                            url);
+                            metadata.classification(),
+                            metadata.listName(),
+                            metadata.listKind(),
+                            metadata.note(),
+                            metadata.tags(),
+                            metadata.url());
             enrichmentJobRepository.markCoordinateJobCompleted(job.jobId(), upserted.placeId());
             return new BatchTotals(1, 0, 0);
         }
 
-        Optional<GeoPoint> s2Coords = GoogleS2CellDecoder.decodeFromUrl(url);
+        Optional<GeoPoint> s2Coords = GoogleS2CellDecoder.decodeFromUrl(metadata.url());
         if (s2Coords.isPresent()) {
             UpsertedPlaceView upserted =
                     upsertResolvedCsv(
                             job,
-                            canonicalTitle,
+                            metadata.canonicalTitle(),
                             s2Coords.get(),
                             CoordSource.TAKEOUT_S2_APPROX,
                             cid,
-                            classification,
-                            listName,
-                            listKind,
-                            note,
-                            tags,
-                            url);
+                            metadata.classification(),
+                            metadata.listName(),
+                            metadata.listKind(),
+                            metadata.note(),
+                            metadata.tags(),
+                            metadata.url());
             enrichmentJobRepository.markCoordinateJobCompleted(job.jobId(), upserted.placeId());
             return new BatchTotals(0, 1, 0);
         }
@@ -210,32 +188,25 @@ public class MaterializePendingCoordinateJobs {
     }
 
     private BatchTotals materializeReviewJob(PendingCoordinateJob job) {
-        JsonNode payload = parsePayload(job.payloadJson());
-        String rawName = firstNonBlank(job.rawTitle(), readText(payload, "name"));
-        String canonicalName = rawName == null ? FALLBACK_REVIEW_NAME : rawName;
-        String url = firstNonBlank(job.rawUrl(), readText(payload, "googleMapsUrl"));
-        String reviewText = readText(payload, "reviewText");
-        Long cid = resolveCid(job.googleCid(), url);
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(canonicalName, reviewText, null);
-
-        Optional<GeoPoint> titleCoords = TitleCoordinateParser.parse(rawName);
+        ExtractedJobMetadata metadata = PendingJobMetadataExtractor.extract(job);
+        Long cid = metadata.cid();
+        Optional<GeoPoint> titleCoords = Optional.ofNullable(metadata.titleCoords());
         if (cid != null) {
             Optional<PlaceId> matchedId =
                     atlasFacade.attachCsvMembershipByCid(
                             new AttachCsvMembershipCommand(
                                     cid,
-                                    canonicalName,
+                                    metadata.canonicalTitle(),
                                     titleCoords.orElse(null),
-                                    classification.category(),
-                                    classification.subcategory(),
-                                    classification.source(),
+                                    metadata.classification().category(),
+                                    metadata.classification().subcategory(),
+                                    metadata.classification().source(),
                                     job.accountLabel(),
                                     LIST_NAME_REVIEWS,
                                     ListKind.REVIEW,
-                                    reviewText,
+                                    metadata.note(),
                                     null,
-                                    url,
+                                    metadata.url(),
                                     job.observedAt(),
                                     VisitStatus.VISITED,
                                     VisitSource.REVIEW,
@@ -250,29 +221,29 @@ public class MaterializePendingCoordinateJobs {
             UpsertedPlaceView upserted =
                     upsertResolvedReview(
                             job,
-                            canonicalName,
+                            metadata.canonicalTitle(),
                             titleCoords.get(),
                             CoordSource.TAKEOUT,
                             cid,
-                            classification,
-                            reviewText,
-                            url);
+                            metadata.classification(),
+                            metadata.note(),
+                            metadata.url());
             enrichmentJobRepository.markCoordinateJobCompleted(job.jobId(), upserted.placeId());
             return new BatchTotals(1, 0, 0);
         }
 
-        Optional<GeoPoint> s2Coords = GoogleS2CellDecoder.decodeFromUrl(url);
+        Optional<GeoPoint> s2Coords = GoogleS2CellDecoder.decodeFromUrl(metadata.url());
         if (s2Coords.isPresent()) {
             UpsertedPlaceView upserted =
                     upsertResolvedReview(
                             job,
-                            canonicalName,
+                            metadata.canonicalTitle(),
                             s2Coords.get(),
                             CoordSource.TAKEOUT_S2_APPROX,
                             cid,
-                            classification,
-                            reviewText,
-                            url);
+                            metadata.classification(),
+                            metadata.note(),
+                            metadata.url());
             enrichmentJobRepository.markCoordinateJobCompleted(job.jobId(), upserted.placeId());
             return new BatchTotals(0, 1, 0);
         }
@@ -347,46 +318,6 @@ public class MaterializePendingCoordinateJobs {
                         VisitStatus.VISITED,
                         VisitSource.REVIEW,
                         job.observedAt()));
-    }
-
-    private static JsonNode parsePayload(String payloadJson) {
-        try {
-            return JSON_MAPPER.readTree(payloadJson);
-        } catch (JacksonException ignored) {
-            return JSON_MAPPER.createObjectNode();
-        }
-    }
-
-    private static @Nullable String readText(JsonNode node, String fieldName) {
-        JsonNode field = node.get(fieldName);
-        if (field == null || field.isNull()) {
-            return null;
-        }
-        return TextNormalizer.trimToNull(field.asString());
-    }
-
-    private static @Nullable String firstNonBlank(
-            @Nullable String primary, @Nullable String fallback) {
-        String normalizedPrimary = TextNormalizer.trimToNull(primary);
-        return normalizedPrimary != null ? normalizedPrimary : TextNormalizer.trimToNull(fallback);
-    }
-
-    private static @Nullable Long resolveCid(@Nullable Long existingCid, @Nullable String url) {
-        if (existingCid != null) {
-            return existingCid;
-        }
-        return GoogleCidDecoder.decodeFromUrl(url).map(GoogleCid::unsignedBits).orElse(null);
-    }
-
-    private static ListKind resolveListKind(@Nullable String rawListKind, String listName) {
-        if (rawListKind != null) {
-            try {
-                return ListKind.valueOf(rawListKind);
-            } catch (IllegalArgumentException ignored) {
-                return TakeoutCsvParser.classifyListKind(listName);
-            }
-        }
-        return TakeoutCsvParser.classifyListKind(listName);
     }
 
     private record BatchTotals(

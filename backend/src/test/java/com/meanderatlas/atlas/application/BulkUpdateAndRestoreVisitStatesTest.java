@@ -13,6 +13,7 @@ import com.meanderatlas.atlas.VisitStateSnapshotView;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
 import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate;
@@ -285,5 +286,26 @@ class BulkUpdateAndRestoreVisitStatesTest {
 
         @Override
         public void backfillGooglePlaceId(UserId userId, PlaceId placeId, String googlePlaceId) {}
+
+        @Override
+        public List<PlaceEnrichmentTarget> findEnrichmentTargets(
+                UserId userId, List<PlaceId> placeIds) {
+            return List.of();
+        }
+
+        @Override
+        public void applyPlaceEnrichment(
+                UserId userId,
+                PlaceId placeId,
+                boolean upgradeCoordinates,
+                @Nullable GeoPoint refinedCoordinates,
+                @Nullable String osmId,
+                boolean upgradeCategory,
+                @Nullable PlaceCategory category,
+                @Nullable String subcategory,
+                DerivedRole derivedRole,
+                @Nullable String cityName,
+                @Nullable String photoUrl,
+                @Nullable String openingHoursJson) {}
     }
 }

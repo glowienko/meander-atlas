@@ -3,6 +3,7 @@ package com.meanderatlas.atlas.application;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -163,7 +164,8 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
                         subcategory,
                         categorySource,
                         derivedRole,
-                        fallbackCountryCode));
+                        fallbackCountryCode,
+                        cityName));
         return id;
     }
 
@@ -304,6 +306,73 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         }
     }
 
+    @Override
+    public List<PlaceEnrichmentTarget> findEnrichmentTargets(
+            UserId userId, List<PlaceId> placeIds) {
+        return placeIds.stream()
+                .distinct()
+                .map(places::get)
+                .filter(Objects::nonNull)
+                .filter(p -> p.userId.equals(userId))
+                .map(p ->
+                        new PlaceEnrichmentTarget(
+                                p.id,
+                                p.canonicalName,
+                                p.coordinates,
+                                p.coordSource,
+                                p.category,
+                                p.categorySource,
+                                p.osmId,
+                                p.photoUrl,
+                                p.countryCode,
+                                p.cityName))
+                .toList();
+    }
+
+    @Override
+    public void applyPlaceEnrichment(
+            UserId userId,
+            PlaceId placeId,
+            boolean upgradeCoordinates,
+            @Nullable GeoPoint refinedCoordinates,
+            @Nullable String osmId,
+            boolean upgradeCategory,
+            @Nullable PlaceCategory category,
+            @Nullable String subcategory,
+            DerivedRole derivedRole,
+            @Nullable String cityName,
+            @Nullable String photoUrl,
+            @Nullable String openingHoursJson) {
+        MutablePlaceRecord record = place(placeId);
+        if (!record.userId.equals(userId)) {
+            return;
+        }
+        if (upgradeCoordinates
+                && refinedCoordinates != null
+                && record.coordSource == CoordSource.TAKEOUT_S2_APPROX) {
+            record.coordinates = refinedCoordinates;
+            record.coordSource = CoordSource.OPEN_CATALOG;
+        }
+        if (osmId != null) {
+            record.osmId = osmId;
+        }
+        if (upgradeCategory && category != null && record.categorySource != CategorySource.MANUAL) {
+            record.category = category;
+            record.subcategory = subcategory;
+            record.categorySource = CategorySource.OPEN_CATALOG;
+        }
+        record.derivedRole = derivedRole;
+        if ((record.cityName == null || record.cityName.isBlank()) && cityName != null) {
+            record.cityName = cityName;
+        }
+        if ((record.photoUrl == null || record.photoUrl.isBlank()) && photoUrl != null) {
+            record.photoUrl = photoUrl;
+        }
+        if (openingHoursJson != null) {
+            record.openingHoursJson = openingHoursJson;
+        }
+    }
+
     private TimelineMatchCandidate toTimelineCandidate(
             MutablePlaceRecord record, MatchConfidence confidence) {
         PlaceVisitState state =
@@ -343,6 +412,8 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         public CategorySource categorySource;
         public DerivedRole derivedRole;
         public @Nullable String countryCode;
+        public @Nullable String cityName;
+        public @Nullable String openingHoursJson;
 
         private MutablePlaceRecord(
                 PlaceId id,
@@ -356,7 +427,8 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
                 @Nullable String subcategory,
                 CategorySource categorySource,
                 DerivedRole derivedRole,
-                @Nullable String countryCode) {
+                @Nullable String countryCode,
+                @Nullable String cityName) {
             this.id = id;
             this.userId = userId;
             this.canonicalName = canonicalName;
@@ -369,6 +441,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             this.categorySource = categorySource;
             this.derivedRole = derivedRole;
             this.countryCode = countryCode;
+            this.cityName = cityName;
         }
 
         private MatchedPlace toMatchedPlace() {

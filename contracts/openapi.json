@@ -456,6 +456,50 @@
         "tags" : [ "atlas-boundaries-controller" ]
       }
     },
+    "/api/v1/imports/enrich" : {
+      "post" : {
+        "operationId" : "enrich",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 50
+          }
+        }, {
+          "in" : "query",
+          "name" : "dryRun",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        }, {
+          "in" : "query",
+          "name" : "background",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnrichmentBatchResultView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "import-controller" ]
+      }
+    },
     "/api/v1/imports/local" : {
       "post" : {
         "operationId" : "importLocal",
@@ -846,6 +890,56 @@
         },
         "required" : [ "category", "totalCount", "visitedCount" ]
       },
+      "EnrichmentBatchResultView" : {
+        "type" : "object",
+        "properties" : {
+          "alreadyRunning" : {
+            "type" : "boolean"
+          },
+          "claimedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "dryRun" : {
+            "type" : "boolean"
+          },
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "failedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "matchedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "photosAddedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "remainingPendingCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "skippedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "startedInBackground" : {
+            "type" : "boolean"
+          },
+          "upgradedCategoryCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "upgradedCoordsCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "alreadyRunning", "claimedCount", "dryRun", "enabled", "failedCount", "matchedCount", "photosAddedCount", "remainingPendingCount", "skippedCount", "startedInBackground", "upgradedCategoryCount", "upgradedCoordsCount" ]
+      },
       "ImportStatusView" : {
         "type" : "object",
         "properties" : {
@@ -855,20 +949,39 @@
               "type" : "string"
             }
           },
+          "approximatePlaceCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
           "completedBatches" : {
             "type" : "integer",
             "format" : "int32"
           },
+          "enrichedPlaceCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "enrichmentRunning" : {
+            "type" : "boolean"
+          },
           "lastImportedAt" : {
             "type" : "string",
             "format" : "date-time"
+          },
+          "pendingCoordinateLookupCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "pendingEnrichmentCount" : {
+            "type" : "integer",
+            "format" : "int32"
           },
           "pendingResolutionCount" : {
             "type" : "integer",
             "format" : "int32"
           }
         },
-        "required" : [ "accounts", "completedBatches", "pendingResolutionCount" ]
+        "required" : [ "accounts", "approximatePlaceCount", "completedBatches", "enrichedPlaceCount", "enrichmentRunning", "pendingCoordinateLookupCount", "pendingEnrichmentCount", "pendingResolutionCount" ]
       },
       "LocalImportSummaryView" : {
         "type" : "object",

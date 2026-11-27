@@ -1,5 +1,6 @@
 package com.meanderatlas.ingestion.adapter.web;
 
+import com.meanderatlas.ingestion.EnrichmentBatchResultView;
 import com.meanderatlas.ingestion.ImportFacade;
 import com.meanderatlas.ingestion.ImportStatusView;
 import com.meanderatlas.ingestion.LocalImportSummaryView;
@@ -37,5 +38,13 @@ class ImportController {
     @PostMapping(path = "/materialize-offline", produces = MediaType.APPLICATION_JSON_VALUE)
     OfflineMaterializationSummaryView materializeOffline() {
         return importFacade.materializeOffline();
+    }
+
+    @PostMapping(path = "/enrich", produces = MediaType.APPLICATION_JSON_VALUE)
+    EnrichmentBatchResultView enrich(
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            @RequestParam(defaultValue = "false") boolean background) {
+        return importFacade.enrich(limit, dryRun, background);
     }
 }

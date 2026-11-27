@@ -4,6 +4,7 @@ import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.BoundingBox;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -171,6 +172,81 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                             SpatialRegionSql.countryLookupSql("tg.next_geom"),
                             SpatialRegionSql.admin1LookupSql(
                                     "rc.next_geom", "rc.next_country_code"),
+                            SpatialRegionSql.admin1LookupSql(
+                                    "rc.next_geom", "rc.next_country_code"));
+
+    private static final String APPLY_PLACE_ENRICHMENT_SQL =
+            """
+            WITH target_geom AS (
+                SELECT
+                    p.id,
+                    p.country_code AS existing_country_code,
+                    p.admin1_id AS existing_admin1_id,
+                    (:upgradeCoordinates
+                     AND (p.coord_source = 'TAKEOUT_S2_APPROX' OR p.coord_source IS NULL))
+                        AS can_upgrade_coords,
+                    CASE
+                        WHEN :upgradeCoordinates
+                             AND (p.coord_source = 'TAKEOUT_S2_APPROX' OR p.coord_source IS NULL)
+                            THEN ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+                        ELSE p.geom
+                    END AS next_geom
+                FROM places p
+                WHERE p.id = CAST(:placeId AS uuid)
+                  AND p.user_id = CAST(:userId AS uuid)
+            ),
+            resolved_country AS (
+                SELECT
+                    tg.id,
+                    tg.can_upgrade_coords,
+                    tg.next_geom,
+                    tg.existing_admin1_id,
+                    CASE
+                        WHEN tg.can_upgrade_coords
+                            THEN COALESCE(%s, tg.existing_country_code)
+                        ELSE tg.existing_country_code
+                    END AS next_country_code
+                FROM target_geom tg
+            )
+            UPDATE places p
+            SET geom = rc.next_geom,
+                coord_source = CASE
+                    WHEN rc.can_upgrade_coords THEN 'OPEN_CATALOG'
+                    ELSE p.coord_source
+                END,
+                osm_id = COALESCE(CAST(:osmId AS TEXT), p.osm_id),
+                category = CASE
+                    WHEN :upgradeCategory AND p.category_source <> 'MANUAL'
+                        THEN CAST(:category AS TEXT)
+                    ELSE p.category
+                END,
+                subcategory = CASE
+                    WHEN :upgradeCategory AND p.category_source <> 'MANUAL'
+                        THEN CAST(:subcategory AS TEXT)
+                    ELSE p.subcategory
+                END,
+                category_source = CASE
+                    WHEN :upgradeCategory AND p.category_source <> 'MANUAL'
+                        THEN 'OPEN_CATALOG'
+                    ELSE p.category_source
+                END,
+                derived_role = :derivedRole,
+                country_code = rc.next_country_code,
+                admin1_id = CASE
+                    WHEN rc.can_upgrade_coords
+                        THEN COALESCE(%s, rc.existing_admin1_id)
+                    ELSE rc.existing_admin1_id
+                END,
+                city_name = COALESCE(NULLIF(p.city_name, ''), CAST(:cityName AS TEXT)),
+                photo_url = COALESCE(NULLIF(p.photo_url, ''), CAST(:photoUrl AS TEXT)),
+                opening_hours_json = COALESCE(
+                    CAST(:openingHoursJson AS jsonb), p.opening_hours_json),
+                updated_at = now()
+            FROM resolved_country rc
+            WHERE p.id = rc.id
+            """
+                    .formatted(
+                            SpatialRegionSql.countryLookupSql("tg.next_geom"),
                             SpatialRegionSql.admin1LookupSql(
                                     "rc.next_geom", "rc.next_country_code"));
 
@@ -605,6 +681,88 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         userId.value(),
                         "googlePlaceId",
                         googlePlaceId));
+    }
+
+    @Override
+    public List<PlaceEnrichmentTarget> findEnrichmentTargets(
+            UserId userId, List<PlaceId> placeIds) {
+        if (placeIds.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> rawIds = placeIds.stream().map(PlaceId::value).toList();
+        return jdbcTemplate.query(
+                """
+                SELECT id, canonical_name, ST_Y(geom) AS lat, ST_X(geom) AS lng,
+                       coord_source, category, category_source, osm_id, photo_url,
+                       country_code, city_name
+                FROM places
+                WHERE user_id = :userId
+                  AND geom IS NOT NULL
+                  AND id = ANY(:placeIds)
+                """,
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue("placeIds", JdbcRowReaders.uuidArray(rawIds)),
+                (rs, _) -> {
+                    String rawCoordSource = rs.getString("coord_source");
+                    CoordSource coordSource =
+                            rawCoordSource == null
+                                    ? CoordSource.TAKEOUT_S2_APPROX
+                                    : CoordSource.valueOf(rawCoordSource);
+                    return new PlaceEnrichmentTarget(
+                            new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
+                            JdbcRowReaders.requiredString(rs, "canonical_name"),
+                            new GeoPoint(rs.getDouble("lat"), rs.getDouble("lng")),
+                            coordSource,
+                            PlaceCategory.valueOf(JdbcRowReaders.requiredString(rs, "category")),
+                            CategorySource.valueOf(
+                                    JdbcRowReaders.requiredString(rs, "category_source")),
+                            rs.getString("osm_id"),
+                            rs.getString("photo_url"),
+                            rs.getString("country_code"),
+                            rs.getString("city_name"));
+                });
+    }
+
+    @Override
+    public void applyPlaceEnrichment(
+            UserId userId,
+            PlaceId placeId,
+            boolean upgradeCoordinates,
+            @Nullable GeoPoint refinedCoordinates,
+            @Nullable String osmId,
+            boolean upgradeCategory,
+            @Nullable PlaceCategory category,
+            @Nullable String subcategory,
+            DerivedRole derivedRole,
+            @Nullable String cityName,
+            @Nullable String photoUrl,
+            @Nullable String openingHoursJson) {
+        jdbcTemplate.update(
+                APPLY_PLACE_ENRICHMENT_SQL,
+                new MapSqlParameterSource()
+                        .addValue("placeId", placeId.value())
+                        .addValue("userId", userId.value())
+                        .addValue("upgradeCoordinates", upgradeCoordinates)
+                        .addValue(
+                                "lng",
+                                refinedCoordinates == null ? 0.0 : refinedCoordinates.longitude())
+                        .addValue(
+                                "lat",
+                                refinedCoordinates == null ? 0.0 : refinedCoordinates.latitude())
+                        .addValue("osmId", osmId, Types.VARCHAR)
+                        .addValue("upgradeCategory", upgradeCategory)
+                        .addValue(
+                                "category",
+                                category == null ? null : category.name(),
+                                Types.VARCHAR)
+                        .addValue("subcategory", subcategory, Types.VARCHAR)
+                        .addValue("derivedRole", derivedRole.name())
+                        .addValue("cityName", cityName, Types.VARCHAR)
+                        .addValue("photoUrl", photoUrl, Types.VARCHAR)
+                        .addValue("openingHoursJson", openingHoursJson, Types.VARCHAR)
+                        .addValue(
+                                "coastalFallbackMeters", SpatialRegionSql.COASTAL_FALLBACK_METERS));
     }
 
     private Optional<MatchedPlace> findByGooglePlaceId(UserId userId, String googlePlaceId) {

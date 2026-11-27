@@ -1,7 +1,9 @@
 package com.meanderatlas.atlas;
 
+import com.meanderatlas.atlas.application.ApplyPlaceEnrichment;
 import com.meanderatlas.atlas.application.AttachCsvMembershipByCid;
 import com.meanderatlas.atlas.application.BulkUpdatePlaceVisitStatus;
+import com.meanderatlas.atlas.application.FindPlaceEnrichmentTargets;
 import com.meanderatlas.atlas.application.FindPlacesNeedingEnrichment;
 import com.meanderatlas.atlas.application.GetAtlasHealth;
 import com.meanderatlas.atlas.application.GetAtlasStats;
@@ -38,6 +40,8 @@ public class AtlasFacade {
     private final AttachCsvMembershipByCid attachCsvMembershipByCid;
     private final ReconcileTimelineVisit reconcileTimelineVisit;
     private final FindPlacesNeedingEnrichment findPlacesNeedingEnrichment;
+    private final FindPlaceEnrichmentTargets findPlaceEnrichmentTargets;
+    private final ApplyPlaceEnrichment applyPlaceEnrichment;
 
     public AtlasFacade(
             GetAtlasHealth getAtlasHealth,
@@ -53,7 +57,9 @@ public class AtlasFacade {
             UpsertImportedPlace upsertImportedPlace,
             AttachCsvMembershipByCid attachCsvMembershipByCid,
             ReconcileTimelineVisit reconcileTimelineVisit,
-            FindPlacesNeedingEnrichment findPlacesNeedingEnrichment) {
+            FindPlacesNeedingEnrichment findPlacesNeedingEnrichment,
+            FindPlaceEnrichmentTargets findPlaceEnrichmentTargets,
+            ApplyPlaceEnrichment applyPlaceEnrichment) {
         this.getAtlasHealth = getAtlasHealth;
         this.seedRegionBoundaries = seedRegionBoundaries;
         this.getRegionMvtTile = getRegionMvtTile;
@@ -68,6 +74,8 @@ public class AtlasFacade {
         this.attachCsvMembershipByCid = attachCsvMembershipByCid;
         this.reconcileTimelineVisit = reconcileTimelineVisit;
         this.findPlacesNeedingEnrichment = findPlacesNeedingEnrichment;
+        this.findPlaceEnrichmentTargets = findPlaceEnrichmentTargets;
+        this.applyPlaceEnrichment = applyPlaceEnrichment;
     }
 
     public AtlasHealthView health() {
@@ -127,5 +135,13 @@ public class AtlasFacade {
 
     public List<PlaceId> findPlaceIdsNeedingEnrichment() {
         return findPlacesNeedingEnrichment.execute();
+    }
+
+    public List<PlaceEnrichmentTargetView> findEnrichmentTargets(List<PlaceId> placeIds) {
+        return findPlaceEnrichmentTargets.execute(placeIds);
+    }
+
+    public PlaceEnrichmentResultView applyPlaceEnrichment(PlaceEnrichmentCommand command) {
+        return applyPlaceEnrichment.execute(command);
     }
 }

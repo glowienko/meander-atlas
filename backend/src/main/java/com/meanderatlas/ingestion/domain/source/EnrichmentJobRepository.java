@@ -18,6 +18,18 @@ public interface EnrichmentJobRepository {
 
     int enqueueOpenCatalogEnrichments(UserId userId, List<PlaceId> placeIds);
 
+    List<ClaimedResolutionJob> claimPendingEnrichmentJobs(UserId userId, int limit);
+
+    void markJobCompleted(UUID jobId, @Nullable PlaceId placeId);
+
+    void markJobFailed(UUID jobId, String error, Instant nextRunAt);
+
+    void markJobSkipped(UUID jobId, String reason);
+
+    void releaseOnDryRun(List<UUID> jobIds);
+
+    int countRemainingPendingJobs(UserId userId);
+
     record PendingCoordinateJob(
             UUID jobId,
             UUID importRecordId,
@@ -28,4 +40,11 @@ public interface EnrichmentJobRepository {
             @Nullable Long googleCid,
             @Nullable Instant observedAt,
             String payloadJson) {}
+
+    record ClaimedResolutionJob(
+            UUID jobId,
+            ResolutionJobType jobType,
+            @Nullable PlaceId placeId,
+            int attempts,
+            @Nullable PendingCoordinateJob coordinateJob) {}
 }
