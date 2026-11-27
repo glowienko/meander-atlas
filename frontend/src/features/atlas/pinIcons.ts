@@ -16,18 +16,7 @@ export const PIN_ICON_IDS: Readonly<Record<IconPlaceCategory, string>> = {
   VIEWPOINT: "pin-icon-viewpoint",
 };
 
-export const PIN_ICON_CATEGORY_LIST: readonly IconPlaceCategory[] = [
-  "RESTAURANT",
-  "CAFE_BAR",
-  "HOTEL",
-  "MUSEUM",
-  "LANDMARK",
-  "SACRAL",
-  "MOUNTAIN",
-  "WATER",
-  "NATURE_PARK",
-  "VIEWPOINT",
-];
+export const PIN_ICON_CATEGORY_LIST = Object.keys(PIN_ICON_IDS) as readonly IconPlaceCategory[];
 
 const ICON_CANVAS_SIZE = 24;
 const ICON_PIXEL_RATIO = 2;
@@ -35,6 +24,10 @@ const ICON_PIXEL_RATIO = 2;
 const CATEGORY_BY_ICON_ID = new Map<string, IconPlaceCategory>(
   PIN_ICON_CATEGORY_LIST.map((category) => [PIN_ICON_IDS[category], category]),
 );
+
+export function pinIconId(category: PlaceCategory): string {
+  return category === "UNCATEGORIZED" ? "" : PIN_ICON_IDS[category];
+}
 
 function drawCategoryGlyph(ctx: CanvasRenderingContext2D, category: IconPlaceCategory): void {
   ctx.strokeStyle = "#ffffff";

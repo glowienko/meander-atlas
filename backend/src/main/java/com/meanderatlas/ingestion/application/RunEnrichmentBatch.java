@@ -1,14 +1,12 @@
 package com.meanderatlas.ingestion.application;
 
 import com.meanderatlas.atlas.AtlasFacade;
-import com.meanderatlas.atlas.ImportedPlaceUpsertCommand;
 import com.meanderatlas.atlas.PlaceEnrichmentCommand;
 import com.meanderatlas.atlas.PlaceEnrichmentResultView;
 import com.meanderatlas.atlas.PlaceEnrichmentTargetView;
 import com.meanderatlas.atlas.UpsertedPlaceView;
 import com.meanderatlas.ingestion.EnrichmentBatchResultView;
-import com.meanderatlas.ingestion.adapter.http.EnrichmentProperties;
-import com.meanderatlas.ingestion.application.PendingJobMetadataExtractor.ExtractedJobMetadata;
+import com.meanderatlas.ingestion.domain.classification.PlaceClassification;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.AnchoredEnrichmentTarget;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.EnrichmentLookupOutcome;
@@ -18,7 +16,6 @@ import com.meanderatlas.ingestion.domain.enrichment.OpenPoiMatcher;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository.ClaimedResolutionJob;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository.PendingCoordinateJob;
-import com.meanderatlas.ingestion.domain.source.ResolutionJobType;
 import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.CurrentUserProvider;
@@ -27,11 +24,12 @@ import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import jakarta.annotation.PreDestroy;
+import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -39,6 +37,9 @@ import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,9 +48,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class RunEnrichmentBatch {
 
     private static final Logger LOG = LoggerFactory.getLogger(RunEnrichmentBatch.class);
-    private static final int MIN_LIMIT = 1;
-    private static final int MAX_LIMIT = 500;
-    private static final long BASE_RETRY_SECONDS = 30L;
+    private static final Duration BASE_RETRY_DELAY = Duration.ofSeconds(30);
     private static final int MAX_BACKOFF_SHIFT = 5;
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
@@ -59,6 +58,8 @@ public class RunEnrichmentBatch {
     private final AtlasFacade atlasFacade;
     private final CurrentUserProvider currentUserProvider;
     private final TransactionOperations transactionOperations;
+    private final TaskExecutor taskExecutor;
+    private final Clock clock;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean stopRequested = new AtomicBoolean(false);
 
@@ -68,13 +69,17 @@ public class RunEnrichmentBatch {
             OpenPoiCatalogPort openPoiCatalogPort,
             AtlasFacade atlasFacade,
             CurrentUserProvider currentUserProvider,
-            TransactionOperations transactionOperations) {
+            TransactionOperations transactionOperations,
+            @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor,
+            Clock clock) {
         this.properties = properties;
         this.enrichmentJobRepository = enrichmentJobRepository;
         this.openPoiCatalogPort = openPoiCatalogPort;
         this.atlasFacade = atlasFacade;
         this.currentUserProvider = currentUserProvider;
         this.transactionOperations = transactionOperations;
+        this.taskExecutor = taskExecutor;
+        this.clock = clock;
     }
 
     public boolean isRunning() {
@@ -86,403 +91,276 @@ public class RunEnrichmentBatch {
         stopRequested.set(true);
     }
 
-    public EnrichmentBatchResultView execute(int limit, boolean dryRun, boolean background) {
-        if (limit < MIN_LIMIT || limit > MAX_LIMIT) {
-            throw new IllegalArgumentException(
-                    "limit must be between " + MIN_LIMIT + " and " + MAX_LIMIT);
-        }
+    public EnrichmentBatchResultView runBatch(int limit, boolean dryRun) {
         UserId userId = currentUserProvider.currentUserId();
+        return rejectUnlessAcquired(userId, dryRun)
+                .orElseGet(() -> {
+                    try {
+                        return runSingleBatch(userId, limit, dryRun);
+                    } finally {
+                        running.set(false);
+                    }
+                });
+    }
+
+    public EnrichmentBatchResultView startDrain(int limit, boolean dryRun) {
+        UserId userId = currentUserProvider.currentUserId();
+        Optional<EnrichmentBatchResultView> rejected = rejectUnlessAcquired(userId, dryRun);
+        if (rejected.isPresent()) {
+            return rejected.get();
+        }
+        int remaining = countRemaining(userId);
+        LOG.info(
+                "Starting background enrichment drain (limit={}, dryRun={}, remaining={})",
+                limit,
+                dryRun,
+                remaining);
+        try {
+            taskExecutor.execute(() -> drain(userId, limit, dryRun));
+        } catch (TaskRejectedException ex) {
+            running.set(false);
+            throw ex;
+        }
+        return EnrichmentBatchResultView.backgroundStarted(dryRun, remaining);
+    }
+
+    private Optional<EnrichmentBatchResultView> rejectUnlessAcquired(
+            UserId userId, boolean dryRun) {
         if (!properties.enabled()) {
-            int remaining = countRemainingInReadTx(userId);
-            return new EnrichmentBatchResultView(
-                    false, dryRun, false, false, 0, 0, 0, 0, 0, 0, 0, remaining);
+            return Optional.of(EnrichmentBatchResultView.disabled(dryRun, countRemaining(userId)));
         }
         if (stopRequested.get()) {
-            int remaining = countRemainingInReadTx(userId);
-            return new EnrichmentBatchResultView(
-                    true, dryRun, false, false, 0, 0, 0, 0, 0, 0, 0, remaining);
+            return Optional.of(EnrichmentBatchResultView.idle(dryRun, countRemaining(userId)));
         }
         if (!running.compareAndSet(false, true)) {
-            int remaining = countRemainingInReadTx(userId);
-            return new EnrichmentBatchResultView(
-                    true, dryRun, false, true, 0, 0, 0, 0, 0, 0, 0, remaining);
+            return Optional.of(EnrichmentBatchResultView.busy(dryRun, countRemaining(userId)));
         }
-        if (background) {
-            int remaining = countRemainingInReadTx(userId);
-            LOG.info(
-                    "Starting background enrichment drain (limit={}, dryRun={}, remaining={})",
-                    limit,
-                    dryRun,
-                    remaining);
-            Thread.ofVirtual()
-                    .name("enrichment-drain")
-                    .start(() -> {
-                        try {
-                            drainLoop(userId, limit, dryRun);
-                        } catch (RuntimeException ex) {
-                            LOG.error("Background enrichment drain aborted unexpectedly", ex);
-                        } finally {
-                            running.set(false);
-                        }
-                    });
-            return new EnrichmentBatchResultView(
-                    true, dryRun, true, false, 0, 0, 0, 0, 0, 0, 0, remaining);
-        }
+        return Optional.empty();
+    }
+
+    private void drain(UserId userId, int limit, boolean dryRun) {
         try {
-            return runSingleBatch(userId, limit, dryRun);
+            int batchLimit = Math.min(limit, Math.max(1, properties.batchSize()));
+            boolean keepGoing = true;
+            while (keepGoing && !stopRequested.get()) {
+                EnrichmentBatchResultView batch = runSingleBatch(userId, batchLimit, dryRun);
+                keepGoing =
+                        !dryRun && batch.claimedCount() > 0 && batch.remainingPendingCount() > 0;
+            }
+        } catch (RuntimeException ex) {
+            LOG.error("Background enrichment drain aborted unexpectedly", ex);
         } finally {
             running.set(false);
         }
     }
 
-    private void drainLoop(UserId userId, int limit, boolean dryRun) {
-        int batchLimit = Math.min(limit, Math.max(1, properties.batchSize()));
-        boolean keepGoing = true;
-        while (keepGoing && !stopRequested.get() && !Thread.currentThread().isInterrupted()) {
-            EnrichmentBatchResultView batch = runSingleBatch(userId, batchLimit, dryRun);
-            keepGoing = !dryRun && batch.claimedCount() > 0 && batch.remainingPendingCount() > 0;
+    private EnrichmentBatchResultView runSingleBatch(UserId userId, int limit, boolean dryRun) {
+        ClaimedBatch batch =
+                Objects.requireNonNull(transactionOperations.execute(_ -> claim(userId, limit)));
+        if (batch.jobs().isEmpty()) {
+            return EnrichmentBatchResultView.idle(dryRun, countRemaining(userId));
         }
-    }
-
-    private EnrichmentBatchResultView runSingleBatch(
-            UserId userId, int batchLimit, boolean dryRun) {
-        ClaimedBatch claimedBatch =
-                Objects.requireNonNull(
-                        transactionOperations.execute(_ -> {
-                            List<ClaimedResolutionJob> claimed =
-                                    enrichmentJobRepository.claimPendingEnrichmentJobs(
-                                            userId, batchLimit);
-                            if (claimed.isEmpty()) {
-                                return new ClaimedBatch(List.of(), Map.of());
-                            }
-                            List<PlaceId> targetIds =
-                                    claimed.stream()
-                                            .filter(job ->
-                                                    job.jobType()
-                                                                    == ResolutionJobType
-                                                                            .OPEN_CATALOG_ENRICH
-                                                            && job.placeId() != null)
-                                            .map(ClaimedResolutionJob::placeId)
-                                            .filter(Objects::nonNull)
-                                            .distinct()
-                                            .toList();
-                            Map<PlaceId, PlaceEnrichmentTargetView> targetsById =
-                                    targetIds.isEmpty()
-                                            ? Map.of()
-                                            : atlasFacade.findEnrichmentTargets(targetIds).stream()
-                                                    .collect(
-                                                            Collectors.toUnmodifiableMap(
-                                                                    PlaceEnrichmentTargetView
-                                                                            ::placeId,
-                                                                    Function.identity(),
-                                                                    (a, _) -> a));
-                            return new ClaimedBatch(claimed, targetsById);
-                        }));
-
-        if (claimedBatch.jobs().isEmpty()) {
-            int remaining = countRemainingInReadTx(userId);
-            return new EnrichmentBatchResultView(
-                    true, dryRun, false, false, 0, 0, 0, 0, 0, 0, 0, remaining);
-        }
-
         LOG.info(
                 "Claimed {} enrichment jobs (dryRun={}, anchoredTargets={})",
-                claimedBatch.jobs().size(),
+                batch.jobs().size(),
                 dryRun,
-                claimedBatch.targetsById().size());
-        List<JobOutcomeEntry> outcomes;
+                batch.targetsById().size());
+        BatchStats stats;
         try {
-            outcomes = resolveOutsideTransaction(claimedBatch);
+            List<JobOutcomeEntry> outcomes = resolveOutsideTransaction(batch);
+            stats =
+                    Objects.requireNonNull(
+                            transactionOperations.execute(status -> {
+                                if (dryRun) {
+                                    status.setRollbackOnly();
+                                }
+                                return outcomes.stream()
+                                        .map(this::applyOutcome)
+                                        .reduce(BatchStats.ZERO, BatchStats::add);
+                            }));
         } catch (RuntimeException ex) {
-            LOG.error(
-                    "Enrichment resolution threw unexpectedly; releasing {} claimed jobs",
-                    claimedBatch.jobs().size(),
-                    ex);
-            List<UUID> jobIds =
-                    claimedBatch.jobs().stream().map(ClaimedResolutionJob::jobId).toList();
-            transactionOperations.executeWithoutResult(
-                    _ -> enrichmentJobRepository.releaseOnDryRun(jobIds));
+            LOG.error("Enrichment batch failed; failing {} claimed jobs", batch.jobs().size(), ex);
+            if (!dryRun) {
+                String error = Objects.requireNonNullElse(ex.getMessage(), ex.toString());
+                transactionOperations.executeWithoutResult(
+                        _ -> batch.jobs().forEach(job -> failOrSkip(job, error)));
+            }
             throw ex;
+        } finally {
+            if (dryRun) {
+                List<UUID> jobIds = batch.jobs().stream().map(ClaimedResolutionJob::jobId).toList();
+                transactionOperations.executeWithoutResult(
+                        _ -> enrichmentJobRepository.releaseDryRunClaims(jobIds));
+            }
         }
-
         EnrichmentBatchResultView result =
-                Objects.requireNonNull(
-                        transactionOperations.execute(
-                                _ -> persistOrRelease(userId, claimedBatch, outcomes, dryRun)));
-        LOG.info(
-                "Enrichment batch finished (dryRun={}, claimed={}, matched={}, coordsUpgraded={}, categoryUpgraded={}, photosAdded={}, failed={}, skipped={}, remaining={})",
-                result.dryRun(),
-                result.claimedCount(),
-                result.matchedCount(),
-                result.upgradedCoordsCount(),
-                result.upgradedCategoryCount(),
-                result.photosAddedCount(),
-                result.failedCount(),
-                result.skippedCount(),
-                result.remainingPendingCount());
+                new EnrichmentBatchResultView(
+                        true,
+                        dryRun,
+                        false,
+                        false,
+                        batch.jobs().size(),
+                        stats.matched(),
+                        stats.upgradedCoords(),
+                        stats.upgradedCategory(),
+                        stats.photosAdded(),
+                        stats.failed(),
+                        stats.skipped(),
+                        countRemaining(userId));
+        LOG.info("Enrichment batch finished: {}", result);
         return result;
     }
 
-    private List<JobOutcomeEntry> resolveOutsideTransaction(ClaimedBatch claimedBatch) {
-        List<AnchoredEnrichmentTarget> anchoredTargets =
-                claimedBatch.jobs().stream()
-                        .filter(job ->
-                                job.jobType() == ResolutionJobType.OPEN_CATALOG_ENRICH
-                                        && job.placeId() != null)
-                        .map(job -> claimedBatch.targetsById().get(job.placeId()))
-                        .filter(Objects::nonNull)
-                        .map(RunEnrichmentBatch::toAnchoredTarget)
+    private ClaimedBatch claim(UserId userId, int limit) {
+        List<ClaimedResolutionJob> claimed =
+                enrichmentJobRepository.claimPendingEnrichmentJobs(userId, limit);
+        List<PlaceId> targetIds =
+                claimed.stream()
+                        .map(ClaimedResolutionJob::enrichmentPlaceId)
+                        .flatMap(Optional::stream)
                         .distinct()
                         .toList();
+        Map<PlaceId, PlaceEnrichmentTargetView> targetsById =
+                targetIds.isEmpty()
+                        ? Map.of()
+                        : atlasFacade.findEnrichmentTargets(targetIds).stream()
+                                .collect(
+                                        Collectors.toUnmodifiableMap(
+                                                PlaceEnrichmentTargetView::placeId,
+                                                Function.identity(),
+                                                (a, _) -> a));
+        return new ClaimedBatch(claimed, targetsById);
+    }
 
+    private List<JobOutcomeEntry> resolveOutsideTransaction(ClaimedBatch batch) {
+        List<AnchoredEnrichmentTarget> anchoredTargets =
+                batch.targetsById().values().stream()
+                        .map(RunEnrichmentBatch::toAnchoredTarget)
+                        .toList();
         Map<PlaceId, EnrichmentLookupOutcome> anchoredOutcomes =
                 anchoredTargets.isEmpty()
                         ? Map.of()
                         : openPoiCatalogPort.enrichAnchoredBatch(anchoredTargets);
-
-        return claimedBatch.jobs().stream()
-                .map(job -> resolveSingleJob(job, claimedBatch.targetsById(), anchoredOutcomes))
+        return batch.jobs().stream()
+                .map(job ->
+                        job.enrichmentPlaceId()
+                                .map(placeId ->
+                                        new JobOutcomeEntry(
+                                                job,
+                                                null,
+                                                resolveAnchored(
+                                                        placeId,
+                                                        batch.targetsById(),
+                                                        anchoredOutcomes)))
+                                .orElseGet(() -> resolveCoordinateJob(job)))
                 .toList();
     }
 
-    private JobOutcomeEntry resolveSingleJob(
-            ClaimedResolutionJob job,
+    private static EnrichmentLookupOutcome resolveAnchored(
+            PlaceId placeId,
             Map<PlaceId, PlaceEnrichmentTargetView> targetsById,
             Map<PlaceId, EnrichmentLookupOutcome> anchoredOutcomes) {
-        if (job.jobType() == ResolutionJobType.OPEN_CATALOG_ENRICH) {
-            PlaceId placeId = job.placeId();
-            PlaceEnrichmentTargetView target = placeId == null ? null : targetsById.get(placeId);
-            if (target == null) {
-                return new JobOutcomeEntry(
-                        job,
-                        null,
-                        null,
-                        new EnrichmentLookupOutcome.NoMatch("Target place not found"));
-            }
-            EnrichmentLookupOutcome outcome =
-                    anchoredOutcomes.getOrDefault(
-                            target.placeId(),
-                            new EnrichmentLookupOutcome.NoMatch("No match returned for place"));
-            return new JobOutcomeEntry(job, target, null, outcome);
+        if (!targetsById.containsKey(placeId)) {
+            return new EnrichmentLookupOutcome.NoMatch("Target place not found");
         }
-        PendingCoordinateJob coordJob = job.coordinateJob();
-        if (coordJob == null) {
+        return anchoredOutcomes.getOrDefault(
+                placeId, new EnrichmentLookupOutcome.NoMatch("No match returned for place"));
+    }
+
+    private JobOutcomeEntry resolveCoordinateJob(ClaimedResolutionJob job) {
+        PendingCoordinateJob coordinateJob = job.coordinateJob();
+        if (coordinateJob == null) {
             return new JobOutcomeEntry(
                     job,
-                    null,
                     null,
                     new EnrichmentLookupOutcome.NoMatch("Missing coordinate lookup record"));
         }
-        ExtractedJobMetadata metadata = PendingJobMetadataExtractor.extract(coordJob);
-        if (OpenPoiMatcher.isGenericPlaceholder(metadata.canonicalTitle())) {
+        ImportedPlaceDraft draft = PendingJobMetadataExtractor.extract(coordinateJob);
+        if (OpenPoiMatcher.isGenericPlaceholder(draft.canonicalTitle())) {
             return new JobOutcomeEntry(
                     job,
-                    null,
-                    metadata,
+                    draft,
                     new EnrichmentLookupOutcome.NoMatch("Placeholder title cannot be geocoded"));
         }
         EnrichmentLookupOutcome outcome =
                 openPoiCatalogPort.resolveUnanchored(
                         new UnanchoredLookupTarget(
-                                job.jobId(), metadata.canonicalTitle(), metadata.url(), null));
-        return new JobOutcomeEntry(job, null, metadata, outcome);
-    }
-
-    private EnrichmentBatchResultView persistOrRelease(
-            UserId userId,
-            ClaimedBatch claimedBatch,
-            List<JobOutcomeEntry> outcomes,
-            boolean dryRun) {
-        if (dryRun) {
-            List<UUID> jobIds =
-                    claimedBatch.jobs().stream().map(ClaimedResolutionJob::jobId).toList();
-            enrichmentJobRepository.releaseOnDryRun(jobIds);
-            BatchStats stats =
-                    outcomes.stream()
-                            .map(RunEnrichmentBatch::computeDryRunStats)
-                            .reduce(BatchStats.ZERO, BatchStats::add);
-            int remaining = enrichmentJobRepository.countRemainingPendingJobs(userId);
-            return new EnrichmentBatchResultView(
-                    true,
-                    true,
-                    false,
-                    false,
-                    claimedBatch.jobs().size(),
-                    stats.matched(),
-                    stats.upgradedCoords(),
-                    stats.upgradedCategory(),
-                    stats.photosAdded(),
-                    stats.failed(),
-                    stats.skipped(),
-                    remaining);
-        }
-
-        BatchStats stats =
-                outcomes.stream().map(this::applyOutcome).reduce(BatchStats.ZERO, BatchStats::add);
-        int remaining = enrichmentJobRepository.countRemainingPendingJobs(userId);
-        return new EnrichmentBatchResultView(
-                true,
-                false,
-                false,
-                false,
-                claimedBatch.jobs().size(),
-                stats.matched(),
-                stats.upgradedCoords(),
-                stats.upgradedCategory(),
-                stats.photosAdded(),
-                stats.failed(),
-                stats.skipped(),
-                remaining);
+                                job.jobId(), draft.canonicalTitle(), draft.url(), null));
+        return new JobOutcomeEntry(job, draft, outcome);
     }
 
     private BatchStats applyOutcome(JobOutcomeEntry entry) {
         ClaimedResolutionJob job = entry.job();
         return switch (entry.outcome()) {
             case EnrichmentLookupOutcome.Matched(OpenPoiMatch match) ->
-                    applyMatchedOutcome(job, entry.metadata(), match);
+                    applyMatchedOutcome(job, entry.draft(), match);
             case EnrichmentLookupOutcome.NoMatch(String reason) -> {
                 enrichmentJobRepository.markJobSkipped(job.jobId(), reason);
-                yield new BatchStats(0, 0, 0, 0, 0, 1);
+                yield BatchStats.SKIPPED;
             }
-            case EnrichmentLookupOutcome.TransientFailure(String error) -> {
-                if (job.attempts() >= Math.max(1, properties.maxRetries())) {
-                    enrichmentJobRepository.markJobSkipped(job.jobId(), error);
-                    yield new BatchStats(0, 0, 0, 0, 0, 1);
-                }
-                Duration backoff =
-                        Duration.ofSeconds(
-                                BASE_RETRY_SECONDS
-                                        << Math.min(
-                                                Math.max(0, job.attempts() - 1),
-                                                MAX_BACKOFF_SHIFT));
-                enrichmentJobRepository.markJobFailed(
-                        job.jobId(), error, Instant.now().plus(backoff));
-                yield new BatchStats(0, 0, 0, 0, 1, 0);
-            }
+            case EnrichmentLookupOutcome.TransientFailure(String error) -> failOrSkip(job, error);
         };
+    }
+
+    private BatchStats failOrSkip(ClaimedResolutionJob job, String error) {
+        if (job.attempts() >= Math.max(1, properties.maxRetries())) {
+            enrichmentJobRepository.markJobSkipped(job.jobId(), error);
+            return BatchStats.SKIPPED;
+        }
+        Duration backoff =
+                BASE_RETRY_DELAY.multipliedBy(
+                        1L << Math.min(Math.max(0, job.attempts() - 1), MAX_BACKOFF_SHIFT));
+        enrichmentJobRepository.markJobFailed(job.jobId(), error, clock.instant().plus(backoff));
+        return BatchStats.FAILED;
     }
 
     private BatchStats applyMatchedOutcome(
-            ClaimedResolutionJob job, @Nullable ExtractedJobMetadata metadata, OpenPoiMatch match) {
-        String openingHoursJson = serializeOpeningHours(match.openingHoursRaw());
-        if (job.jobType() == ResolutionJobType.OPEN_CATALOG_ENRICH) {
-            PlaceId placeId = Objects.requireNonNull(job.placeId());
-            PlaceEnrichmentResultView result =
-                    atlasFacade.applyPlaceEnrichment(
-                            new PlaceEnrichmentCommand(
-                                    placeId,
-                                    match.candidate().coordinates(),
-                                    match.candidate().osmId(),
-                                    match.category(),
-                                    match.subcategory(),
-                                    match.cityName(),
-                                    match.photoUrl(),
-                                    openingHoursJson,
-                                    match.candidate().name()));
-            enrichmentJobRepository.markJobCompleted(job.jobId(), placeId);
-            return new BatchStats(
-                    1,
-                    result.coordsUpgraded() ? 1 : 0,
-                    result.categoryUpgraded() ? 1 : 0,
-                    result.photoAdded() ? 1 : 0,
-                    0,
-                    0);
-        }
-
-        PendingCoordinateJob coordJob = Objects.requireNonNull(job.coordinateJob());
-        ExtractedJobMetadata resolvedMetadata = Objects.requireNonNull(metadata);
+            ClaimedResolutionJob job, @Nullable ImportedPlaceDraft draft, OpenPoiMatch match) {
         boolean hasCatalogCategory = match.category() != PlaceCategory.UNCATEGORIZED;
-        PlaceCategory initialCategory =
-                hasCatalogCategory
-                        ? match.category()
-                        : resolvedMetadata.classification().category();
-        String initialSubcategory =
-                hasCatalogCategory
-                        ? match.subcategory()
-                        : resolvedMetadata.classification().subcategory();
-        CategorySource initialCategorySource =
-                hasCatalogCategory
-                        ? CategorySource.OPEN_CATALOG
-                        : resolvedMetadata.classification().source();
-
-        UpsertedPlaceView upserted =
-                atlasFacade.upsertImportedPlace(
-                        new ImportedPlaceUpsertCommand(
-                                resolvedMetadata.canonicalTitle(),
-                                match.candidate().coordinates(),
-                                CoordSource.OPEN_CATALOG,
-                                null,
-                                resolvedMetadata.cid(),
-                                initialCategory,
-                                initialSubcategory,
-                                initialCategorySource,
-                                match.candidate().countryCode(),
-                                match.cityName(),
-                                coordJob.accountLabel(),
-                                resolvedMetadata.listName(),
-                                resolvedMetadata.listKind(),
-                                resolvedMetadata.note(),
-                                resolvedMetadata.tags(),
-                                resolvedMetadata.url(),
-                                resolvedMetadata.savedAt(),
-                                resolvedMetadata.visitStatus(),
-                                resolvedMetadata.visitSource(),
-                                resolvedMetadata.visitedAt()));
+        Optional<UpsertedPlaceView> upserted =
+                Optional.ofNullable(draft)
+                        .map(resolved ->
+                                hasCatalogCategory
+                                        ? resolved.withClassification(
+                                                new PlaceClassification(
+                                                        match.category(),
+                                                        match.subcategory(),
+                                                        CategorySource.OPEN_CATALOG))
+                                        : resolved)
+                        .map(resolved ->
+                                atlasFacade.upsertImportedPlace(
+                                        resolved.toUpsertCommand(
+                                                match.candidate().coordinates(),
+                                                CoordSource.OPEN_CATALOG,
+                                                match.candidate().countryCode(),
+                                                match.cityName())));
+        PlaceId placeId =
+                upserted.map(UpsertedPlaceView::placeId)
+                        .orElseGet(() -> Objects.requireNonNull(job.placeId()));
         PlaceEnrichmentResultView enriched =
                 atlasFacade.applyPlaceEnrichment(
                         new PlaceEnrichmentCommand(
-                                upserted.placeId(),
+                                placeId,
                                 match.candidate().coordinates(),
                                 match.candidate().osmId(),
-                                hasCatalogCategory ? match.category() : null,
-                                hasCatalogCategory ? match.subcategory() : null,
+                                match.category(),
+                                match.subcategory(),
                                 match.cityName(),
                                 match.photoUrl(),
-                                openingHoursJson,
+                                serializeOpeningHours(match.openingHoursRaw()),
                                 match.candidate().name()));
-        enrichmentJobRepository.markJobCompleted(job.jobId(), upserted.placeId());
-        int coordsUpgraded = upserted.created() || enriched.coordsUpgraded() ? 1 : 0;
-        int categoryUpgraded =
-                (upserted.created() && hasCatalogCategory) || enriched.categoryUpgraded() ? 1 : 0;
-        int photoAdded = enriched.photoAdded() ? 1 : 0;
-        return new BatchStats(1, coordsUpgraded, categoryUpgraded, photoAdded, 0, 0);
+        enrichmentJobRepository.markJobCompleted(job.jobId(), placeId);
+        boolean created = upserted.map(UpsertedPlaceView::created).orElse(false);
+        return new BatchStats(
+                1,
+                created || enriched.coordsUpgraded() ? 1 : 0,
+                (created && hasCatalogCategory) || enriched.categoryUpgraded() ? 1 : 0,
+                enriched.photoAdded() ? 1 : 0,
+                0,
+                0);
     }
 
-    private static BatchStats computeDryRunStats(JobOutcomeEntry entry) {
-        return switch (entry.outcome()) {
-            case EnrichmentLookupOutcome.Matched(OpenPoiMatch match) -> {
-                PlaceEnrichmentTargetView target = entry.target();
-                if (target == null) {
-                    yield new BatchStats(
-                            1,
-                            1,
-                            match.category() != PlaceCategory.UNCATEGORIZED ? 1 : 0,
-                            match.photoUrl() != null ? 1 : 0,
-                            0,
-                            0);
-                }
-                int coords = target.coordSource() == CoordSource.TAKEOUT_S2_APPROX ? 1 : 0;
-                int cat =
-                        match.category() != PlaceCategory.UNCATEGORIZED
-                                        && target.categorySource() != CategorySource.MANUAL
-                                        && (target.categorySource() != CategorySource.OPEN_CATALOG
-                                                || target.category() != match.category())
-                                ? 1
-                                : 0;
-                int photo =
-                        match.photoUrl() != null
-                                        && (target.photoUrl() == null
-                                                || target.photoUrl().isBlank())
-                                ? 1
-                                : 0;
-                yield new BatchStats(1, coords, cat, photo, 0, 0);
-            }
-            case EnrichmentLookupOutcome.NoMatch _ -> new BatchStats(0, 0, 0, 0, 0, 1);
-            case EnrichmentLookupOutcome.TransientFailure _ -> new BatchStats(0, 0, 0, 0, 1, 0);
-        };
-    }
-
-    private int countRemainingInReadTx(UserId userId) {
+    private int countRemaining(UserId userId) {
         Integer count =
                 transactionOperations.execute(
                         _ -> enrichmentJobRepository.countRemainingPendingJobs(userId));
@@ -514,8 +392,7 @@ public class RunEnrichmentBatch {
 
     private record JobOutcomeEntry(
             ClaimedResolutionJob job,
-            @Nullable PlaceEnrichmentTargetView target,
-            @Nullable ExtractedJobMetadata metadata,
+            @Nullable ImportedPlaceDraft draft,
             EnrichmentLookupOutcome outcome) {}
 
     private record BatchStats(
@@ -527,6 +404,8 @@ public class RunEnrichmentBatch {
             int skipped) {
 
         private static final BatchStats ZERO = new BatchStats(0, 0, 0, 0, 0, 0);
+        private static final BatchStats FAILED = new BatchStats(0, 0, 0, 0, 1, 0);
+        private static final BatchStats SKIPPED = new BatchStats(0, 0, 0, 0, 0, 1);
 
         BatchStats add(BatchStats other) {
             return new BatchStats(

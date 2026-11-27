@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { AtlasPlaceView } from "../../api/client";
 
 export interface MapPadding {
@@ -7,18 +8,22 @@ export interface MapPadding {
   left: number;
 }
 
-export interface MapOverlayLayout {
+export interface MapOverlays {
   statsOpen: boolean;
   dossierOpen: boolean;
   placeDetailOpen: boolean;
+}
+
+export interface MapOverlayLayout extends MapOverlays {
   viewportWidth: number;
   viewportHeight: number;
 }
 
-export interface FocusPlaceTarget {
-  key: string;
-  lng: number;
-  lat: number;
+export interface GeoBounds {
+  minLng: number;
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
 }
 
 export interface ScreenPoint {
@@ -43,6 +48,13 @@ const EDGE_PADDING = 24;
 const MOBILE_SIDE_PADDING = 16;
 const MIN_USABLE_MAP_SPAN = 160;
 const MIN_SPHERE_COS_THRESHOLD = 0.99;
+const MAX_FIT_LNG_SPAN = 170;
+const MAX_FIT_LAT_SPAN = 120;
+
+export const OVERLAY_OFFSET_STYLE = {
+  "--atlas-stats-offset": `${STATS_PANEL_LEFT_PADDING}px`,
+  "--atlas-dossier-offset": `${DOSSIER_DRAWER_RIGHT_PADDING}px`,
+} as CSSProperties;
 
 function clampAxisPadding(first: number, second: number, totalSize: number): [number, number] {
   const safeFirst = Math.max(0, first);
@@ -75,7 +87,7 @@ export function clampMapPadding(
   return { top, right, bottom, left };
 }
 
-export function computeMapPadding(layout: MapOverlayLayout): MapPadding {
+export function computeMapPadding(layout: MapOverlayLayout, minimum = 0): MapPadding {
   const isDesktop = layout.viewportWidth >= DESKTOP_BREAKPOINT;
   const raw: MapPadding = isDesktop
     ? {
@@ -90,7 +102,23 @@ export function computeMapPadding(layout: MapOverlayLayout): MapPadding {
         right: MOBILE_SIDE_PADDING,
         bottom: layout.placeDetailOpen ? PLACE_CARD_MOBILE_BOTTOM_PADDING : EDGE_PADDING,
       };
-  return clampMapPadding(raw, layout.viewportWidth, layout.viewportHeight);
+  const atLeast = (value: number) => Math.max(value, minimum);
+  return clampMapPadding(
+    {
+      top: atLeast(raw.top),
+      right: atLeast(raw.right),
+      bottom: atLeast(raw.bottom),
+      left: atLeast(raw.left),
+    },
+    layout.viewportWidth,
+    layout.viewportHeight,
+  );
+}
+
+export function isFittableBounds(bounds: GeoBounds): boolean {
+  const lngSpan = bounds.maxLng - bounds.minLng;
+  const latSpan = bounds.maxLat - bounds.minLat;
+  return lngSpan > 0 && latSpan > 0 && lngSpan <= MAX_FIT_LNG_SPAN && latSpan <= MAX_FIT_LAT_SPAN;
 }
 
 export function normalizeLngNear(lng: number, referenceLng: number): number {

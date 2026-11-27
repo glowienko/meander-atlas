@@ -134,7 +134,11 @@ public class AtlasFacade {
     }
 
     public List<PlaceId> findPlaceIdsNeedingEnrichment() {
-        return findPlacesNeedingEnrichment.execute();
+        return findPlacesNeedingEnrichment.execute(null);
+    }
+
+    public List<PlaceId> findPlaceIdsNeedingEnrichment(List<PlaceId> candidates) {
+        return candidates.isEmpty() ? List.of() : findPlacesNeedingEnrichment.execute(candidates);
     }
 
     public List<PlaceEnrichmentTargetView> findEnrichmentTargets(List<PlaceId> placeIds) {

@@ -1,6 +1,11 @@
 package com.meanderatlas.ingestion.adapter.http;
 
+import static com.meanderatlas.ingestion.OpenCatalogTestData.USER_AGENT;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.WAWEL_THUMB_URL;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.commonsThumbResponse;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.properties;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -13,64 +18,35 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 class WikimediaPhotoClientTest {
 
-    private static EnrichmentProperties testProperties() {
-        return new EnrichmentProperties(
-                true,
-                25,
-                0,
-                2,
-                1000,
-                5000,
-                "https://overpass.example/api/interpreter",
-                "https://photon.example/api",
-                "https://commons.example/w/api.php",
-                "https://{lang}.wikipedia.example/api/rest_v1",
-                "https://wikidata.example/w/api.php",
-                "MeanderAtlas/0.1-test");
-    }
-
     @Test
-    void resolvesCommonsWikipediaWikidataAndSafeImageWhileRejectingExternalUrls() {
+    void resolvesCommonsWikipediaWikidataAndSafeImageRejectsExternalUrlsAndPropagatesHttpErrors() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        WikimediaPhotoClient client = new WikimediaPhotoClient(builder, testProperties());
+        WikimediaPhotoClient client = new WikimediaPhotoClient(builder, properties());
 
         server.expect(
                         requestTo(
                                 "https://commons.example/w/api.php?action=query&titles=File:Wawel.jpg&prop=imageinfo&iiprop=url&iiurlwidth=640&format=json&formatversion=2"))
-                .andExpect(header(HttpHeaders.USER_AGENT, "MeanderAtlas/0.1-test"))
+                .andExpect(header(HttpHeaders.USER_AGENT, USER_AGENT))
                 .andRespond(
                         withSuccess(
-                                """
-                                {
-                                  "query": {
-                                    "pages": [
-                                      {
-                                        "imageinfo": [
-                                          { "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/w/Wawel.jpg" }
-                                        ]
-                                      }
-                                    ]
-                                  }
-                                }
-                                """,
-                                MediaType.APPLICATION_JSON));
+                                commonsThumbResponse(WAWEL_THUMB_URL), MediaType.APPLICATION_JSON));
 
         PhotoLookupResult commons = client.resolve(Map.of("wikimedia_commons", "File:Wawel.jpg"));
         server.verify();
         server.reset();
-        assertThat(commons.photoUrl())
-                .isEqualTo("https://upload.wikimedia.org/wikipedia/commons/thumb/w/Wawel.jpg");
+        assertThat(commons.photoUrl()).isEqualTo(WAWEL_THUMB_URL);
         assertThat(commons.source()).isEqualTo("wikimedia_commons");
 
         server.expect(
                         requestTo(
                                 "https://en.wikipedia.example/api/rest_v1/page/summary/Wawel_Castle"))
-                .andExpect(header(HttpHeaders.USER_AGENT, "MeanderAtlas/0.1-test"))
+                .andExpect(header(HttpHeaders.USER_AGENT, USER_AGENT))
                 .andRespond(
                         withSuccess(
                                 """
@@ -149,8 +125,8 @@ class WikimediaPhotoClientTest {
                         requestTo(
                                 "https://en.wikipedia.example/api/rest_v1/page/summary/Missing_Page"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
-        PhotoLookupResult failedLookup = client.resolve(Map.of("wikipedia", "en:Missing Page"));
-        assertThat(failedLookup.photoUrl()).isNull();
+        assertThatThrownBy(() -> client.resolve(Map.of("wikipedia", "en:Missing Page")))
+                .isInstanceOf(HttpClientErrorException.NotFound.class);
 
         server.verify();
     }

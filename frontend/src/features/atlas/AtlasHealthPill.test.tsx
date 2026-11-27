@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AtlasHealthPill } from "./AtlasHealthPill";
 import {
@@ -8,71 +9,57 @@ import {
   writeAtlasViewState,
 } from "./viewState";
 
+const UP_HEALTH = { status: "UP", database: "postgresql", postgisVersion: "3.5.3" };
+
+function renderPill(overrides: Partial<ComponentProps<typeof AtlasHealthPill>> = {}) {
+  return render(
+    <AtlasHealthPill
+      health={UP_HEALTH}
+      isLoading={false}
+      isError={false}
+      projection="globe"
+      onProjectionChange={vi.fn()}
+      basemap="atlas"
+      onBasemapChange={vi.fn()}
+      statsOpen={false}
+      onToggleStats={vi.fn()}
+      onResetView={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
+
 describe("AtlasHealthPill", () => {
   it("renders live PostGIS health status and toggles projection controls", () => {
     const onProjectionChange = vi.fn();
 
-    render(
-      <AtlasHealthPill
-        health={{ status: "UP", database: "postgresql", postgisVersion: "3.5.3" }}
-        isLoading={false}
-        isError={false}
-        projection="globe"
-        onProjectionChange={onProjectionChange}
-      />,
-    );
+    renderPill({ onProjectionChange });
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("UP · PostGIS 3.5.3");
-    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-accent)]");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-atlas-accent");
 
     fireEvent.click(screen.getByRole("button", { name: "2D Map" }));
     expect(onProjectionChange).toHaveBeenCalledWith("mercator");
   });
 
   it("renders offline state when health query fails", () => {
-    render(
-      <AtlasHealthPill
-        health={undefined}
-        isLoading={false}
-        isError={true}
-        projection="mercator"
-        onProjectionChange={vi.fn()}
-      />,
-    );
+    renderPill({ health: undefined, isError: true, projection: "mercator" });
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("Backend Offline");
-    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-danger)]");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-atlas-danger");
   });
 
   it("renders danger indicator when backend reports non-UP status", () => {
-    render(
-      <AtlasHealthPill
-        health={{ status: "DEGRADED", database: "postgresql", postgisVersion: "3.5.3" }}
-        isLoading={false}
-        isError={false}
-        projection="globe"
-        onProjectionChange={vi.fn()}
-      />,
-    );
+    renderPill({ health: { status: "DEGRADED", database: "postgresql", postgisVersion: "3.5.3" } });
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("DEGRADED · PostGIS 3.5.3");
-    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-danger)]");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-atlas-danger");
   });
 
-  it("renders basemap toggle when onBasemapChange is provided and emits selections", () => {
+  it("renders basemap toggle and emits selections", () => {
     const onBasemapChange = vi.fn();
 
-    render(
-      <AtlasHealthPill
-        health={{ status: "UP", database: "postgresql", postgisVersion: "3.5.3" }}
-        isLoading={false}
-        isError={false}
-        projection="globe"
-        onProjectionChange={vi.fn()}
-        basemap="atlas"
-        onBasemapChange={onBasemapChange}
-      />,
-    );
+    renderPill({ onBasemapChange });
 
     const atlasBtn = screen.getByRole("button", { name: "Atlas" });
     const streetBtn = screen.getByRole("button", { name: "Street" });
@@ -87,18 +74,7 @@ describe("AtlasHealthPill", () => {
     const onResetView = vi.fn();
     const onToggleStats = vi.fn();
 
-    render(
-      <AtlasHealthPill
-        health={{ status: "UP", database: "postgresql", postgisVersion: "3.5.3" }}
-        isLoading={false}
-        isError={false}
-        projection="globe"
-        onProjectionChange={vi.fn()}
-        mappedCount={7174}
-        onToggleStats={onToggleStats}
-        onResetView={onResetView}
-      />,
-    );
+    renderPill({ mappedCount: 7174, onToggleStats, onResetView });
 
     fireEvent.click(screen.getByTestId("reset-view-button"));
     fireEvent.click(screen.getByTestId("brand-reset-view-button"));

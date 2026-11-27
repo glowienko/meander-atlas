@@ -4,6 +4,7 @@ import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository;
 import com.meanderatlas.ingestion.domain.source.ResolutionJobType;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -18,6 +19,20 @@ final class FakeEnrichmentJobRepository implements EnrichmentJobRepository {
 
     private final Map<UUID, JobState> jobs = new HashMap<>();
     private final Set<PlaceId> enqueuedEnrichmentPlaceIds = new HashSet<>();
+    private final Clock clock;
+    private boolean failCompletions;
+
+    FakeEnrichmentJobRepository() {
+        this(Clock.systemUTC());
+    }
+
+    FakeEnrichmentJobRepository(Clock clock) {
+        this.clock = clock;
+    }
+
+    void failCompletions() {
+        failCompletions = true;
+    }
 
     void addPendingLookup(PendingCoordinateJob job) {
         jobs.put(
@@ -140,7 +155,7 @@ final class FakeEnrichmentJobRepository implements EnrichmentJobRepository {
         if (limit <= 0) {
             return List.of();
         }
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<JobState> claimed =
                 jobs.values().stream()
                         .filter(state ->
@@ -170,6 +185,9 @@ final class FakeEnrichmentJobRepository implements EnrichmentJobRepository {
 
     @Override
     public void markJobCompleted(UUID jobId, @Nullable PlaceId placeId) {
+        if (failCompletions) {
+            throw new IllegalStateException("persist failed");
+        }
         JobState state = jobs.get(jobId);
         if (state != null) {
             state.status = "COMPLETED";
@@ -200,7 +218,7 @@ final class FakeEnrichmentJobRepository implements EnrichmentJobRepository {
     }
 
     @Override
-    public void releaseOnDryRun(List<UUID> jobIds) {
+    public void releaseDryRunClaims(List<UUID> jobIds) {
         for (UUID jobId : jobIds) {
             JobState state = jobs.get(jobId);
             if (state != null && "IN_PROGRESS".equals(state.status)) {

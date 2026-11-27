@@ -14,6 +14,7 @@ import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
 import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate;
@@ -28,6 +29,7 @@ import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -67,7 +69,8 @@ class BulkUpdateAndRestoreVisitStatesTest {
                         timelineInstant));
 
         CurrentUserProvider userProvider = () -> USER_ID;
-        BulkUpdatePlaceVisitStatus bulkUpdate = new BulkUpdatePlaceVisitStatus(repo, userProvider);
+        BulkUpdatePlaceVisitStatus bulkUpdate =
+                new BulkUpdatePlaceVisitStatus(repo, userProvider, Clock.systemUTC());
         RestorePlaceVisitStates restore = new RestorePlaceVisitStates(repo, userProvider);
 
         BulkVisitStatusResultView updated =
@@ -107,8 +110,10 @@ class BulkUpdateAndRestoreVisitStatesTest {
         repo.ownedIds.add(new PlaceId(ownedId));
         CurrentUserProvider userProvider = () -> USER_ID;
 
-        UpdatePlaceVisitStatus singleUpdate = new UpdatePlaceVisitStatus(repo, userProvider);
-        BulkUpdatePlaceVisitStatus bulkUpdate = new BulkUpdatePlaceVisitStatus(repo, userProvider);
+        UpdatePlaceVisitStatus singleUpdate =
+                new UpdatePlaceVisitStatus(repo, userProvider, Clock.systemUTC());
+        BulkUpdatePlaceVisitStatus bulkUpdate =
+                new BulkUpdatePlaceVisitStatus(repo, userProvider, Clock.systemUTC());
 
         assertThatThrownBy(() ->
                         singleUpdate.execute(
@@ -270,7 +275,8 @@ class BulkUpdateAndRestoreVisitStatesTest {
                 @Nullable String fallbackCountryCode) {}
 
         @Override
-        public List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId) {
+        public List<PlaceId> findPlaceIdsNeedingEnrichment(
+                UserId userId, @Nullable List<PlaceId> within) {
             return List.of();
         }
 
@@ -294,19 +300,6 @@ class BulkUpdateAndRestoreVisitStatesTest {
         }
 
         @Override
-        public void applyPlaceEnrichment(
-                UserId userId,
-                PlaceId placeId,
-                @Nullable String upgradedCanonicalName,
-                boolean upgradeCoordinates,
-                @Nullable GeoPoint refinedCoordinates,
-                @Nullable String osmId,
-                boolean upgradeCategory,
-                @Nullable PlaceCategory category,
-                @Nullable String subcategory,
-                DerivedRole derivedRole,
-                @Nullable String cityName,
-                @Nullable String photoUrl,
-                @Nullable String openingHoursJson) {}
+        public void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update) {}
     }
 }

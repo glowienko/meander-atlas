@@ -1,6 +1,6 @@
 package com.meanderatlas.ingestion.adapter.http;
 
-import com.meanderatlas.ingestion.adapter.http.OverpassPoiClient.OverpassTransientException;
+import com.meanderatlas.ingestion.adapter.http.OpenDataHttp.OpenDataResponseException;
 import com.meanderatlas.ingestion.domain.TitleCoordinateParser;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiMatcher;
@@ -10,87 +10,52 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpStatusCodeException;
-import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
 @Component
 public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
 
     private static final Logger LOG = LoggerFactory.getLogger(CompositeOpenPoiCatalogAdapter.class);
-    private static final int MAX_OVERPASS_ATTEMPTS = 2;
-    private static final long MAX_RETRY_AFTER_MS = 60_000L;
     private static final Set<String> PHOTO_TAG_KEYS =
             Set.of("wikimedia_commons", "wikipedia", "wikidata", "image");
 
     private final OverpassPoiClient overpassPoiClient;
     private final PhotonPoiClient photonPoiClient;
     private final WikimediaPhotoClient wikimediaPhotoClient;
-    private final EnrichmentProperties properties;
-    private final Sleeper sleeper;
-
-    @Autowired
-    public CompositeOpenPoiCatalogAdapter(
-            OverpassPoiClient overpassPoiClient,
-            PhotonPoiClient photonPoiClient,
-            WikimediaPhotoClient wikimediaPhotoClient,
-            EnrichmentProperties properties) {
-        this(overpassPoiClient, photonPoiClient, wikimediaPhotoClient, properties, Thread::sleep);
-    }
 
     CompositeOpenPoiCatalogAdapter(
             OverpassPoiClient overpassPoiClient,
             PhotonPoiClient photonPoiClient,
-            WikimediaPhotoClient wikimediaPhotoClient,
-            EnrichmentProperties properties,
-            Sleeper sleeper) {
+            WikimediaPhotoClient wikimediaPhotoClient) {
         this.overpassPoiClient = overpassPoiClient;
         this.photonPoiClient = photonPoiClient;
         this.wikimediaPhotoClient = wikimediaPhotoClient;
-        this.properties = properties;
-        this.sleeper = sleeper;
     }
 
     @Override
     public Map<PlaceId, EnrichmentLookupOutcome> enrichAnchoredBatch(
             List<AnchoredEnrichmentTarget> targets) {
-        if (targets.isEmpty()) {
-            return Map.of();
-        }
-        List<AnchoredEnrichmentTarget> coordOnlyTargets =
+        Map<Boolean, List<AnchoredEnrichmentTarget>> byCoordinateOnlyName =
                 targets.stream()
-                        .filter(target ->
-                                TitleCoordinateParser.parse(target.canonicalName()).isPresent())
-                        .toList();
-        List<AnchoredEnrichmentTarget> namedTargets =
-                targets.stream()
-                        .filter(target ->
-                                TitleCoordinateParser.parse(target.canonicalName()).isEmpty())
-                        .toList();
-
-        AtomicReference<@Nullable String> overpassCircuitError = new AtomicReference<>();
+                        .collect(
+                                Collectors.partitioningBy(target ->
+                                        TitleCoordinateParser.parse(target.canonicalName())
+                                                .isPresent()));
         Stream<Map.Entry<PlaceId, EnrichmentLookupOutcome>> reverseEntries =
-                coordOnlyTargets.stream()
-                        .map(target ->
-                                Map.entry(target.placeId(), resolveCoordinateOnlyTarget(target)));
+                byCoordinateOnlyName.getOrDefault(true, List.of()).stream()
+                        .map(target -> Map.entry(target.placeId(), resolveByReverse(target)));
         Stream<Map.Entry<PlaceId, EnrichmentLookupOutcome>> namedEntries =
-                overpassPoiClient.partitionIntoBatches(namedTargets).stream()
-                        .flatMap(batch ->
-                                enrichSingleSpatialBatch(batch, overpassCircuitError)
-                                        .entrySet()
-                                        .stream());
-
+                overpassPoiClient
+                        .partitionIntoBatches(byCoordinateOnlyName.getOrDefault(false, List.of()))
+                        .stream()
+                        .flatMap(this::enrichSpatialBatch);
         return Stream.concat(reverseEntries, namedEntries)
                 .collect(
                         Collectors.toUnmodifiableMap(
@@ -99,276 +64,107 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
 
     @Override
     public EnrichmentLookupOutcome resolveUnanchored(UnanchoredLookupTarget target) {
-        RetryableResult<List<OpenPoiCandidate>> photonResult =
-                executeWithRetry(
-                        () -> photonPoiClient.search(target.rawTitle(), null), "photon-global");
-        if (photonResult.error() != null) {
-            return new EnrichmentLookupOutcome.TransientFailure(photonResult.error());
-        }
-        List<OpenPoiCandidate> candidates =
-                Objects.requireNonNullElse(photonResult.value(), List.of());
-        Optional<OpenPoiMatch> matched = OpenPoiMatcher.matchUnanchored(target, candidates);
-        if (matched.isEmpty()) {
-            return new EnrichmentLookupOutcome.NoMatch("No confident global match in Photon");
-        }
-        OpenPoiMatch withPhoto = attachPhotoIfEligible(matched.get(), null);
-        return new EnrichmentLookupOutcome.Matched(withPhoto);
+        return lookup(
+                "photon-global",
+                () ->
+                        OpenPoiMatcher.matchUnanchored(
+                                        target, photonPoiClient.search(target.rawTitle(), null))
+                                .map(match -> matched(match, null))
+                                .orElseGet(() ->
+                                        new EnrichmentLookupOutcome.NoMatch(
+                                                "No confident global match in Photon")));
     }
 
-    private Map<PlaceId, EnrichmentLookupOutcome> enrichSingleSpatialBatch(
-            List<AnchoredEnrichmentTarget> batch,
-            AtomicReference<@Nullable String> overpassCircuitError) {
-        String existingCircuitError = overpassCircuitError.get();
-        if (existingCircuitError != null) {
-            return batch.stream()
-                    .collect(
-                            Collectors.toUnmodifiableMap(
-                                    AnchoredEnrichmentTarget::placeId,
-                                    target ->
-                                            resolveViaPhotonFallback(target, existingCircuitError),
-                                    (a, _) -> a));
-        }
-        RetryableResult<List<OpenPoiCandidate>> overpassResult =
-                executeWithRetry(
-                        () -> overpassPoiClient.fetchBatch(batch),
-                        "overpass",
-                        Math.min(Math.max(1, properties.maxRetries() + 1), MAX_OVERPASS_ATTEMPTS));
-        String overpassError = overpassResult.error();
-        if (overpassError != null) {
-            overpassCircuitError.compareAndSet(null, overpassError);
+    private Stream<Map.Entry<PlaceId, EnrichmentLookupOutcome>> enrichSpatialBatch(
+            List<AnchoredEnrichmentTarget> batch) {
+        List<OpenPoiCandidate> overpassCandidates;
+        try {
+            overpassCandidates = overpassPoiClient.fetchBatch(batch);
+        } catch (RestClientException | OpenDataResponseException ex) {
+            EnrichmentLookupOutcome overpassFailure =
+                    new EnrichmentLookupOutcome.TransientFailure(describe("overpass", ex));
             LOG.warn(
-                    "Overpass batch failed for {} targets ({}); falling back to Photon for remainder of batch",
+                    "Overpass batch failed for {} targets ({}); falling back to Photon",
                     batch.size(),
-                    overpassError);
+                    overpassFailure);
             return batch.stream()
-                    .collect(
-                            Collectors.toUnmodifiableMap(
-                                    AnchoredEnrichmentTarget::placeId,
-                                    target -> resolveViaPhotonFallback(target, overpassError),
-                                    (a, _) -> a));
+                    .map(target ->
+                            Map.entry(target.placeId(), resolveViaPhoton(target, overpassFailure)));
         }
-        List<OpenPoiCandidate> overpassCandidates =
-                Objects.requireNonNullElse(overpassResult.value(), List.of());
         return batch.stream()
-                .collect(
-                        Collectors.toUnmodifiableMap(
-                                AnchoredEnrichmentTarget::placeId,
-                                target -> resolveAnchoredTarget(target, overpassCandidates),
-                                (a, _) -> a));
+                .map(target ->
+                        Map.entry(
+                                target.placeId(),
+                                OpenPoiMatcher.matchAnchored(target, overpassCandidates)
+                                        .map(match -> matched(match, target.photoUrl()))
+                                        .orElseGet(() ->
+                                                resolveViaPhoton(
+                                                        target,
+                                                        new EnrichmentLookupOutcome.NoMatch(
+                                                                "No confident match in Overpass or Photon")))));
     }
 
-    private EnrichmentLookupOutcome resolveCoordinateOnlyTarget(AnchoredEnrichmentTarget target) {
-        RetryableResult<List<OpenPoiCandidate>> reverseResult =
-                executeWithRetry(
-                        () -> photonPoiClient.reverse(target.coordinates()), "photon-reverse");
-        if (reverseResult.error() != null) {
-            return new EnrichmentLookupOutcome.TransientFailure(reverseResult.error());
-        }
-        List<OpenPoiCandidate> candidates =
-                Objects.requireNonNullElse(reverseResult.value(), List.of());
-        Optional<OpenPoiMatch> matched =
-                OpenPoiMatcher.matchReverseGeocoded(target.coordinates(), candidates);
-        if (matched.isEmpty()) {
-            return new EnrichmentLookupOutcome.NoMatch(
-                    "No reverse-geocoded place near coordinates");
-        }
-        return new EnrichmentLookupOutcome.Matched(
-                attachPhotoIfEligible(matched.get(), target.photoUrl()));
+    private EnrichmentLookupOutcome resolveViaPhoton(
+            AnchoredEnrichmentTarget target, EnrichmentLookupOutcome whenUnmatched) {
+        return lookup(
+                "photon-anchored",
+                () ->
+                        OpenPoiMatcher.matchAnchored(
+                                        target,
+                                        photonPoiClient.search(
+                                                target.canonicalName(), target.coordinates()))
+                                .map(match -> matched(match, target.photoUrl()))
+                                .orElse(whenUnmatched));
     }
 
-    private EnrichmentLookupOutcome resolveViaPhotonFallback(
-            AnchoredEnrichmentTarget target, String overpassError) {
-        RetryableResult<List<OpenPoiCandidate>> photonResult =
-                executeWithRetry(
-                        () -> photonPoiClient.search(target.canonicalName(), target.coordinates()),
-                        "photon-fallback");
-        if (photonResult.error() != null) {
-            return new EnrichmentLookupOutcome.TransientFailure(photonResult.error());
-        }
-        List<OpenPoiCandidate> photonCandidates =
-                Objects.requireNonNullElse(photonResult.value(), List.of());
-        Optional<OpenPoiMatch> photonMatch = OpenPoiMatcher.matchAnchored(target, photonCandidates);
-        if (photonMatch.isEmpty()) {
-            return new EnrichmentLookupOutcome.TransientFailure(overpassError);
-        }
-        return new EnrichmentLookupOutcome.Matched(
-                attachPhotoIfEligible(photonMatch.get(), target.photoUrl()));
+    private EnrichmentLookupOutcome resolveByReverse(AnchoredEnrichmentTarget target) {
+        return lookup(
+                "photon-reverse",
+                () ->
+                        OpenPoiMatcher.matchReverseGeocoded(
+                                        target.coordinates(),
+                                        photonPoiClient.reverse(target.coordinates()))
+                                .map(match -> matched(match, target.photoUrl()))
+                                .orElseGet(() ->
+                                        new EnrichmentLookupOutcome.NoMatch(
+                                                "No reverse-geocoded place near coordinates")));
     }
 
-    private EnrichmentLookupOutcome resolveAnchoredTarget(
-            AnchoredEnrichmentTarget target, List<OpenPoiCandidate> overpassCandidates) {
-        Optional<OpenPoiMatch> overpassMatch =
-                OpenPoiMatcher.matchAnchored(target, overpassCandidates);
-        if (overpassMatch.isPresent()) {
-            return new EnrichmentLookupOutcome.Matched(
-                    attachPhotoIfEligible(overpassMatch.get(), target.photoUrl()));
+    private static EnrichmentLookupOutcome lookup(
+            String source, Supplier<EnrichmentLookupOutcome> action) {
+        try {
+            return action.get();
+        } catch (RestClientException | OpenDataResponseException ex) {
+            String error = describe(source, ex);
+            LOG.warn("Enrichment lookup failed: {}", error);
+            return new EnrichmentLookupOutcome.TransientFailure(error);
         }
-        RetryableResult<List<OpenPoiCandidate>> photonResult =
-                executeWithRetry(
-                        () -> photonPoiClient.search(target.canonicalName(), target.coordinates()),
-                        "photon-anchored");
-        if (photonResult.error() != null) {
-            return new EnrichmentLookupOutcome.TransientFailure(photonResult.error());
-        }
-        List<OpenPoiCandidate> photonCandidates =
-                Objects.requireNonNullElse(photonResult.value(), List.of());
-        Optional<OpenPoiMatch> photonMatch = OpenPoiMatcher.matchAnchored(target, photonCandidates);
-        if (photonMatch.isEmpty()) {
-            return new EnrichmentLookupOutcome.NoMatch("No confident match in Overpass or Photon");
-        }
-        return new EnrichmentLookupOutcome.Matched(
-                attachPhotoIfEligible(photonMatch.get(), target.photoUrl()));
+    }
+
+    private EnrichmentLookupOutcome matched(OpenPoiMatch match, @Nullable String existingPhotoUrl) {
+        return new EnrichmentLookupOutcome.Matched(attachPhotoIfEligible(match, existingPhotoUrl));
     }
 
     private OpenPoiMatch attachPhotoIfEligible(
             OpenPoiMatch match, @Nullable String existingPhotoUrl) {
-        if (existingPhotoUrl != null && !existingPhotoUrl.isBlank()) {
-            return match;
-        }
         Map<String, String> tags = match.candidate().tags();
-        boolean hasPhotoTags = tags.keySet().stream().anyMatch(PHOTO_TAG_KEYS::contains);
-        if (!hasPhotoTags) {
+        boolean needsPhoto = existingPhotoUrl == null || existingPhotoUrl.isBlank();
+        if (!needsPhoto || tags.keySet().stream().noneMatch(PHOTO_TAG_KEYS::contains)) {
             return match;
-        }
-        pausePolitely();
-        PhotoLookupResult photo = wikimediaPhotoClient.resolve(tags);
-        if (photo.photoUrl() == null) {
-            return match;
-        }
-        return new OpenPoiMatch(
-                match.candidate(),
-                match.score(),
-                match.distanceMeters(),
-                match.category(),
-                match.subcategory(),
-                match.cityName(),
-                photo.photoUrl(),
-                match.openingHoursRaw());
-    }
-
-    private <T> RetryableResult<T> executeWithRetry(Supplier<T> action, String sourceName) {
-        return executeWithRetry(action, sourceName, Math.max(1, properties.maxRetries() + 1));
-    }
-
-    private <T> RetryableResult<T> executeWithRetry(
-            Supplier<T> action, String sourceName, int maxAttempts) {
-        String lastError = sourceName + " failed";
-        for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            pausePolitely();
-            try {
-                return new RetryableResult<>(action.get(), null);
-            } catch (HttpStatusCodeException ex) {
-                HttpStatusCode status = ex.getStatusCode();
-                lastError = sourceName + " HTTP " + status.value();
-                if (!isRetryableStatus(status) || attempt + 1 >= maxAttempts) {
-                    LOG.warn(
-                            "Enrichment {} failed on attempt {}/{}: {}",
-                            sourceName,
-                            attempt + 1,
-                            maxAttempts,
-                            lastError);
-                    return new RetryableResult<>(null, lastError);
-                }
-                long retryDelayMs = computeRetryDelayMs(attempt, ex.getResponseHeaders());
-                LOG.warn(
-                        "Enrichment {} retryable error on attempt {}/{} ({}); backing off {}ms",
-                        sourceName,
-                        attempt + 1,
-                        maxAttempts,
-                        lastError,
-                        retryDelayMs);
-                sleepQuietly(retryDelayMs);
-            } catch (ResourceAccessException | OverpassTransientException ex) {
-                lastError = describeException(ex);
-                if (attempt + 1 >= maxAttempts) {
-                    LOG.warn(
-                            "Enrichment {} I/O failure on attempt {}/{}: {}",
-                            sourceName,
-                            attempt + 1,
-                            maxAttempts,
-                            lastError);
-                    return new RetryableResult<>(null, lastError);
-                }
-                long retryDelayMs = computeRetryDelayMs(attempt, null);
-                LOG.warn(
-                        "Enrichment {} I/O failure on attempt {}/{} ({}); retrying in {}ms",
-                        sourceName,
-                        attempt + 1,
-                        maxAttempts,
-                        lastError,
-                        retryDelayMs);
-                sleepQuietly(retryDelayMs);
-            } catch (RestClientException ex) {
-                lastError = describeException(ex);
-                LOG.warn("Enrichment {} client error: {}", sourceName, lastError);
-                return new RetryableResult<>(null, lastError);
-            }
-        }
-        return new RetryableResult<>(null, lastError);
-    }
-
-    private static String describeException(Throwable ex) {
-        Throwable root = ex;
-        int depth = 0;
-        while (depth < 10 && root.getCause() != null && !root.getCause().equals(root)) {
-            root = root.getCause();
-            depth++;
-        }
-        String baseMessage =
-                Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
-        if (root.equals(ex)) {
-            return baseMessage;
-        }
-        return baseMessage + " [" + root.getClass().getSimpleName() + "]";
-    }
-
-    private static boolean isRetryableStatus(HttpStatusCode status) {
-        return status.value() == 429 || status.is5xxServerError();
-    }
-
-    private long computeRetryDelayMs(int attempt, @Nullable HttpHeaders headers) {
-        long baseDelay = Math.max(0L, properties.requestDelayMs());
-        if (baseDelay == 0L) {
-            return 0L;
-        }
-        if (headers != null) {
-            String retryAfter = headers.getFirst(HttpHeaders.RETRY_AFTER);
-            if (retryAfter != null) {
-                try {
-                    long seconds = Long.parseLong(retryAfter.trim());
-                    if (seconds >= 0L) {
-                        return Math.min(MAX_RETRY_AFTER_MS, seconds * 1000L);
-                    }
-                } catch (NumberFormatException ignored) {
-                    return Math.min(MAX_RETRY_AFTER_MS, baseDelay * (1L << Math.min(attempt, 5)));
-                }
-            }
-        }
-        return Math.min(MAX_RETRY_AFTER_MS, baseDelay * (1L << Math.min(attempt, 5)));
-    }
-
-    private void pausePolitely() {
-        long delayMs = properties.requestDelayMs();
-        if (delayMs > 0L) {
-            sleepQuietly(delayMs);
-        }
-    }
-
-    private void sleepQuietly(long millis) {
-        if (millis <= 0L) {
-            return;
         }
         try {
-            sleeper.sleepMillis(millis);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
+            return Optional.ofNullable(wikimediaPhotoClient.resolve(tags).photoUrl())
+                    .map(match::withPhotoUrl)
+                    .orElse(match);
+        } catch (RestClientException | OpenDataResponseException ex) {
+            LOG.warn("Keeping match without photo ({})", describe("wikimedia", ex));
+            return match;
         }
     }
 
-    @FunctionalInterface
-    interface Sleeper {
-        void sleepMillis(long millis) throws InterruptedException;
+    private static String describe(String source, RuntimeException ex) {
+        return source
+                + ": "
+                + Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
     }
-
-    private record RetryableResult<T>(@Nullable T value, @Nullable String error) {}
 }

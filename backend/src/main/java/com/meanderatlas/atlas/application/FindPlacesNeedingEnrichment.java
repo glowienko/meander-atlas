@@ -4,6 +4,7 @@ import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.shared.CurrentUserProvider;
 import com.meanderatlas.shared.PlaceId;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +21,8 @@ public class FindPlacesNeedingEnrichment {
     }
 
     @Transactional(readOnly = true)
-    public List<PlaceId> execute() {
-        return placeRepository.findPlaceIdsNeedingEnrichment(currentUserProvider.currentUserId());
+    public List<PlaceId> execute(@Nullable List<PlaceId> within) {
+        return placeRepository.findPlaceIdsNeedingEnrichment(
+                currentUserProvider.currentUserId(), within);
     }
 }

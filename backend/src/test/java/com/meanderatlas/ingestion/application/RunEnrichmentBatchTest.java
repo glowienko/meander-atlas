@@ -1,5 +1,6 @@
 package com.meanderatlas.ingestion.application;
 
+import static com.meanderatlas.ingestion.OpenCatalogTestData.properties;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -14,7 +15,6 @@ import com.meanderatlas.atlas.domain.stats.AtlasStatsRepository;
 import com.meanderatlas.atlas.domain.stats.RegionSummary;
 import com.meanderatlas.atlas.domain.stats.RegionSummaryFilter;
 import com.meanderatlas.ingestion.EnrichmentBatchResultView;
-import com.meanderatlas.ingestion.adapter.http.EnrichmentProperties;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository.PendingCoordinateJob;
 import com.meanderatlas.ingestion.domain.source.ImportRecordKind;
@@ -27,7 +27,11 @@ import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.transaction.support.TransactionOperations;
 
 class RunEnrichmentBatchTest {
@@ -45,46 +50,25 @@ class RunEnrichmentBatchTest {
     private static final UserId USER_ID =
             new UserId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
 
-    private static EnrichmentProperties properties(boolean enabled, int maxRetries) {
-        return new EnrichmentProperties(
-                enabled,
-                2,
-                0,
-                maxRetries,
-                1000,
-                5000,
-                "https://overpass.example",
-                "https://photon.example",
-                "https://commons.example",
-                "https://{lang}.wikipedia.example",
-                "https://wikidata.example",
-                "MeanderAtlas/0.1-test");
-    }
-
     @Test
-    void rejectsInvalidLimitAndReturnsEarlyWhenDisabled(@TempDir Path tempDir) {
+    void returnsEarlyWhenDisabled(@TempDir Path tempDir) {
         FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
         FakeEnrichmentJobRepository jobRepo = new FakeEnrichmentJobRepository();
         FakeOpenPoiCatalogPort catalogPort = new FakeOpenPoiCatalogPort();
         RunEnrichmentBatch disabledRunner =
-                createRunner(tempDir, properties(false, 2), placeRepo, jobRepo, catalogPort);
-
-        assertThatThrownBy(() -> disabledRunner.execute(0, false, false))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> disabledRunner.execute(501, false, false))
-                .isInstanceOf(IllegalArgumentException.class);
+                createRunner(tempDir, properties(false, 2, 2), placeRepo, jobRepo, catalogPort);
 
         PlaceId placeId = insertApproxPlace(placeRepo, "Wawel Castle");
         jobRepo.addPendingEnrichment(placeId);
 
-        EnrichmentBatchResultView result = disabledRunner.execute(10, false, false);
+        EnrichmentBatchResultView result = disabledRunner.runBatch(10, false);
         assertThat(result.enabled()).isFalse();
         assertThat(result.claimedCount()).isZero();
         assertThat(result.remainingPendingCount()).isEqualTo(1);
     }
 
     @Test
-    void dryRunReleasesJobsWithoutMutatingPlacesAndLiveRunAppliesAndRetries(@TempDir Path tempDir) {
+    void appliesMatchesSkipsMissesAndSchedulesRetryForTransientFailures(@TempDir Path tempDir) {
         FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
         FakeEnrichmentJobRepository jobRepo = new FakeEnrichmentJobRepository();
         FakeOpenPoiCatalogPort catalogPort = new FakeOpenPoiCatalogPort();
@@ -124,25 +108,7 @@ class RunEnrichmentBatchTest {
                         null,
                         "{\"listName\":\"Want to go\"}"));
 
-        catalogPort.anchoredOutcomes.put(
-                matchPlaceId,
-                new OpenPoiCatalogPort.EnrichmentLookupOutcome.Matched(
-                        new OpenPoiCatalogPort.OpenPoiMatch(
-                                new OpenPoiCatalogPort.OpenPoiCandidate(
-                                        "way/101",
-                                        "Wawel Royal Castle",
-                                        new GeoPoint(50.0541, 19.9355),
-                                        Map.of("historic", "castle"),
-                                        "Kraków",
-                                        "PL",
-                                        "Mo-Su 09:00-17:00"),
-                                0.98,
-                                15.0,
-                                PlaceCategory.LANDMARK,
-                                "castle",
-                                "Kraków",
-                                "https://upload.wikimedia.org/wikipedia/commons/wawel.jpg",
-                                "Mo-Su 09:00-17:00")));
+        catalogPort.anchoredOutcomes.put(matchPlaceId, wawelMatch());
         catalogPort.anchoredOutcomes.put(
                 retryPlaceId,
                 new OpenPoiCatalogPort.EnrichmentLookupOutcome.TransientFailure("Overpass 429"));
@@ -170,24 +136,9 @@ class RunEnrichmentBatchTest {
                                 null)));
 
         RunEnrichmentBatch runner =
-                createRunner(tempDir, properties(true, 2), placeRepo, jobRepo, catalogPort);
+                createRunner(tempDir, properties(true, 2, 2), placeRepo, jobRepo, catalogPort);
 
-        EnrichmentBatchResultView dryRun = runner.execute(10, true, false);
-        assertThat(dryRun.dryRun()).isTrue();
-        assertThat(dryRun.claimedCount()).isEqualTo(5);
-        assertThat(dryRun.matchedCount()).isEqualTo(2);
-        assertThat(dryRun.upgradedCoordsCount()).isEqualTo(2);
-        assertThat(dryRun.upgradedCategoryCount()).isEqualTo(2);
-        assertThat(dryRun.photosAddedCount()).isEqualTo(1);
-        assertThat(dryRun.failedCount()).isEqualTo(1);
-        assertThat(dryRun.skippedCount()).isEqualTo(2);
-        assertThat(dryRun.remainingPendingCount()).isEqualTo(5);
-        assertThat(placeRepo.place(matchPlaceId).coordSource)
-                .isEqualTo(CoordSource.TAKEOUT_S2_APPROX);
-        assertThat(jobRepo.statusOf(matchJobId)).isEqualTo("PENDING");
-        assertThat(jobRepo.attemptsOf(matchJobId)).isZero();
-
-        EnrichmentBatchResultView live = runner.execute(10, false, false);
+        EnrichmentBatchResultView live = runner.runBatch(10, false);
         assertThat(live.dryRun()).isFalse();
         assertThat(live.claimedCount()).isEqualTo(5);
         assertThat(live.matchedCount()).isEqualTo(2);
@@ -252,15 +203,15 @@ class RunEnrichmentBatchTest {
                 };
 
         RunEnrichmentBatch runner =
-                createRunner(tempDir, properties(true, 1), placeRepo, jobRepo, blockingPort);
+                createRunner(tempDir, properties(true, 2, 1), placeRepo, jobRepo, blockingPort);
 
-        EnrichmentBatchResultView started = runner.execute(10, false, true);
+        EnrichmentBatchResultView started = runner.startDrain(10, false);
         assertThat(started.startedInBackground()).isTrue();
         assertThat(started.alreadyRunning()).isFalse();
         assertThat(enteredPort.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(runner.isRunning()).isTrue();
 
-        EnrichmentBatchResultView concurrent = runner.execute(10, false, false);
+        EnrichmentBatchResultView concurrent = runner.runBatch(10, false);
         assertThat(concurrent.alreadyRunning()).isTrue();
         assertThat(concurrent.startedInBackground()).isFalse();
 
@@ -278,36 +229,98 @@ class RunEnrichmentBatchTest {
     }
 
     @Test
-    void releasesClaimedJobsAndClearsRunningFlagWhenCatalogPortThrows(@TempDir Path tempDir) {
+    void failsClaimedJobsWithoutRefundingAttemptsAndClearsRunningFlagWhenCatalogPortThrows(
+            @TempDir Path tempDir) {
         FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
         FakeEnrichmentJobRepository jobRepo = new FakeEnrichmentJobRepository();
         PlaceId placeId = insertApproxPlace(placeRepo, "Boom Spot");
         UUID jobId = jobRepo.addPendingEnrichment(placeId);
 
-        OpenPoiCatalogPort failingPort =
-                new OpenPoiCatalogPort() {
-                    @Override
-                    public Map<PlaceId, EnrichmentLookupOutcome> enrichAnchoredBatch(
-                            List<AnchoredEnrichmentTarget> targets) {
-                        throw new IllegalStateException("unexpected catalog crash");
-                    }
-
-                    @Override
-                    public EnrichmentLookupOutcome resolveUnanchored(
-                            UnanchoredLookupTarget target) {
-                        return new EnrichmentLookupOutcome.NoMatch("unused");
-                    }
-                };
-
         RunEnrichmentBatch runner =
-                createRunner(tempDir, properties(true, 2), placeRepo, jobRepo, failingPort);
+                createRunner(tempDir, properties(true, 2, 2), placeRepo, jobRepo, crashingPort());
 
-        assertThatThrownBy(() -> runner.execute(5, false, false))
+        assertThatThrownBy(() -> runner.runBatch(5, false))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("unexpected catalog crash");
         assertThat(runner.isRunning()).isFalse();
-        assertThat(jobRepo.statusOf(jobId)).isEqualTo("PENDING");
-        assertThat(jobRepo.attemptsOf(jobId)).isZero();
+        assertThat(jobRepo.statusOf(jobId)).isEqualTo("FAILED");
+        assertThat(jobRepo.attemptsOf(jobId)).isEqualTo(1);
+        assertThat(jobRepo.lastErrorOf(jobId)).contains("unexpected catalog crash");
+    }
+
+    @Test
+    void skipsPoisonJobOnceRetriesAreExhausted(@TempDir Path tempDir) {
+        SteppingClock clock = new SteppingClock();
+        FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
+        FakeEnrichmentJobRepository jobRepo = new FakeEnrichmentJobRepository(clock);
+        UUID jobId = jobRepo.addPendingEnrichment(insertApproxPlace(placeRepo, "Poison Spot"));
+        RunEnrichmentBatch runner =
+                createRunner(
+                        tempDir, properties(true, 2, 2), placeRepo, jobRepo, crashingPort(), clock);
+
+        assertThatThrownBy(() -> runner.runBatch(5, false))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(jobRepo.statusOf(jobId)).isEqualTo("FAILED");
+        assertThat(runner.runBatch(5, false).claimedCount()).isZero();
+
+        clock.advance(Duration.ofMinutes(1));
+        assertThatThrownBy(() -> runner.runBatch(5, false))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(jobRepo.statusOf(jobId)).isEqualTo("SKIPPED");
+        assertThat(jobRepo.attemptsOf(jobId)).isEqualTo(2);
+    }
+
+    @Test
+    void failsClaimedJobsWhenThePersistTransactionThrows(@TempDir Path tempDir) {
+        FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
+        FakeEnrichmentJobRepository jobRepo = new FakeEnrichmentJobRepository();
+        FakeOpenPoiCatalogPort catalogPort = new FakeOpenPoiCatalogPort();
+        PlaceId placeId = insertApproxPlace(placeRepo, "Wawel Royal Castle");
+        UUID jobId = jobRepo.addPendingEnrichment(placeId);
+        catalogPort.anchoredOutcomes.put(placeId, wawelMatch());
+        jobRepo.failCompletions();
+        RunEnrichmentBatch runner =
+                createRunner(tempDir, properties(true, 2, 2), placeRepo, jobRepo, catalogPort);
+
+        assertThatThrownBy(() -> runner.runBatch(5, false)).hasMessage("persist failed");
+        assertThat(runner.isRunning()).isFalse();
+        assertThat(jobRepo.statusOf(jobId)).isEqualTo("FAILED");
+        assertThat(jobRepo.attemptsOf(jobId)).isEqualTo(1);
+    }
+
+    private static OpenPoiCatalogPort.EnrichmentLookupOutcome wawelMatch() {
+        return new OpenPoiCatalogPort.EnrichmentLookupOutcome.Matched(
+                new OpenPoiCatalogPort.OpenPoiMatch(
+                        new OpenPoiCatalogPort.OpenPoiCandidate(
+                                "way/101",
+                                "Wawel Royal Castle",
+                                new GeoPoint(50.0541, 19.9355),
+                                Map.of("historic", "castle"),
+                                "Kraków",
+                                "PL",
+                                "Mo-Su 09:00-17:00"),
+                        0.98,
+                        15.0,
+                        PlaceCategory.LANDMARK,
+                        "castle",
+                        "Kraków",
+                        "https://upload.wikimedia.org/wikipedia/commons/wawel.jpg",
+                        "Mo-Su 09:00-17:00"));
+    }
+
+    private static OpenPoiCatalogPort crashingPort() {
+        return new OpenPoiCatalogPort() {
+            @Override
+            public Map<PlaceId, EnrichmentLookupOutcome> enrichAnchoredBatch(
+                    List<AnchoredEnrichmentTarget> targets) {
+                throw new IllegalStateException("unexpected catalog crash");
+            }
+
+            @Override
+            public EnrichmentLookupOutcome resolveUnanchored(UnanchoredLookupTarget target) {
+                return new EnrichmentLookupOutcome.NoMatch("unused");
+            }
+        };
     }
 
     private static PlaceId insertApproxPlace(FakeAtlasPlaceRepository placeRepo, String name) {
@@ -332,6 +345,17 @@ class RunEnrichmentBatchTest {
             FakeAtlasPlaceRepository placeRepo,
             FakeEnrichmentJobRepository jobRepo,
             OpenPoiCatalogPort catalogPort) {
+        return createRunner(
+                tempDir, properties, placeRepo, jobRepo, catalogPort, Clock.systemUTC());
+    }
+
+    private static RunEnrichmentBatch createRunner(
+            Path tempDir,
+            EnrichmentProperties properties,
+            FakeAtlasPlaceRepository placeRepo,
+            FakeEnrichmentJobRepository jobRepo,
+            OpenPoiCatalogPort catalogPort,
+            Clock clock) {
         CurrentUserProvider userProvider = () -> USER_ID;
         AtlasFacade atlasFacade =
                 AtlasFacadeTestSupport.create(
@@ -346,7 +370,32 @@ class RunEnrichmentBatchTest {
                 catalogPort,
                 atlasFacade,
                 userProvider,
-                TransactionOperations.withoutTransaction());
+                TransactionOperations.withoutTransaction(),
+                new SimpleAsyncTaskExecutor("enrichment-test-"),
+                clock);
+    }
+
+    private static final class SteppingClock extends Clock {
+        private Instant now = Instant.parse("2026-01-01T00:00:00Z");
+
+        void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
     }
 
     private static final class FakeOpenPoiCatalogPort implements OpenPoiCatalogPort {

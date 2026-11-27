@@ -1,5 +1,6 @@
 package com.meanderatlas.ingestion.adapter.http;
 
+import com.meanderatlas.ingestion.application.EnrichmentProperties;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

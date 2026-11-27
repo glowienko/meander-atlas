@@ -1,19 +1,13 @@
 package com.meanderatlas.ingestion.application;
 
 import com.meanderatlas.atlas.AtlasFacade;
-import com.meanderatlas.atlas.AttachCsvMembershipCommand;
-import com.meanderatlas.atlas.ImportedPlaceUpsertCommand;
 import com.meanderatlas.atlas.TimelineReconciliationOutcome;
 import com.meanderatlas.atlas.TimelineVisitSignal;
 import com.meanderatlas.atlas.UpsertedPlaceView;
 import com.meanderatlas.ingestion.AccountImportSummaryView;
 import com.meanderatlas.ingestion.LocalImportSummaryView;
-import com.meanderatlas.ingestion.domain.GoogleCid;
-import com.meanderatlas.ingestion.domain.GoogleS2CellDecoder;
+import com.meanderatlas.ingestion.application.ImportedPlaceResolver.Resolution;
 import com.meanderatlas.ingestion.domain.TextNormalizer;
-import com.meanderatlas.ingestion.domain.TitleCoordinateParser;
-import com.meanderatlas.ingestion.domain.classification.PlaceCategoryClassifier;
-import com.meanderatlas.ingestion.domain.classification.PlaceClassification;
 import com.meanderatlas.ingestion.domain.source.AccountImportSource;
 import com.meanderatlas.ingestion.domain.source.DiscoveredImportFile;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository;
@@ -32,11 +26,8 @@ import com.meanderatlas.ingestion.domain.timeline.TimelineParser;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.CurrentUserProvider;
 import com.meanderatlas.shared.GeoPoint;
-import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
-import com.meanderatlas.shared.VisitSource;
-import com.meanderatlas.shared.VisitStatus;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
@@ -45,10 +36,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -64,9 +54,6 @@ public class ImportLocalDirectory {
 
     private static final Logger LOG = LoggerFactory.getLogger(ImportLocalDirectory.class);
     private static final String SOURCE_TYPE_LOCAL = "LOCAL_DIRECTORY";
-    private static final String LIST_NAME_SAVED_DEFAULT = "Saved Places";
-    private static final String LIST_NAME_REVIEWS = "Google Reviews";
-    private static final String FALLBACK_REVIEW_NAME = "Reviewed place";
     private static final String JSON_EXTENSION = ".json";
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
@@ -76,6 +63,7 @@ public class ImportLocalDirectory {
     private final AtlasFacade atlasFacade;
     private final CurrentUserProvider currentUserProvider;
     private final TransactionOperations transactionOperations;
+    private final ImportedPlaceResolver resolver;
 
     public ImportLocalDirectory(
             TripImportSourcePort importSourcePort,
@@ -90,6 +78,7 @@ public class ImportLocalDirectory {
         this.atlasFacade = atlasFacade;
         this.currentUserProvider = currentUserProvider;
         this.transactionOperations = transactionOperations;
+        this.resolver = new ImportedPlaceResolver(atlasFacade);
     }
 
     public LocalImportSummaryView execute(@Nullable String accountFilter, boolean force) {
@@ -181,13 +170,8 @@ public class ImportLocalDirectory {
                                         .flatMap(state -> state.touchedPlaceIds().stream()))
                         .distinct()
                         .toList();
-        if (!touchedPlaceIds.isEmpty()) {
-            Set<PlaceId> needingEnrichment =
-                    Set.copyOf(atlasFacade.findPlaceIdsNeedingEnrichment());
-            List<PlaceId> toEnqueue =
-                    touchedPlaceIds.stream().filter(needingEnrichment::contains).toList();
-            enrichmentJobRepository.enqueueOpenCatalogEnrichments(userId, toEnqueue);
-        }
+        enrichmentJobRepository.enqueueOpenCatalogEnrichments(
+                userId, atlasFacade.findPlaceIdsNeedingEnrichment(touchedPlaceIds));
 
         return pass2States.stream()
                 .map(this::runPass2TimelineAndFinalize)
@@ -206,12 +190,21 @@ public class ImportLocalDirectory {
 
         List<UpsertedPlaceView> savedPlaceResults =
                 parsed.savedPlaces().stream()
-                        .map(entry -> upsertSavedPlace(account.accountLabel(), entry))
+                        .map(entry ->
+                                upsertTakeoutPlace(
+                                        savedDraft(account.accountLabel(), entry),
+                                        entry.place().coordinates(),
+                                        entry.place().countryCode()))
                         .toList();
         List<UpsertedPlaceView> geocodedReviewResults =
                 parsed.reviews().stream()
-                        .filter(entry -> entry.review().coordinates() != null)
-                        .map(entry -> upsertReview(account.accountLabel(), entry.review()))
+                        .map(ReviewEntry::review)
+                        .filter(review -> review.coordinates() != null)
+                        .map(review ->
+                                upsertTakeoutPlace(
+                                        reviewDraft(account.accountLabel(), review),
+                                        Objects.requireNonNull(review.coordinates()),
+                                        review.countryCode()))
                         .toList();
 
         int totalUpserted = savedPlaceResults.size() + geocodedReviewResults.size();
@@ -233,41 +226,65 @@ public class ImportLocalDirectory {
         String accountLabel = state.account().accountLabel();
         ParsedAccountData parsed = state.parsed();
 
-        List<MatchOutcome> coordlessReviewOutcomes =
+        List<ReconciledRecord> coordlessReviewOutcomes =
                 parsed.reviews().stream()
                         .filter(entry -> entry.review().coordinates() == null)
-                        .map(entry -> reconcileCoordlessReview(accountLabel, entry))
+                        .map(entry ->
+                                new ReconciledRecord(
+                                        entry.recordId(),
+                                        resolver.attachByCid(
+                                                        reviewDraft(accountLabel, entry.review()))
+                                                .orElse(null)))
                         .toList();
-        List<MatchOutcome> csvOutcomes =
+        List<ReconciledRecord> csvOutcomes =
                 parsed.csvRows().stream()
-                        .map(entry -> reconcileCsvRow(accountLabel, entry))
+                        .map(entry ->
+                                new ReconciledRecord(
+                                        entry.recordId(),
+                                        resolver.resolve(csvDraft(accountLabel, entry.row()))
+                                                .orElse(null)))
                         .toList();
+        List<ReconciledRecord> allOutcomes =
+                Stream.concat(coordlessReviewOutcomes.stream(), csvOutcomes.stream()).toList();
 
         List<NewResolutionJob> pendingJobs =
-                Stream.concat(coordlessReviewOutcomes.stream(), csvOutcomes.stream())
-                        .map(MatchOutcome::pendingJob)
-                        .filter(Objects::nonNull)
+                allOutcomes.stream()
+                        .filter(outcome -> outcome.resolution() == null)
+                        .map(outcome -> new NewResolutionJob(UUID.randomUUID(), outcome.recordId()))
                         .toList();
         importRepository.enqueueCoordinateLookups(userId, pendingJobs);
 
-        int coordlessReviewsMatched =
-                (int) coordlessReviewOutcomes.stream().filter(MatchOutcome::cidMatched).count();
-        int csvCidMatched = (int) csvOutcomes.stream().filter(MatchOutcome::cidMatched).count();
-        int csvPlacesCreated = (int) csvOutcomes.stream().filter(MatchOutcome::created).count();
-        int csvPlacesMerged = (int) csvOutcomes.stream().filter(MatchOutcome::merged).count();
         List<PlaceId> touchedPlaceIds =
-                Stream.concat(coordlessReviewOutcomes.stream(), csvOutcomes.stream())
-                        .map(MatchOutcome::placeId)
+                allOutcomes.stream()
+                        .map(ReconciledRecord::resolution)
                         .filter(Objects::nonNull)
+                        .map(Resolution::placeId)
                         .toList();
         return new Pass2AccountState(
                 state,
-                coordlessReviewsMatched,
-                csvCidMatched,
-                csvPlacesCreated,
-                csvPlacesMerged,
+                count(coordlessReviewOutcomes, Resolution.CidMatched.class::isInstance),
+                count(csvOutcomes, Resolution.CidMatched.class::isInstance),
+                count(
+                        csvOutcomes,
+                        resolution ->
+                                resolution instanceof Resolution.Materialized materialized
+                                        && materialized.place().created()),
+                count(
+                        csvOutcomes,
+                        resolution ->
+                                resolution instanceof Resolution.Materialized materialized
+                                        && !materialized.place().created()),
                 pendingJobs.size(),
                 touchedPlaceIds);
+    }
+
+    private static int count(List<ReconciledRecord> outcomes, Predicate<Resolution> predicate) {
+        return (int)
+                outcomes.stream()
+                        .map(ReconciledRecord::resolution)
+                        .filter(Objects::nonNull)
+                        .filter(predicate)
+                        .count();
     }
 
     private AccountImportSummaryView runPass2TimelineAndFinalize(Pass2AccountState state) {
@@ -306,198 +323,47 @@ public class ImportLocalDirectory {
                 countOutcome(timelineOutcomes, TimelineReconciliationOutcome.UNMATCHED));
     }
 
-    private UpsertedPlaceView upsertSavedPlace(String accountLabel, SavedPlaceEntry entry) {
+    private UpsertedPlaceView upsertTakeoutPlace(
+            ImportedPlaceDraft draft, GeoPoint coordinates, @Nullable String countryCode) {
+        return atlasFacade.upsertImportedPlace(
+                draft.toUpsertCommand(coordinates, CoordSource.TAKEOUT, countryCode, null));
+    }
+
+    private static ImportedPlaceDraft savedDraft(String accountLabel, SavedPlaceEntry entry) {
         ParsedSavedPlace place = entry.place();
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(place.name(), place.comment(), null);
-        Long cid = place.googleCid() == null ? null : place.googleCid().unsignedBits();
-        return atlasFacade.upsertImportedPlace(
-                new ImportedPlaceUpsertCommand(
-                        place.name(),
-                        place.coordinates(),
-                        CoordSource.TAKEOUT,
-                        null,
-                        cid,
-                        classification.category(),
-                        classification.subcategory(),
-                        classification.source(),
-                        place.countryCode(),
-                        null,
-                        accountLabel,
-                        entry.listName(),
-                        place.listKind(),
-                        place.comment(),
-                        null,
-                        place.googleMapsUrl(),
-                        place.savedAt(),
-                        null,
-                        null,
-                        null));
+        return ImportedPlaceDraft.saved(
+                accountLabel,
+                place.name(),
+                place.googleMapsUrl(),
+                ImportedPlaceDraft.cidBits(place.googleCid()),
+                entry.listName(),
+                place.listKind(),
+                place.comment(),
+                null,
+                place.savedAt());
     }
 
-    private UpsertedPlaceView upsertReview(String accountLabel, ParsedReview review) {
-        GeoPoint coordinates = Objects.requireNonNull(review.coordinates());
-        String canonicalName = resolveReviewName(review);
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(canonicalName, review.reviewText(), null);
-        Long cid = review.googleCid() == null ? null : review.googleCid().unsignedBits();
-        return atlasFacade.upsertImportedPlace(
-                new ImportedPlaceUpsertCommand(
-                        canonicalName,
-                        coordinates,
-                        CoordSource.TAKEOUT,
-                        null,
-                        cid,
-                        classification.category(),
-                        classification.subcategory(),
-                        classification.source(),
-                        review.countryCode(),
-                        null,
-                        accountLabel,
-                        LIST_NAME_REVIEWS,
-                        ListKind.REVIEW,
-                        review.reviewText(),
-                        null,
-                        review.googleMapsUrl(),
-                        review.reviewedAt(),
-                        VisitStatus.VISITED,
-                        VisitSource.REVIEW,
-                        review.reviewedAt()));
-    }
-
-    private MatchOutcome reconcileCoordlessReview(String accountLabel, ReviewEntry entry) {
-        ParsedReview review = entry.review();
-        GoogleCid cid = review.googleCid();
-        if (cid == null) {
-            return new MatchOutcome(
-                    new NewResolutionJob(UUID.randomUUID(), entry.recordId()),
-                    false,
-                    false,
-                    false,
-                    null);
-        }
-        String canonicalName = resolveReviewName(review);
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(canonicalName, review.reviewText(), null);
-        Optional<PlaceId> matchedId =
-                atlasFacade.attachCsvMembershipByCid(
-                        new AttachCsvMembershipCommand(
-                                cid.unsignedBits(),
-                                canonicalName,
-                                null,
-                                classification.category(),
-                                classification.subcategory(),
-                                classification.source(),
-                                accountLabel,
-                                LIST_NAME_REVIEWS,
-                                ListKind.REVIEW,
-                                review.reviewText(),
-                                null,
-                                review.googleMapsUrl(),
-                                review.reviewedAt(),
-                                VisitStatus.VISITED,
-                                VisitSource.REVIEW,
-                                review.reviewedAt()));
-        return matchedId
-                .map(placeId -> new MatchOutcome(null, true, false, false, placeId))
-                .orElseGet(() ->
-                        new MatchOutcome(
-                                new NewResolutionJob(UUID.randomUUID(), entry.recordId()),
-                                false,
-                                false,
-                                false,
-                                null));
-    }
-
-    private MatchOutcome reconcileCsvRow(String accountLabel, CsvRowEntry entry) {
-        ParsedSavedCsvRow row = entry.row();
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(row.title(), row.note(), row.tags());
-        Long cid = row.googleCid() == null ? null : row.googleCid().unsignedBits();
-        Optional<GeoPoint> titleCoords = TitleCoordinateParser.parse(row.title());
-        if (cid != null) {
-            Optional<PlaceId> matchedId =
-                    atlasFacade.attachCsvMembershipByCid(
-                            new AttachCsvMembershipCommand(
-                                    cid,
-                                    row.title(),
-                                    titleCoords.orElse(null),
-                                    classification.category(),
-                                    classification.subcategory(),
-                                    classification.source(),
-                                    accountLabel,
-                                    row.listName(),
-                                    row.listKind(),
-                                    row.note(),
-                                    row.tags(),
-                                    row.url(),
-                                    null,
-                                    null,
-                                    null,
-                                    null));
-            if (matchedId.isPresent()) {
-                return new MatchOutcome(null, true, false, false, matchedId.get());
-            }
-        }
-        if (titleCoords.isPresent()) {
-            return upsertCsvRowWithCoords(
-                    accountLabel, row, classification, cid, titleCoords.get(), CoordSource.TAKEOUT);
-        }
-        Optional<GeoPoint> s2Coords = GoogleS2CellDecoder.decodeFromUrl(row.url());
-        if (s2Coords.isPresent()) {
-            return upsertCsvRowWithCoords(
-                    accountLabel,
-                    row,
-                    classification,
-                    cid,
-                    s2Coords.get(),
-                    CoordSource.TAKEOUT_S2_APPROX);
-        }
-        return new MatchOutcome(
-                new NewResolutionJob(UUID.randomUUID(), entry.recordId()),
-                false,
-                false,
-                false,
+    private static ImportedPlaceDraft csvDraft(String accountLabel, ParsedSavedCsvRow row) {
+        return ImportedPlaceDraft.saved(
+                accountLabel,
+                row.title(),
+                row.url(),
+                ImportedPlaceDraft.cidBits(row.googleCid()),
+                row.listName(),
+                row.listKind(),
+                row.note(),
+                row.tags(),
                 null);
     }
 
-    private MatchOutcome upsertCsvRowWithCoords(
-            String accountLabel,
-            ParsedSavedCsvRow row,
-            PlaceClassification classification,
-            @Nullable Long cid,
-            GeoPoint coordinates,
-            CoordSource coordSource) {
-        UpsertedPlaceView upserted =
-                atlasFacade.upsertImportedPlace(
-                        new ImportedPlaceUpsertCommand(
-                                row.title(),
-                                coordinates,
-                                coordSource,
-                                null,
-                                cid,
-                                classification.category(),
-                                classification.subcategory(),
-                                classification.source(),
-                                null,
-                                null,
-                                accountLabel,
-                                row.listName(),
-                                row.listKind(),
-                                row.note(),
-                                row.tags(),
-                                row.url(),
-                                null,
-                                null,
-                                null,
-                                null));
-        return new MatchOutcome(
-                null, false, upserted.created(), !upserted.created(), upserted.placeId());
-    }
-
-    private static String resolveReviewName(ParsedReview review) {
-        String trimmedName = TextNormalizer.trimToNull(review.name());
-        return trimmedName != null ? trimmedName : FALLBACK_REVIEW_NAME;
+    private static ImportedPlaceDraft reviewDraft(String accountLabel, ParsedReview review) {
+        return ImportedPlaceDraft.review(
+                accountLabel,
+                review.name(),
+                review.reviewText(),
+                review.googleMapsUrl(),
+                ImportedPlaceDraft.cidBits(review.googleCid()),
+                review.reviewedAt());
     }
 
     private static ParsedAccountData parseAccountFiles(List<DiscoveredImportFile> files) {
@@ -564,7 +430,6 @@ public class ImportLocalDirectory {
     }
 
     private static NewImportRecord toSavedPlaceRecord(String sourceFile, ParsedSavedPlace place) {
-        Long cid = place.googleCid() == null ? null : place.googleCid().unsignedBits();
         return new NewImportRecord(
                 UUID.randomUUID(),
                 ImportRecordKind.STARRED_GEOJSON,
@@ -572,14 +437,13 @@ public class ImportLocalDirectory {
                 place.name(),
                 place.googleMapsUrl(),
                 null,
-                cid,
+                ImportedPlaceDraft.cidBits(place.googleCid()),
                 place.coordinates(),
                 place.savedAt(),
                 toJson(place));
     }
 
     private static NewImportRecord toReviewRecord(String sourceFile, ParsedReview review) {
-        Long cid = review.googleCid() == null ? null : review.googleCid().unsignedBits();
         return new NewImportRecord(
                 UUID.randomUUID(),
                 ImportRecordKind.REVIEW_GEOJSON,
@@ -587,14 +451,13 @@ public class ImportLocalDirectory {
                 review.name(),
                 review.googleMapsUrl(),
                 null,
-                cid,
+                ImportedPlaceDraft.cidBits(review.googleCid()),
                 review.coordinates(),
                 review.reviewedAt(),
                 toJson(review));
     }
 
     private static NewImportRecord toCsvRecord(String sourceFile, ParsedSavedCsvRow row) {
-        Long cid = row.googleCid() == null ? null : row.googleCid().unsignedBits();
         return new NewImportRecord(
                 UUID.randomUUID(),
                 ImportRecordKind.SAVED_CSV,
@@ -602,7 +465,7 @@ public class ImportLocalDirectory {
                 row.title(),
                 row.url(),
                 null,
-                cid,
+                ImportedPlaceDraft.cidBits(row.googleCid()),
                 null,
                 null,
                 toJson(row));
@@ -629,7 +492,7 @@ public class ImportLocalDirectory {
     private static String deriveListName(Path path) {
         Path fileName = path.getFileName();
         if (fileName == null) {
-            return LIST_NAME_SAVED_DEFAULT;
+            return ImportedPlaceDraft.LIST_NAME_SAVED_DEFAULT;
         }
         String raw = fileName.toString();
         String trimmed =
@@ -637,7 +500,7 @@ public class ImportLocalDirectory {
                         ? raw.substring(0, raw.length() - JSON_EXTENSION.length())
                         : raw;
         String normalized = TextNormalizer.trimToNull(trimmed);
-        return normalized != null ? normalized : LIST_NAME_SAVED_DEFAULT;
+        return normalized != null ? normalized : ImportedPlaceDraft.LIST_NAME_SAVED_DEFAULT;
     }
 
     private static AccountImportSummaryView skippedSummary(AccountImportSource account) {
@@ -698,10 +561,5 @@ public class ImportLocalDirectory {
             List<CsvRowEntry> csvRows,
             List<ParsedTimelineVisit> timelineVisits) {}
 
-    private record MatchOutcome(
-            @Nullable NewResolutionJob pendingJob,
-            boolean cidMatched,
-            boolean created,
-            boolean merged,
-            @Nullable PlaceId placeId) {}
+    private record ReconciledRecord(UUID recordId, @Nullable Resolution resolution) {}
 }

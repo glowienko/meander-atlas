@@ -31,6 +31,8 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class ApplyPlaceEnrichmentTest {
 
@@ -103,9 +105,12 @@ class ApplyPlaceEnrichmentTest {
         assertThat(stored.openingHoursJson).isEqualTo("{\"raw\":\"24/7\"}");
     }
 
-    @Test
+    @ParameterizedTest
+    @EnumSource(
+            value = CoordSource.class,
+            names = {"TAKEOUT", "TIMELINE"})
     void preservesExactCoordinatesManualCategoryExistingPhotoAndExistingCity(
-            @TempDir Path tempDir) {
+            CoordSource exactSource, @TempDir Path tempDir) {
         FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
         AtlasFacade facade = createFacade(tempDir, placeRepo);
 
@@ -114,7 +119,7 @@ class ApplyPlaceEnrichmentTest {
                         USER_ID,
                         "Cafe Camelot",
                         new GeoPoint(50.0630, 19.9390),
-                        CoordSource.TAKEOUT,
+                        exactSource,
                         null,
                         null,
                         PlaceCategory.MUSEUM,
@@ -144,7 +149,7 @@ class ApplyPlaceEnrichmentTest {
         assertThat(result.photoAdded()).isFalse();
 
         FakeAtlasPlaceRepository.MutablePlaceRecord stored = placeRepo.place(exactManualId);
-        assertThat(stored.coordSource).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(stored.coordSource).isEqualTo(exactSource);
         assertThat(stored.coordinates).isEqualTo(new GeoPoint(50.0630, 19.9390));
         assertThat(stored.category).isEqualTo(PlaceCategory.MUSEUM);
         assertThat(stored.categorySource).isEqualTo(CategorySource.MANUAL);

@@ -99,7 +99,7 @@ public interface AtlasPlaceRepository {
             @Nullable Long googleCidToBackfill,
             @Nullable String fallbackCountryCode);
 
-    List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId);
+    List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId, @Nullable List<PlaceId> within);
 
     Optional<TimelineMatchCandidate> findTimelineMatchCandidate(
             UserId userId,
@@ -112,18 +112,5 @@ public interface AtlasPlaceRepository {
 
     List<PlaceEnrichmentTarget> findEnrichmentTargets(UserId userId, List<PlaceId> placeIds);
 
-    void applyPlaceEnrichment(
-            UserId userId,
-            PlaceId placeId,
-            @Nullable String upgradedCanonicalName,
-            boolean upgradeCoordinates,
-            @Nullable GeoPoint refinedCoordinates,
-            @Nullable String osmId,
-            boolean upgradeCategory,
-            @Nullable PlaceCategory category,
-            @Nullable String subcategory,
-            DerivedRole derivedRole,
-            @Nullable String cityName,
-            @Nullable String photoUrl,
-            @Nullable String openingHoursJson);
+    void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update);
 }

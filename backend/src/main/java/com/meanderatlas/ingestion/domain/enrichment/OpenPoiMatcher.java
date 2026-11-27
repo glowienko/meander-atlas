@@ -58,6 +58,10 @@ public final class OpenPoiMatcher {
         return COORDINATE_TEXT.matcher(trimmed).matches();
     }
 
+    public static double searchRadiusMeters(CoordSource coordSource) {
+        return coordSource.isExactAnchor() ? EXACT_RADIUS_METERS : APPROX_RADIUS_METERS;
+    }
+
     public static Optional<OpenPoiMatch> matchReverseGeocoded(
             GeoPoint targetCoordinates, List<OpenPoiCandidate> candidates) {
         if (candidates.isEmpty()) {
@@ -86,10 +90,8 @@ public final class OpenPoiMatcher {
             return Optional.empty();
         }
         String targetNorm = normalizeName(target.canonicalName());
-        boolean exactAnchor =
-                target.coordSource() == CoordSource.TAKEOUT
-                        || target.coordSource() == CoordSource.TIMELINE;
-        double maxRadius = exactAnchor ? EXACT_RADIUS_METERS : APPROX_RADIUS_METERS;
+        boolean exactAnchor = target.coordSource().isExactAnchor();
+        double maxRadius = searchRadiusMeters(target.coordSource());
         return candidates.stream()
                 .map(candidate ->
                         scoreAnchored(target, targetNorm, candidate, exactAnchor, maxRadius))

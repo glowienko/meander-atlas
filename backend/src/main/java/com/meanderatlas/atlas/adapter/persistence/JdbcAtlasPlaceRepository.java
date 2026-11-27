@@ -5,6 +5,7 @@ import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.BoundingBox;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -625,13 +626,15 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
     }
 
     @Override
-    public List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId) {
+    public List<PlaceId> findPlaceIdsNeedingEnrichment(
+            UserId userId, @Nullable List<PlaceId> within) {
         return jdbcTemplate.query(
                 """
                 SELECT id
                 FROM places
                 WHERE user_id = :userId
                   AND geom IS NOT NULL
+                  AND (:unrestricted OR id = ANY(:placeIds))
                   AND (
                       coord_source = 'TAKEOUT_S2_APPROX'
                       OR (
@@ -641,7 +644,15 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                   )
                 ORDER BY created_at ASC, id ASC
                 """,
-                Map.of("userId", userId.value()),
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue("unrestricted", within == null)
+                        .addValue(
+                                "placeIds",
+                                JdbcRowReaders.uuidArray(
+                                        within == null
+                                                ? List.of()
+                                                : within.stream().map(PlaceId::value).toList())),
                 (rs, _) -> new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")));
     }
 
@@ -726,44 +737,32 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
     }
 
     @Override
-    public void applyPlaceEnrichment(
-            UserId userId,
-            PlaceId placeId,
-            @Nullable String upgradedCanonicalName,
-            boolean upgradeCoordinates,
-            @Nullable GeoPoint refinedCoordinates,
-            @Nullable String osmId,
-            boolean upgradeCategory,
-            @Nullable PlaceCategory category,
-            @Nullable String subcategory,
-            DerivedRole derivedRole,
-            @Nullable String cityName,
-            @Nullable String photoUrl,
-            @Nullable String openingHoursJson) {
+    public void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update) {
+        GeoPoint coordinates = update.upgradedCoordinates();
+        PlaceCategory category = update.upgradedCategory();
         jdbcTemplate.update(
                 APPLY_PLACE_ENRICHMENT_SQL,
                 new MapSqlParameterSource()
-                        .addValue("placeId", placeId.value())
+                        .addValue("placeId", update.placeId().value())
                         .addValue("userId", userId.value())
-                        .addValue("upgradedCanonicalName", upgradedCanonicalName, Types.VARCHAR)
-                        .addValue("upgradeCoordinates", upgradeCoordinates)
                         .addValue(
-                                "lng",
-                                refinedCoordinates == null ? 0.0 : refinedCoordinates.longitude())
-                        .addValue(
-                                "lat",
-                                refinedCoordinates == null ? 0.0 : refinedCoordinates.latitude())
-                        .addValue("osmId", osmId, Types.VARCHAR)
-                        .addValue("upgradeCategory", upgradeCategory)
+                                "upgradedCanonicalName",
+                                update.upgradedCanonicalName(),
+                                Types.VARCHAR)
+                        .addValue("upgradeCoordinates", coordinates != null)
+                        .addValue("lng", coordinates == null ? 0.0 : coordinates.longitude())
+                        .addValue("lat", coordinates == null ? 0.0 : coordinates.latitude())
+                        .addValue("osmId", update.osmId(), Types.VARCHAR)
+                        .addValue("upgradeCategory", category != null)
                         .addValue(
                                 "category",
                                 category == null ? null : category.name(),
                                 Types.VARCHAR)
-                        .addValue("subcategory", subcategory, Types.VARCHAR)
-                        .addValue("derivedRole", derivedRole.name())
-                        .addValue("cityName", cityName, Types.VARCHAR)
-                        .addValue("photoUrl", photoUrl, Types.VARCHAR)
-                        .addValue("openingHoursJson", openingHoursJson, Types.VARCHAR)
+                        .addValue("subcategory", update.upgradedSubcategory(), Types.VARCHAR)
+                        .addValue("derivedRole", update.derivedRole().name())
+                        .addValue("cityName", update.cityName(), Types.VARCHAR)
+                        .addValue("photoUrl", update.photoUrl(), Types.VARCHAR)
+                        .addValue("openingHoursJson", update.openingHoursJson(), Types.VARCHAR)
                         .addValue(
                                 "coastalFallbackMeters", SpatialRegionSql.COASTAL_FALLBACK_METERS));
     }

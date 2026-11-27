@@ -1,5 +1,6 @@
 package com.meanderatlas.ingestion.adapter.http;
 
+import com.meanderatlas.ingestion.application.EnrichmentProperties;
 import com.meanderatlas.ingestion.domain.TextNormalizer;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.OpenPoiCandidate;
 import com.meanderatlas.shared.GeoPoint;
@@ -7,30 +8,23 @@ import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.jspecify.annotations.Nullable;
-import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 class PhotonPoiClient {
 
     private static final int DEFAULT_LIMIT = 5;
     private static final int REVERSE_LIMIT = 3;
-    private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
-    private final RestClient restClient;
+    private final OpenDataHttp http;
     private final EnrichmentProperties properties;
 
     PhotonPoiClient(RestClient.Builder builder, EnrichmentProperties properties) {
-        this.restClient = builder.build();
+        this.http = new OpenDataHttp(builder, properties.wikimediaUserAgent());
         this.properties = properties;
     }
 
@@ -43,37 +37,23 @@ class PhotonPoiClient {
                 UriComponentsBuilder.fromUriString(properties.photonUrl())
                         .queryParam("q", normalizedQuery);
         if (anchor != null) {
-            builder.queryParam("lat", String.format(Locale.ROOT, "%.6f", anchor.latitude()))
-                    .queryParam("lon", String.format(Locale.ROOT, "%.6f", anchor.longitude()));
+            builder.queryParam("lat", OpenDataHttp.formatCoordinate(anchor.latitude()))
+                    .queryParam("lon", OpenDataHttp.formatCoordinate(anchor.longitude()));
         }
         URI uri = builder.queryParam("limit", DEFAULT_LIMIT).build().encode().toUri();
-        String rawResponse =
-                restClient
-                        .get()
-                        .uri(uri)
-                        .header(HttpHeaders.USER_AGENT, properties.wikimediaUserAgent())
-                        .retrieve()
-                        .body(String.class);
-        return parseResponse(rawResponse);
+        return parseResponse(http.get(uri));
     }
 
     List<OpenPoiCandidate> reverse(GeoPoint point) {
         URI uri =
                 UriComponentsBuilder.fromUriString(resolveReverseUrl(properties.photonUrl()))
-                        .queryParam("lat", String.format(Locale.ROOT, "%.6f", point.latitude()))
-                        .queryParam("lon", String.format(Locale.ROOT, "%.6f", point.longitude()))
+                        .queryParam("lat", OpenDataHttp.formatCoordinate(point.latitude()))
+                        .queryParam("lon", OpenDataHttp.formatCoordinate(point.longitude()))
                         .queryParam("limit", REVERSE_LIMIT)
                         .build()
                         .encode()
                         .toUri();
-        String rawResponse =
-                restClient
-                        .get()
-                        .uri(uri)
-                        .header(HttpHeaders.USER_AGENT, properties.wikimediaUserAgent())
-                        .retrieve()
-                        .body(String.class);
-        return parseResponse(rawResponse);
+        return parseResponse(http.get(uri));
     }
 
     static String resolveReverseUrl(String photonUrl) {
@@ -87,16 +67,7 @@ class PhotonPoiClient {
         return trimmed + "/reverse";
     }
 
-    static List<OpenPoiCandidate> parseResponse(@Nullable String rawResponse) {
-        if (rawResponse == null || rawResponse.isBlank()) {
-            return List.of();
-        }
-        JsonNode root;
-        try {
-            root = JSON_MAPPER.readTree(rawResponse);
-        } catch (JacksonException ex) {
-            return List.of();
-        }
+    static List<OpenPoiCandidate> parseResponse(JsonNode root) {
         JsonNode features = root.path("features");
         if (!features.isArray() || features.isEmpty()) {
             return List.of();
@@ -108,16 +79,14 @@ class PhotonPoiClient {
     }
 
     private static Optional<OpenPoiCandidate> parseFeature(JsonNode feature) {
-        GeoPoint coordinates = extractCoordinates(feature.path("geometry").path("coordinates"));
-        if (coordinates == null) {
-            return Optional.empty();
-        }
+        JsonNode coords = feature.path("geometry").path("coordinates");
+        Optional<GeoPoint> coordinates = OpenDataHttp.validPoint(coords.get(1), coords.get(0));
         JsonNode props = feature.path("properties");
-        if (!props.isObject()) {
+        if (coordinates.isEmpty() || !props.isObject()) {
             return Optional.empty();
         }
         String name =
-                firstNonBlank(
+                OpenDataHttp.firstNonBlank(
                         textOrNull(props, "name"),
                         textOrNull(props, "street"),
                         textOrNull(props, "district"),
@@ -131,7 +100,7 @@ class PhotonPoiClient {
         String osmKey = textOrNull(props, "osm_key");
         String osmValue = textOrNull(props, "osm_value");
         String cityName =
-                firstNonBlank(
+                OpenDataHttp.firstNonBlank(
                         textOrNull(props, "city"),
                         textOrNull(props, "town"),
                         textOrNull(props, "village"));
@@ -140,41 +109,13 @@ class PhotonPoiClient {
                         .map(code -> code.toUpperCase(Locale.ROOT))
                         .orElse(null);
 
-        Stream.Builder<Map.Entry<String, String>> tagBuilder = Stream.builder();
-        tagBuilder.add(Map.entry("name", name));
-        if (osmKey != null && osmValue != null) {
-            tagBuilder.add(Map.entry(osmKey, osmValue));
-        }
         Map<String, String> tags =
-                tagBuilder
-                        .build()
-                        .collect(
-                                Collectors.toUnmodifiableMap(
-                                        Map.Entry::getKey, Map.Entry::getValue, (a, _) -> a));
+                osmKey == null || osmValue == null || osmKey.equals("name")
+                        ? Map.of("name", name)
+                        : Map.of("name", name, osmKey, osmValue);
         return Optional.of(
-                new OpenPoiCandidate(osmId, name, coordinates, tags, cityName, countryCode, null));
-    }
-
-    private static @Nullable GeoPoint extractCoordinates(JsonNode coords) {
-        if (!coords.isArray() || coords.size() < 2) {
-            return null;
-        }
-        JsonNode lngNode = coords.get(0);
-        JsonNode latNode = coords.get(1);
-        if (!lngNode.isNumber() || !latNode.isNumber()) {
-            return null;
-        }
-        double lat = latNode.doubleValue();
-        double lng = lngNode.doubleValue();
-        if (!Double.isFinite(lat)
-                || !Double.isFinite(lng)
-                || lat < -90.0
-                || lat > 90.0
-                || lng < -180.0
-                || lng > 180.0) {
-            return null;
-        }
-        return new GeoPoint(lat, lng);
+                new OpenPoiCandidate(
+                        osmId, name, coordinates.get(), tags, cityName, countryCode, null));
     }
 
     private static @Nullable String formatOsmId(
@@ -202,13 +143,5 @@ class PhotonPoiClient {
             return null;
         }
         return TextNormalizer.trimToNull(field.stringValue());
-    }
-
-    private static @Nullable String firstNonBlank(@Nullable String... candidates) {
-        return Stream.of(candidates)
-                .map(TextNormalizer::trimToNull)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
     }
 }

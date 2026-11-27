@@ -40,7 +40,7 @@
 - **Jackson 3:** Use `tools.jackson.*` packages (never legacy `com.fasterxml.jackson.*`).
 - **Modular starters:** Explicitly use `spring-boot-starter-webmvc` (not `web`) and `spring-boot-starter-flyway` + `flyway-database-postgresql`.
 - **Nullability:** Use JSpecify `org.jspecify.annotations.NullMarked` per package and `@Nullable` (never `org.springframework.lang.*`); enforced as compile errors via Error Prone + NullAway.
-- **Paths & Resilience:** Never use unexpanded `~/` in Java/Compose paths (use `${user.home}` / `${HOME}`); use Spring Framework 7 core `@Retryable` / `@ConcurrencyLimit` (no Resilience4j).
+- **Paths & Resilience:** Never use unexpanded `~/` in Java/Compose paths (use `${user.home}` / `${HOME}`); no in-process retry/backoff/circuit breakers (no Resilience4j) — external failures surface as job outcomes and retry via the `resolution_jobs` queue; no `Thread.sleep`, raw `Thread`/`Executors`, or no-arg `*.now()` in production (use the Spring `AsyncTaskExecutor` and an injected `Clock`; enforced by `ArchitectureTest`).
 - **Testcontainers 2.x:** `org.testcontainers.postgresql.PostgreSQLContainer` (non-generic) with `@ServiceConnection`.
 
 ## Code, Testing & Agent Skills

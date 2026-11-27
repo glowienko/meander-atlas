@@ -4,6 +4,7 @@ import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -238,9 +239,11 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
     }
 
     @Override
-    public List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId) {
+    public List<PlaceId> findPlaceIdsNeedingEnrichment(
+            UserId userId, @Nullable List<PlaceId> within) {
         return places.values().stream()
                 .filter(p -> p.userId.equals(userId))
+                .filter(p -> within == null || within.contains(p.id))
                 .filter(p ->
                         p.coordSource == CoordSource.TAKEOUT_S2_APPROX
                                 || (p.coordSource == CoordSource.TAKEOUT
@@ -330,20 +333,17 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
     }
 
     @Override
-    public void applyPlaceEnrichment(
-            UserId userId,
-            PlaceId placeId,
-            @Nullable String upgradedCanonicalName,
-            boolean upgradeCoordinates,
-            @Nullable GeoPoint refinedCoordinates,
-            @Nullable String osmId,
-            boolean upgradeCategory,
-            @Nullable PlaceCategory category,
-            @Nullable String subcategory,
-            DerivedRole derivedRole,
-            @Nullable String cityName,
-            @Nullable String photoUrl,
-            @Nullable String openingHoursJson) {
+    public void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update) {
+        PlaceId placeId = update.placeId();
+        String upgradedCanonicalName = update.upgradedCanonicalName();
+        GeoPoint refinedCoordinates = update.upgradedCoordinates();
+        String osmId = update.osmId();
+        PlaceCategory category = update.upgradedCategory();
+        String subcategory = update.upgradedSubcategory();
+        DerivedRole derivedRole = update.derivedRole();
+        String cityName = update.cityName();
+        String photoUrl = update.photoUrl();
+        String openingHoursJson = update.openingHoursJson();
         MutablePlaceRecord record = place(placeId);
         if (!record.userId.equals(userId)) {
             return;
@@ -351,16 +351,14 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         if (upgradedCanonicalName != null) {
             record.canonicalName = upgradedCanonicalName;
         }
-        if (upgradeCoordinates
-                && refinedCoordinates != null
-                && record.coordSource == CoordSource.TAKEOUT_S2_APPROX) {
+        if (refinedCoordinates != null && record.coordSource == CoordSource.TAKEOUT_S2_APPROX) {
             record.coordinates = refinedCoordinates;
             record.coordSource = CoordSource.OPEN_CATALOG;
         }
         if (osmId != null) {
             record.osmId = osmId;
         }
-        if (upgradeCategory && category != null && record.categorySource != CategorySource.MANUAL) {
+        if (category != null && record.categorySource != CategorySource.MANUAL) {
             record.category = category;
             record.subcategory = subcategory;
             record.categorySource = CategorySource.OPEN_CATALOG;

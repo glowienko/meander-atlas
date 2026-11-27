@@ -129,73 +129,75 @@ export const BULK_BATCH_SIZE = 500;
 
 export function chunkItems<T>(items: readonly T[], size = BULK_BATCH_SIZE): T[][] {
   const safeSize = Math.max(1, Math.floor(size));
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += safeSize) {
-    chunks.push(items.slice(i, i + safeSize));
-  }
-  return chunks;
+  return Array.from({ length: Math.ceil(items.length / safeSize) }, (_, index) =>
+    items.slice(index * safeSize, (index + 1) * safeSize),
+  );
+}
+
+async function sendInChunks<T, R>(
+  items: readonly T[],
+  send: (chunk: T[]) => Promise<R>,
+  rollback: (applied: readonly R[]) => Promise<unknown> = async () => undefined,
+): Promise<R[]> {
+  const sendRemaining = async (chunks: T[][], applied: R[]): Promise<R[]> => {
+    const [chunk, ...rest] = chunks;
+    if (!chunk) {
+      return applied;
+    }
+    const result = await send(chunk).catch(async (error: unknown) => {
+      await rollback(applied).catch(() => undefined);
+      throw error;
+    });
+    return sendRemaining(rest, [...applied, result]);
+  };
+  return sendRemaining(chunkItems(items), []);
+}
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
 }
 
 export async function patchBulkVisitStatus(
   placeIds: string[],
   targetStatus: VisitStatus,
 ): Promise<BulkVisitStatusResultView> {
-  if (placeIds.length === 0) {
-    return { updatedCount: 0, previousStates: [] };
-  }
-  let updatedCount = 0;
-  const previousStates: VisitStateSnapshotView[] = [];
-  for (const batch of chunkItems(placeIds, BULK_BATCH_SIZE)) {
-    const result = unwrapResponse(
-      await apiClient.PATCH("/api/v1/atlas/places/bulk-visit-status", {
-        body: { placeIds: batch, targetStatus },
-      }),
-      "Bulk update visit status",
-    );
-    updatedCount += result.updatedCount;
-    previousStates.push(...result.previousStates);
-  }
-  return { updatedCount, previousStates };
+  const results = await sendInChunks(
+    placeIds,
+    async (batch) =>
+      unwrapResponse(
+        await apiClient.PATCH("/api/v1/atlas/places/bulk-visit-status", {
+          body: { placeIds: batch, targetStatus },
+        }),
+        "Bulk update visit status",
+      ),
+    (applied) => postRestoreVisitStates(applied.flatMap((result) => result.previousStates)),
+  );
+  return {
+    updatedCount: sum(results.map((result) => result.updatedCount)),
+    previousStates: results.flatMap((result) => result.previousStates),
+  };
 }
 
 export async function postRestoreVisitStates(
-  snapshots: VisitStateSnapshotView[],
+  snapshots: readonly VisitStateSnapshotView[],
 ): Promise<RestoreVisitStatesResultView> {
-  if (snapshots.length === 0) {
-    return { restoredCount: 0 };
-  }
-  let restoredCount = 0;
-  for (const batch of chunkItems(snapshots, BULK_BATCH_SIZE)) {
-    const result = unwrapResponse(
+  const results = await sendInChunks(snapshots, async (batch) =>
+    unwrapResponse(
       await apiClient.POST("/api/v1/atlas/places/bulk-visit-status/restore", {
         body: { snapshots: batch },
       }),
       "Restore visit states",
-    );
-    restoredCount += result.restoredCount;
-  }
-  return { restoredCount };
+    ),
+  );
+  return { restoredCount: sum(results.map((result) => result.restoredCount)) };
 }
 
 export async function fetchImportStatus(): Promise<ImportStatusView> {
   return unwrapResponse(await apiClient.GET("/api/v1/imports/status"), "Import status request");
 }
 
-export async function postLocalImport(options?: {
-  account?: string;
-  force?: boolean;
-}): Promise<LocalImportSummaryView> {
-  return unwrapResponse(
-    await apiClient.POST("/api/v1/imports/local", {
-      params: {
-        query: {
-          account: nonEmpty(options?.account),
-          force: options?.force,
-        },
-      },
-    }),
-    "Local import request",
-  );
+export async function postLocalImport(): Promise<LocalImportSummaryView> {
+  return unwrapResponse(await apiClient.POST("/api/v1/imports/local"), "Local import request");
 }
 
 export async function postMaterializeOffline(): Promise<OfflineMaterializationSummaryView> {

@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { CATEGORY_OPTIONS, DERIVED_ROLE_OPTIONS, VISIT_STATUS_OPTIONS } from "./atlasLabels";
 
 export type AtlasProjection = "globe" | "mercator";
 export type AtlasBasemap = "atlas" | "street";
+export type MapBasemap = AtlasBasemap | "offline";
 export type RegionScope = "COUNTRY" | "ADMIN1";
 export type VisitStatusFilter = "UNVISITED" | "VISITED" | "NEEDS_TRIAGE" | "";
 export type DerivedRoleFilter = "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG" | "";
@@ -89,7 +91,7 @@ export function writeAtlasViewState(state: AtlasViewState, currentSearch: string
   const params = new URLSearchParams(currentSearch);
 
   setOrDelete(params, "view", state.projection === "mercator" ? "map" : "");
-  if (params.get("basemap") !== "offline") {
+  if (!isOfflineBasemap(currentSearch)) {
     setOrDelete(params, "basemap", state.basemap === "street" ? "street" : "");
   }
   setOrDelete(params, "q", state.q.trim());
@@ -111,6 +113,23 @@ export function writeAtlasViewState(state: AtlasViewState, currentSearch: string
 
   const serialized = params.toString();
   return serialized.length > 0 ? `?${serialized}` : "";
+}
+
+function isOfflineBasemap(search: string): boolean {
+  return new URLSearchParams(search).get("basemap") === "offline";
+}
+
+export function useAtlasViewState() {
+  const [viewState, setViewState] = useState(() => readAtlasViewState(window.location.search));
+  const [offlineBasemap] = useState(() => isOfflineBasemap(window.location.search));
+  useEffect(() => {
+    const { pathname, search, hash } = window.location;
+    const nextSearch = writeAtlasViewState(viewState, search);
+    if (search !== nextSearch) {
+      window.history.replaceState(null, "", `${pathname}${nextSearch}${hash}`);
+    }
+  }, [viewState]);
+  return [viewState, setViewState, offlineBasemap] as const;
 }
 
 export function hasActiveFilters(state: AtlasViewState): boolean {

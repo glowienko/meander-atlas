@@ -38,7 +38,11 @@ public class ImportFacade {
         return materializePendingCoordinateJobs.execute();
     }
 
-    public EnrichmentBatchResultView enrich(int limit, boolean dryRun, boolean background) {
-        return runEnrichmentBatch.execute(limit, dryRun, background);
+    public EnrichmentBatchResultView enrich(int limit, boolean dryRun) {
+        return runEnrichmentBatch.runBatch(limit, dryRun);
+    }
+
+    public EnrichmentBatchResultView startEnrichmentDrain(int limit, boolean dryRun) {
+        return runEnrichmentBatch.startDrain(limit, dryRun);
     }
 }

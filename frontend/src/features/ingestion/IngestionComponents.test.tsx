@@ -39,6 +39,8 @@ describe("Ingestion components", () => {
         }}
         onMaterializeOffline={onMaterializeOffline}
         onRunEnrichment={onRunEnrichment}
+        isMaterializing={false}
+        isEnriching={false}
       />,
     );
 
@@ -74,6 +76,8 @@ describe("Ingestion components", () => {
         }}
         onMaterializeOffline={onMaterializeOffline}
         onRunEnrichment={onRunEnrichment}
+        isMaterializing={false}
+        isEnriching={false}
       />,
     );
 

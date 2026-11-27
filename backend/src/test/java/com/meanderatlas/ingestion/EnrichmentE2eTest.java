@@ -1,5 +1,12 @@
 package com.meanderatlas.ingestion;
 
+import static com.meanderatlas.ingestion.OpenCatalogTestData.NO_FEATURES;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.WAWEL_THUMB_URL;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.commonsThumbResponse;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.overpassResponse;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.overpassWay;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.photonPoi;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.photonResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
@@ -24,7 +31,10 @@ import java.nio.file.Path;
 import java.sql.Types;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -37,6 +47,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -92,7 +103,6 @@ class EnrichmentE2eTest {
         registry.add("app.imports-dir", () -> tempRoot.resolve("imports").toString());
         registry.add("app.enrichment.enabled", () -> "true");
         registry.add("app.enrichment.batch-size", () -> "10");
-        registry.add("app.enrichment.request-delay-ms", () -> "0");
         registry.add("app.enrichment.max-retries", () -> "2");
         registry.add("app.enrichment.overpass-url", () -> baseUrl + "/overpass");
         registry.add("app.enrichment.photon-url", () -> baseUrl + "/photon");
@@ -118,12 +128,24 @@ class EnrichmentE2eTest {
         RestClient client =
                 RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
 
-        assertThatThrownBy(() ->
-                        client.post()
-                                .uri("/api/v1/imports/enrich?limit=0")
-                                .retrieve()
-                                .toBodilessEntity())
-                .isInstanceOf(HttpClientErrorException.BadRequest.class);
+        Stream.of(0, 501)
+                .forEach(limit ->
+                        assertThatThrownBy(() ->
+                                        client.post()
+                                                .uri("/api/v1/imports/enrich?limit={limit}", limit)
+                                                .retrieve()
+                                                .toBodilessEntity())
+                                .isInstanceOfSatisfying(
+                                        HttpClientErrorException.BadRequest.class,
+                                        ex ->
+                                                assertThat(
+                                                                Objects.requireNonNull(
+                                                                                ex
+                                                                                        .getResponseHeaders())
+                                                                        .getContentType())
+                                                        .isEqualTo(
+                                                                MediaType
+                                                                        .APPLICATION_PROBLEM_JSON)));
 
         BoundaryTestData.writePolandOnly(tempRoot.resolve("boundaries"));
         ResponseEntity<BoundarySeedResultView> seeded =
@@ -182,6 +204,12 @@ class EnrichmentE2eTest {
         assertThat(dryRun.photosAddedCount()).isEqualTo(1);
         assertThat(dryRun.skippedCount()).isEqualTo(1);
         assertThat(dryRun.remainingPendingCount()).isEqualTo(4);
+        assertThat(placeColumns(approxPlaceId))
+                .containsEntry("coord_source", "TAKEOUT_S2_APPROX")
+                .containsEntry("category", "UNCATEGORIZED")
+                .containsEntry("photo_url", null);
+        assertThat(placeCount()).isEqualTo(2);
+        assertThat(jobStates()).containsOnly("PENDING:0");
 
         EnrichmentBatchResultView live =
                 client.post()
@@ -244,6 +272,70 @@ class EnrichmentE2eTest {
         assertThat(afterStatus.approximatePlaceCount()).isZero();
         assertThat(afterStatus.enrichedPlaceCount()).isEqualTo(3);
         assertThat(afterStatus.enrichmentRunning()).isFalse();
+    }
+
+    @Test
+    void reclaimsInProgressJobsOnlyAfterTheLeaseExpires() {
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        insertInProgressEnrichJob(
+                insertPlace("Stale Claim", 50.05, 19.93, "TAKEOUT", "UNCATEGORIZED", "HEURISTIC"),
+                "16 minutes");
+        insertInProgressEnrichJob(
+                insertPlace("Fresh Claim", 50.06, 19.94, "TAKEOUT", "UNCATEGORIZED", "HEURISTIC"),
+                "1 minute");
+
+        EnrichmentBatchResultView result =
+                client.post()
+                        .uri("/api/v1/imports/enrich?limit=20&dryRun=true")
+                        .retrieve()
+                        .body(EnrichmentBatchResultView.class);
+
+        assertThat(result).isNotNull();
+        assertThat(result.claimedCount()).isEqualTo(1);
+    }
+
+    private Map<String, @Nullable Object> placeColumns(UUID placeId) {
+        return jdbc.queryForMap(
+                "SELECT coord_source, category, photo_url FROM places WHERE id = :id",
+                Map.of("id", placeId));
+    }
+
+    private int placeCount() {
+        return Objects.requireNonNull(
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM places WHERE user_id = :userId",
+                        Map.of("userId", USER_ID),
+                        Integer.class));
+    }
+
+    private List<@Nullable String> jobStates() {
+        return jdbc.queryForList(
+                "SELECT status || ':' || attempts FROM resolution_jobs WHERE user_id = :userId",
+                Map.of("userId", USER_ID),
+                String.class);
+    }
+
+    private void insertInProgressEnrichJob(UUID placeId, String claimedAgo) {
+        jdbc.update(
+                """
+                INSERT INTO resolution_jobs (
+                    id, user_id, place_id, job_type, status, attempts, updated_at
+                )
+                VALUES (
+                    :id, :userId, :placeId, 'OPEN_CATALOG_ENRICH', 'IN_PROGRESS', 1,
+                    now() - CAST(:claimedAgo AS interval)
+                )
+                """,
+                Map.of(
+                        "id",
+                        UUID.randomUUID(),
+                        "userId",
+                        USER_ID,
+                        "placeId",
+                        placeId,
+                        "claimedAgo",
+                        claimedAgo));
     }
 
     private UUID insertPlace(
@@ -348,94 +440,49 @@ class EnrichmentE2eTest {
     private static void handleOverpass(HttpExchange exchange) throws IOException {
         respondJson(
                 exchange,
-                """
-                {
-                  "elements": [
-                    {
-                      "type": "way",
-                      "id": 1001,
-                      "center": { "lat": 50.0541, "lon": 19.9355 },
-                      "tags": {
-                        "name": "Zamek Królewski na Wawelu",
-                        "name:en": "Wawel Royal Castle",
-                        "historic": "castle",
-                        "addr:city": "Kraków",
-                        "opening_hours": "Mo-Su 09:00-17:00",
-                        "wikimedia_commons": "File:Wawel.jpg"
-                      }
-                    }
-                  ]
-                }
-                """);
+                overpassResponse(
+                        overpassWay(
+                                1001,
+                                50.0541,
+                                19.9355,
+                                Map.of(
+                                        "name", "Zamek Królewski na Wawelu",
+                                        "name:en", "Wawel Royal Castle",
+                                        "historic", "castle",
+                                        "addr:city", "Kraków",
+                                        "opening_hours", "Mo-Su 09:00-17:00",
+                                        "wikimedia_commons", "File:Wawel.jpg"))));
     }
 
     private static void handlePhoton(HttpExchange exchange) throws IOException {
-        String query = exchange.getRequestURI().getRawQuery();
-        if (query != null && query.contains("Camelot")) {
-            respondJson(
-                    exchange,
-                    """
-                    {
-                      "features": [
-                        {
-                          "geometry": { "coordinates": [19.9392, 50.0631] },
-                          "properties": {
-                            "osm_type": "N",
-                            "osm_id": 2002,
-                            "osm_key": "amenity",
-                            "osm_value": "cafe",
-                            "name": "Cafe Camelot",
-                            "city": "Kraków",
-                            "countrycode": "pl"
-                          }
-                        }
-                      ]
-                    }
-                    """);
-            return;
-        }
-        if (query != null && query.contains("Sukiennice")) {
-            respondJson(
-                    exchange,
-                    """
-                    {
-                      "features": [
-                        {
-                          "geometry": { "coordinates": [19.9373, 50.0617] },
-                          "properties": {
-                            "osm_type": "W",
-                            "osm_id": 3003,
-                            "osm_key": "tourism",
-                            "osm_value": "museum",
-                            "name": "Sukiennice",
-                            "city": "Kraków",
-                            "countrycode": "pl"
-                          }
-                        }
-                      ]
-                    }
-                    """);
-            return;
-        }
-        respondJson(exchange, "{\"features\":[]}");
+        String query = Objects.requireNonNullElse(exchange.getRequestURI().getRawQuery(), "");
+        String body =
+                query.contains("Camelot")
+                        ? photonResponse(
+                                photonPoi(
+                                        "N/2002",
+                                        "amenity=cafe",
+                                        "Cafe Camelot",
+                                        "Kraków",
+                                        "pl",
+                                        50.0631,
+                                        19.9392))
+                        : query.contains("Sukiennice")
+                                ? photonResponse(
+                                        photonPoi(
+                                                "W/3003",
+                                                "tourism=museum",
+                                                "Sukiennice",
+                                                "Kraków",
+                                                "pl",
+                                                50.0617,
+                                                19.9373))
+                                : NO_FEATURES;
+        respondJson(exchange, body);
     }
 
     private static void handleCommons(HttpExchange exchange) throws IOException {
-        respondJson(
-                exchange,
-                """
-                {
-                  "query": {
-                    "pages": [
-                      {
-                        "imageinfo": [
-                          { "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/w/Wawel.jpg" }
-                        ]
-                      }
-                    ]
-                  }
-                }
-                """);
+        respondJson(exchange, commonsThumbResponse(WAWEL_THUMB_URL));
     }
 
     private static void handleWikipedia(HttpExchange exchange) throws IOException {

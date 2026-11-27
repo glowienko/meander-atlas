@@ -17,6 +17,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.jspecify.annotations.Nullable;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SqlTypeValue;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -28,6 +29,33 @@ class JdbcEnrichmentJobRepository implements EnrichmentJobRepository {
 
     private static final int BATCH_SIZE = 500;
     private static final int MAX_ERROR_LENGTH = 500;
+    private static final String COORDINATE_JOB_COLUMNS =
+            """
+            rj.id AS job_id,
+            rj.import_record_id,
+            ir.account_label,
+            ir.record_type,
+            ir.raw_title,
+            ir.raw_url,
+            ir.google_cid,
+            ir.observed_at,
+            ir.payload_json::text AS payload_json
+            """;
+    private static final RowMapper<PendingCoordinateJob> PENDING_COORDINATE_JOB =
+            (rs, _) -> {
+                OffsetDateTime observedAt = rs.getObject("observed_at", OffsetDateTime.class);
+                return new PendingCoordinateJob(
+                        Objects.requireNonNull(rs.getObject("job_id", UUID.class)),
+                        Objects.requireNonNull(rs.getObject("import_record_id", UUID.class)),
+                        Objects.requireNonNull(rs.getString("account_label")),
+                        ImportRecordKind.valueOf(
+                                Objects.requireNonNull(rs.getString("record_type"))),
+                        rs.getString("raw_title"),
+                        rs.getString("raw_url"),
+                        rs.getObject("google_cid", Long.class),
+                        observedAt == null ? null : observedAt.toInstant(),
+                        Objects.requireNonNull(rs.getString("payload_json")));
+            };
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -39,26 +67,18 @@ class JdbcEnrichmentJobRepository implements EnrichmentJobRepository {
     public List<PendingCoordinateJob> findPendingCoordinateLookups(
             UserId userId, @Nullable UUID afterJobId, int limit) {
         return jdbcTemplate.query(
-                """
-                SELECT
-                    rj.id AS job_id,
-                    rj.import_record_id,
-                    ir.account_label,
-                    ir.record_type,
-                    ir.raw_title,
-                    ir.raw_url,
-                    ir.google_cid,
-                    ir.observed_at,
-                    ir.payload_json::text AS payload_json
-                FROM resolution_jobs rj
-                JOIN import_records ir ON ir.id = rj.import_record_id
-                WHERE rj.user_id = :userId
-                  AND rj.job_type = 'COORDINATE_LOOKUP'
-                  AND rj.status = 'PENDING'
-                  AND (CAST(:afterJobId AS uuid) IS NULL OR rj.id > CAST(:afterJobId AS uuid))
-                ORDER BY rj.id ASC
-                LIMIT :limit
-                """,
+                "SELECT "
+                        + COORDINATE_JOB_COLUMNS
+                        + """
+                        FROM resolution_jobs rj
+                        JOIN import_records ir ON ir.id = rj.import_record_id
+                        WHERE rj.user_id = :userId
+                          AND rj.job_type = 'COORDINATE_LOOKUP'
+                          AND rj.status = 'PENDING'
+                          AND (CAST(:afterJobId AS uuid) IS NULL OR rj.id > CAST(:afterJobId AS uuid))
+                        ORDER BY rj.id ASC
+                        LIMIT :limit
+                        """,
                 new MapSqlParameterSource()
                         .addValue("userId", userId.value())
                         .addValue(
@@ -66,20 +86,7 @@ class JdbcEnrichmentJobRepository implements EnrichmentJobRepository {
                                 afterJobId == null ? null : afterJobId.toString(),
                                 Types.VARCHAR)
                         .addValue("limit", limit),
-                (rs, _) -> {
-                    OffsetDateTime observedOdt = rs.getObject("observed_at", OffsetDateTime.class);
-                    Instant observedAt = observedOdt == null ? null : observedOdt.toInstant();
-                    return new PendingCoordinateJob(
-                            rs.getObject("job_id", UUID.class),
-                            rs.getObject("import_record_id", UUID.class),
-                            rs.getString("account_label"),
-                            ImportRecordKind.valueOf(rs.getString("record_type")),
-                            rs.getString("raw_title"),
-                            rs.getString("raw_url"),
-                            rs.getObject("google_cid", Long.class),
-                            observedAt,
-                            rs.getString("payload_json"));
-                });
+                PENDING_COORDINATE_JOB);
     }
 
     @Override
@@ -174,8 +181,13 @@ class JdbcEnrichmentJobRepository implements EnrichmentJobRepository {
                             LEFT JOIN places p ON p.id = rj.place_id
                             WHERE rj.user_id = :userId
                               AND rj.job_type IN ('OPEN_CATALOG_ENRICH', 'COORDINATE_LOOKUP')
-                              AND rj.status IN ('PENDING', 'FAILED')
-                              AND rj.next_run_at <= now()
+                              AND (
+                                  (rj.status IN ('PENDING', 'FAILED') AND rj.next_run_at <= now())
+                                  OR (
+                                      rj.status = 'IN_PROGRESS'
+                                      AND rj.updated_at < now() - interval '15 minutes'
+                                  )
+                              )
                             ORDER BY
                                 (rj.job_type = 'OPEN_CATALOG_ENRICH') DESC,
                                 rj.attempts ASC,
@@ -199,56 +211,26 @@ class JdbcEnrichmentJobRepository implements EnrichmentJobRepository {
             return List.of();
         }
         return jdbcTemplate.query(
-                """
-                SELECT
-                    rj.id AS job_id,
-                    rj.job_type,
-                    rj.place_id,
-                    rj.attempts,
-                    rj.import_record_id,
-                    ir.account_label,
-                    ir.record_type,
-                    ir.raw_title,
-                    ir.raw_url,
-                    ir.google_cid,
-                    ir.observed_at,
-                    ir.payload_json::text AS payload_json
-                FROM resolution_jobs rj
-                LEFT JOIN import_records ir ON ir.id = rj.import_record_id
-                WHERE rj.id = ANY(:jobIds)
-                ORDER BY (rj.job_type = 'OPEN_CATALOG_ENRICH') DESC, rj.next_run_at ASC, rj.id ASC
-                """,
+                "SELECT rj.job_type, rj.place_id, rj.attempts, "
+                        + COORDINATE_JOB_COLUMNS
+                        + """
+                        FROM resolution_jobs rj
+                        LEFT JOIN import_records ir ON ir.id = rj.import_record_id
+                        WHERE rj.id = ANY(:jobIds)
+                        ORDER BY (rj.job_type = 'OPEN_CATALOG_ENRICH') DESC, rj.next_run_at ASC, rj.id ASC
+                        """,
                 new MapSqlParameterSource("jobIds", uuidArray(claimedIds)),
-                (rs, _) -> {
-                    UUID jobId = Objects.requireNonNull(rs.getObject("job_id", UUID.class));
-                    ResolutionJobType jobType =
-                            ResolutionJobType.valueOf(
-                                    Objects.requireNonNull(rs.getString("job_type")));
+                (rs, rowNum) -> {
                     UUID rawPlaceId = rs.getObject("place_id", UUID.class);
-                    PlaceId placeId = rawPlaceId == null ? null : new PlaceId(rawPlaceId);
-                    int attempts = rs.getInt("attempts");
-                    UUID importRecordId = rs.getObject("import_record_id", UUID.class);
-                    PendingCoordinateJob coordinateJob = null;
-                    if (importRecordId != null) {
-                        OffsetDateTime observedOdt =
-                                rs.getObject("observed_at", OffsetDateTime.class);
-                        Instant observedAt = observedOdt == null ? null : observedOdt.toInstant();
-                        coordinateJob =
-                                new PendingCoordinateJob(
-                                        jobId,
-                                        importRecordId,
-                                        Objects.requireNonNull(rs.getString("account_label")),
-                                        ImportRecordKind.valueOf(
-                                                Objects.requireNonNull(
-                                                        rs.getString("record_type"))),
-                                        rs.getString("raw_title"),
-                                        rs.getString("raw_url"),
-                                        rs.getObject("google_cid", Long.class),
-                                        observedAt,
-                                        Objects.requireNonNull(rs.getString("payload_json")));
-                    }
                     return new ClaimedResolutionJob(
-                            jobId, jobType, placeId, attempts, coordinateJob);
+                            Objects.requireNonNull(rs.getObject("job_id", UUID.class)),
+                            ResolutionJobType.valueOf(
+                                    Objects.requireNonNull(rs.getString("job_type"))),
+                            rawPlaceId == null ? null : new PlaceId(rawPlaceId),
+                            rs.getInt("attempts"),
+                            rs.getObject("import_record_id", UUID.class) == null
+                                    ? null
+                                    : PENDING_COORDINATE_JOB.mapRow(rs, rowNum));
                 });
     }
 
@@ -305,7 +287,7 @@ class JdbcEnrichmentJobRepository implements EnrichmentJobRepository {
     }
 
     @Override
-    public void releaseOnDryRun(List<UUID> jobIds) {
+    public void releaseDryRunClaims(List<UUID> jobIds) {
         if (jobIds.isEmpty()) {
             return;
         }

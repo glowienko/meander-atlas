@@ -3,8 +3,10 @@ package com.meanderatlas.atlas.application;
 import com.meanderatlas.atlas.PlaceEnrichmentCommand;
 import com.meanderatlas.atlas.PlaceEnrichmentResultView;
 import com.meanderatlas.atlas.domain.DerivedRoleResolver;
+import com.meanderatlas.atlas.domain.RegionCodeNormalizer;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
 import com.meanderatlas.atlas.domain.places.PlaceNameGuard;
 import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
@@ -16,7 +18,6 @@ import com.meanderatlas.shared.UserId;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
-import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,12 +59,8 @@ public class ApplyPlaceEnrichment {
         List<ListKind> listKinds = placeRepository.findMembershipListKinds(command.placeId());
         DerivedRole nextDerivedRole = DerivedRoleResolver.resolve(effectiveCategory, listKinds);
 
-        String osmId = trimToNull(command.osmId());
-        String subcategory = trimToNull(command.subcategory());
-        String cityName = trimToNull(command.cityName());
-        String photoUrl = trimToNull(command.photoUrl());
-        String openingHoursJson = trimToNull(command.openingHoursJson());
-        String candidateName = trimToNull(command.resolvedCanonicalName());
+        String photoUrl = RegionCodeNormalizer.trimToNull(command.photoUrl());
+        String candidateName = RegionCodeNormalizer.trimToNull(command.resolvedCanonicalName());
         String upgradedCanonicalName =
                 candidateName != null
                                 && PlaceNameGuard.isCoordinateOnlyName(current.canonicalName())
@@ -75,28 +72,21 @@ public class ApplyPlaceEnrichment {
 
         placeRepository.applyPlaceEnrichment(
                 userId,
-                command.placeId(),
-                upgradedCanonicalName,
-                upgradeCoords,
-                upgradeCoords ? command.refinedCoordinates() : null,
-                osmId,
-                upgradeCategory,
-                upgradeCategory ? effectiveCategory : null,
-                upgradeCategory ? subcategory : null,
-                nextDerivedRole,
-                cityName,
-                photoUrl,
-                openingHoursJson);
+                new PlaceEnrichmentUpdate(
+                        command.placeId(),
+                        upgradedCanonicalName,
+                        upgradeCoords ? command.refinedCoordinates() : null,
+                        RegionCodeNormalizer.trimToNull(command.osmId()),
+                        upgradeCategory ? effectiveCategory : null,
+                        upgradeCategory
+                                ? RegionCodeNormalizer.trimToNull(command.subcategory())
+                                : null,
+                        nextDerivedRole,
+                        RegionCodeNormalizer.trimToNull(command.cityName()),
+                        photoUrl,
+                        RegionCodeNormalizer.trimToNull(command.openingHoursJson())));
 
         return new PlaceEnrichmentResultView(
                 command.placeId(), upgradeCoords, upgradeCategory, photoAdded);
-    }
-
-    private static @Nullable String trimToNull(@Nullable String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 }

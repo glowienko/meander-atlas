@@ -3,19 +3,12 @@ package com.meanderatlas.ingestion.application;
 import com.meanderatlas.ingestion.domain.GoogleCid;
 import com.meanderatlas.ingestion.domain.GoogleCidDecoder;
 import com.meanderatlas.ingestion.domain.TextNormalizer;
-import com.meanderatlas.ingestion.domain.TitleCoordinateParser;
-import com.meanderatlas.ingestion.domain.classification.PlaceCategoryClassifier;
-import com.meanderatlas.ingestion.domain.classification.PlaceClassification;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository.PendingCoordinateJob;
 import com.meanderatlas.ingestion.domain.source.ImportRecordKind;
 import com.meanderatlas.ingestion.domain.takeout.TakeoutCsvParser;
-import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.ListKind;
-import com.meanderatlas.shared.VisitSource;
-import com.meanderatlas.shared.VisitStatus;
-import java.time.Instant;
+import java.util.Arrays;
 import java.util.Objects;
-import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -23,66 +16,35 @@ import tools.jackson.databind.json.JsonMapper;
 
 final class PendingJobMetadataExtractor {
 
-    private static final String DEFAULT_LIST_NAME = "Saved Places";
-    private static final String LIST_NAME_REVIEWS = "Google Reviews";
-    private static final String FALLBACK_REVIEW_NAME = "Reviewed place";
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
     private PendingJobMetadataExtractor() {}
 
-    static ExtractedJobMetadata extract(PendingCoordinateJob job) {
+    static ImportedPlaceDraft extract(PendingCoordinateJob job) {
         JsonNode payload = parsePayload(job.payloadJson());
         if (job.recordType() == ImportRecordKind.REVIEW_GEOJSON) {
-            String rawName = firstNonBlank(job.rawTitle(), readText(payload, "name"));
-            String canonicalName = rawName == null ? FALLBACK_REVIEW_NAME : rawName;
             String url = firstNonBlank(job.rawUrl(), readText(payload, "googleMapsUrl"));
-            String reviewText = readText(payload, "reviewText");
-            Long cid = resolveCid(job.googleCid(), url);
-            PlaceClassification classification =
-                    PlaceCategoryClassifier.classify(canonicalName, reviewText, null);
-            Optional<GeoPoint> titleCoords = TitleCoordinateParser.parse(rawName);
-            return new ExtractedJobMetadata(
-                    rawName,
-                    canonicalName,
+            return ImportedPlaceDraft.review(
+                    job.accountLabel(),
+                    firstNonBlank(job.rawTitle(), readText(payload, "name")),
+                    readText(payload, "reviewText"),
                     url,
-                    cid,
-                    LIST_NAME_REVIEWS,
-                    ListKind.REVIEW,
-                    reviewText,
-                    null,
-                    classification,
-                    titleCoords.orElse(null),
-                    job.observedAt(),
-                    VisitStatus.VISITED,
-                    VisitSource.REVIEW,
+                    resolveCid(job.googleCid(), url),
                     job.observedAt());
         }
-        String title = firstNonBlank(job.rawTitle(), readText(payload, "title"));
         String url = firstNonBlank(job.rawUrl(), readText(payload, "url"));
-        Long cid = resolveCid(job.googleCid(), url);
         String listName =
-                Objects.requireNonNullElse(readText(payload, "listName"), DEFAULT_LIST_NAME);
-        ListKind listKind = resolveListKind(readText(payload, "listKind"), listName);
-        String note = firstNonBlank(readText(payload, "note"), readText(payload, "comment"));
-        String tags = readText(payload, "tags");
-        String canonicalTitle = title == null ? DEFAULT_LIST_NAME : title;
-        PlaceClassification classification =
-                PlaceCategoryClassifier.classify(canonicalTitle, note, tags);
-        Optional<GeoPoint> titleCoords = TitleCoordinateParser.parse(title);
-        return new ExtractedJobMetadata(
-                title,
-                canonicalTitle,
+                Objects.requireNonNullElse(
+                        readText(payload, "listName"), ImportedPlaceDraft.LIST_NAME_SAVED_DEFAULT);
+        return ImportedPlaceDraft.saved(
+                job.accountLabel(),
+                firstNonBlank(job.rawTitle(), readText(payload, "title")),
                 url,
-                cid,
+                resolveCid(job.googleCid(), url),
                 listName,
-                listKind,
-                note,
-                tags,
-                classification,
-                titleCoords.orElse(null),
-                null,
-                null,
-                null,
+                resolveListKind(readText(payload, "listKind"), listName),
+                firstNonBlank(readText(payload, "note"), readText(payload, "comment")),
+                readText(payload, "tags"),
                 null);
     }
 
@@ -116,29 +78,9 @@ final class PendingJobMetadataExtractor {
     }
 
     private static ListKind resolveListKind(@Nullable String rawListKind, String listName) {
-        if (rawListKind != null) {
-            try {
-                return ListKind.valueOf(rawListKind);
-            } catch (IllegalArgumentException ignored) {
-                return TakeoutCsvParser.classifyListKind(listName);
-            }
-        }
-        return TakeoutCsvParser.classifyListKind(listName);
+        return Arrays.stream(ListKind.values())
+                .filter(kind -> kind.name().equals(rawListKind))
+                .findFirst()
+                .orElseGet(() -> TakeoutCsvParser.classifyListKind(listName));
     }
-
-    record ExtractedJobMetadata(
-            @Nullable String rawTitle,
-            String canonicalTitle,
-            @Nullable String url,
-            @Nullable Long cid,
-            String listName,
-            ListKind listKind,
-            @Nullable String note,
-            @Nullable String tags,
-            PlaceClassification classification,
-            @Nullable GeoPoint titleCoords,
-            @Nullable Instant savedAt,
-            @Nullable VisitStatus visitStatus,
-            @Nullable VisitSource visitSource,
-            @Nullable Instant visitedAt) {}
 }

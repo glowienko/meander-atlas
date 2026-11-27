@@ -14,4 +14,25 @@ public record EnrichmentBatchResultView(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int photosAddedCount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int failedCount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int skippedCount,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int remainingPendingCount) {}
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int remainingPendingCount) {
+
+    public static EnrichmentBatchResultView disabled(boolean dryRun, int remaining) {
+        return new EnrichmentBatchResultView(
+                false, dryRun, false, false, 0, 0, 0, 0, 0, 0, 0, remaining);
+    }
+
+    public static EnrichmentBatchResultView idle(boolean dryRun, int remaining) {
+        return new EnrichmentBatchResultView(
+                true, dryRun, false, false, 0, 0, 0, 0, 0, 0, 0, remaining);
+    }
+
+    public static EnrichmentBatchResultView busy(boolean dryRun, int remaining) {
+        return new EnrichmentBatchResultView(
+                true, dryRun, false, true, 0, 0, 0, 0, 0, 0, 0, remaining);
+    }
+
+    public static EnrichmentBatchResultView backgroundStarted(boolean dryRun, int remaining) {
+        return new EnrichmentBatchResultView(
+                true, dryRun, true, false, 0, 0, 0, 0, 0, 0, 0, remaining);
+    }
+}

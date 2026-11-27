@@ -2,13 +2,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AtlasPlaceView, AtlasStatsView, RegionDossierView } from "../../api/client";
 import { AtlasFilterBar } from "./AtlasFilterBar";
-import { BulkVisitDialog } from "./BulkVisitDialog";
 import { MapLegend } from "./MapLegend";
 import { formatVisitDates, PlaceDetailCard } from "./PlaceDetailCard";
 import { PlaceSelectionDialog } from "./PlaceSelectionDialog";
 import { RegionDossierDrawer } from "./RegionDossierDrawer";
 import { TravelStatsPanel } from "./TravelStatsPanel";
 import { UndoToast } from "./UndoToast";
+import { withVisitState } from "./useAtlasQueries";
 import { defaultAtlasViewState } from "./viewState";
 
 const SAMPLE_PLACE: AtlasPlaceView = {
@@ -85,6 +85,7 @@ describe("Living Atlas components", () => {
         onSelectPlace={vi.fn()}
         onToggleVisitStatus={vi.fn()}
         onOpenBulkVisit={onOpenBulkVisit}
+        onResetView={vi.fn()}
       />,
     );
 
@@ -146,15 +147,16 @@ describe("Living Atlas components", () => {
     expect(screen.getByTestId("place-detail-card")).toHaveTextContent("2 visits");
   });
 
-  it("allows unchecking places in BulkVisitDialog and submits remaining IDs", () => {
+  it("allows unchecking single places in PlaceSelectionDialog and submits remaining IDs", () => {
     const onConfirm = vi.fn();
     render(
-      <BulkVisitDialog
+      <PlaceSelectionDialog
         title="Mark Krakow places visited"
         places={[SAMPLE_PLACE, SECOND_PLACE]}
         isSubmitting={false}
         onClose={vi.fn()}
-        onConfirm={onConfirm}
+        onMarkVisited={onConfirm}
+        onMarkUnvisited={vi.fn()}
       />,
     );
 
@@ -328,7 +330,7 @@ describe("Living Atlas components", () => {
     const toggle = screen.getByTestId("map-legend-toggle");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(container.firstElementChild).toHaveClass("right-4");
-    expect(container.firstElementChild).not.toHaveClass("md:right-[25rem]");
+    expect(container.firstElementChild).not.toHaveClass("md:right-(--atlas-dossier-offset)");
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -337,13 +339,13 @@ describe("Living Atlas components", () => {
     expect(popover).toHaveTextContent("Must-See / Preferred Hotel");
 
     rerender(<MapLegend dossierOpen={true} />);
-    expect(container.firstElementChild).toHaveClass("md:right-[25rem]");
+    expect(container.firstElementChild).toHaveClass("md:right-(--atlas-dossier-offset)");
 
     fireEvent.click(screen.getByRole("button", { name: "Close map legend" }));
     expect(screen.queryByTestId("map-legend-popover")).not.toBeInTheDocument();
   });
 
-  it("supports visited and unvisited actions, filter toggling, disable guards, and secondaryActions in PlaceSelectionDialog", () => {
+  it("supports visited and unvisited actions, filter toggling, and disable guards in PlaceSelectionDialog", () => {
     const visitedPlace: AtlasPlaceView = {
       ...SECOND_PLACE,
       visitStatus: "VISITED",
@@ -367,11 +369,9 @@ describe("Living Atlas components", () => {
         onClose={vi.fn()}
         onMarkVisited={onMarkVisited}
         onMarkUnvisited={onMarkUnvisited}
-        secondaryActions={<button type="button">Add to Trip</button>}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Add to Trip" })).toBeInTheDocument();
     const visitBtn = screen.getByTestId("confirm-bulk-visit-button");
     const unvisitBtn = screen.getByTestId("confirm-bulk-unvisited-button");
     expect(visitBtn).toHaveTextContent("Mark 2 as visited");
@@ -419,5 +419,27 @@ describe("Living Atlas components", () => {
     );
 
     expect(screen.getByTestId("bulk-visit-dialog")).toHaveTextContent("Sent in batches of 500");
+  });
+});
+
+describe("withVisitState", () => {
+  it("applies a visit result to the matching selected place only", () => {
+    const result = {
+      placeId: SAMPLE_PLACE.id,
+      status: "VISITED" as const,
+      source: "MANUAL_SINGLE" as const,
+      visitCount: 1,
+      firstVisitedAt: "2026-11-27T10:00:00Z",
+      lastVisitedAt: "2026-11-27T10:00:00Z",
+      previousState: { placeId: SAMPLE_PLACE.id, status: "UNVISITED" as const, visitCount: 0 },
+    };
+
+    expect(withVisitState(SAMPLE_PLACE, result)).toMatchObject({
+      id: SAMPLE_PLACE.id,
+      visitStatus: "VISITED",
+      visitCount: 1,
+      lastVisitedAt: "2026-11-27T10:00:00Z",
+    });
+    expect(withVisitState(SECOND_PLACE, result)).toBe(SECOND_PLACE);
   });
 });

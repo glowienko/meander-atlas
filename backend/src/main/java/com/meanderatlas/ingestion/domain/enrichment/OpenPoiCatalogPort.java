@@ -50,7 +50,20 @@ public interface OpenPoiCatalogPort {
             @Nullable String subcategory,
             @Nullable String cityName,
             @Nullable String photoUrl,
-            @Nullable String openingHoursRaw) {}
+            @Nullable String openingHoursRaw) {
+
+        public OpenPoiMatch withPhotoUrl(String resolvedPhotoUrl) {
+            return new OpenPoiMatch(
+                    candidate,
+                    score,
+                    distanceMeters,
+                    category,
+                    subcategory,
+                    cityName,
+                    resolvedPhotoUrl,
+                    openingHoursRaw);
+        }
+    }
 
     sealed interface EnrichmentLookupOutcome
             permits EnrichmentLookupOutcome.Matched,

@@ -21,6 +21,48 @@ describe("api client bulk chunking", () => {
     expect(chunkItems(["a", "b"], 0)).toEqual([["a"], ["b"]]);
   });
 
+  it("restores already-applied chunks and rejects when a later bulk chunk fails", async () => {
+    let calls = 0;
+    vi.spyOn(apiClient, "PATCH").mockImplementation((async (
+      _url: string,
+      options?: { body?: { placeIds: string[] } },
+    ) => {
+      calls += 1;
+      const placeIds = options?.body?.placeIds ?? [];
+      return calls === 1
+        ? {
+            data: {
+              updatedCount: placeIds.length,
+              previousStates: placeIds.map((placeId) => ({
+                placeId,
+                status: "UNVISITED",
+                source: "MANUAL_BULK",
+                visitCount: 0,
+              })),
+            },
+            response: new Response(null, { status: 200 }),
+          }
+        : { error: { detail: "boom" }, response: new Response(null, { status: 500 }) };
+    }) as typeof apiClient.PATCH);
+    const restored: string[] = [];
+    vi.spyOn(apiClient, "POST").mockImplementation((async (
+      _url: string,
+      options?: { body?: { snapshots: VisitStateSnapshotView[] } },
+    ) => {
+      const snapshots = options?.body?.snapshots ?? [];
+      restored.push(...snapshots.map((snapshot) => snapshot.placeId));
+      return {
+        data: { restoredCount: snapshots.length },
+        response: new Response(null, { status: 200 }),
+      };
+    }) as typeof apiClient.POST);
+
+    const ids = Array.from({ length: BULK_BATCH_SIZE + 1 }, (_, i) => `id-${i}`);
+
+    await expect(patchBulkVisitStatus(ids, "VISITED")).rejects.toThrow();
+    expect(restored).toEqual(ids.slice(0, BULK_BATCH_SIZE));
+  });
+
   it("chunks patchBulkVisitStatus sequentially in batches of 500 and aggregates results", async () => {
     const requestBodies: Array<{ placeIds: string[]; targetStatus: string }> = [];
     const patchSpy = vi.spyOn(apiClient, "PATCH").mockImplementation((async (

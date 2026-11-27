@@ -1,24 +1,31 @@
 package com.meanderatlas.ingestion.adapter.http;
 
+import static com.meanderatlas.ingestion.OpenCatalogTestData.COMMONS_URL;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.NO_FEATURES;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.OVERPASS_URL;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.WAWEL_THUMB_URL;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.anchoredTarget;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.commonsThumbResponse;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.overpassResponse;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.overpassWay;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.photonPoi;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.photonResponse;
+import static com.meanderatlas.ingestion.OpenCatalogTestData.properties;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.meanderatlas.ingestion.application.EnrichmentProperties;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.AnchoredEnrichmentTarget;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.EnrichmentLookupOutcome;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.UnanchoredLookupTarget;
-import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
-import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.PlaceCategory;
-import com.meanderatlas.shared.PlaceId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -26,156 +33,76 @@ import org.springframework.web.client.RestClient;
 
 class CompositeOpenPoiCatalogAdapterTest {
 
-    private static EnrichmentProperties propertiesWithDelay(long delayMs, int maxRetries) {
-        return new EnrichmentProperties(
-                true,
-                25,
-                delayMs,
-                maxRetries,
-                1000,
-                5000,
-                "https://overpass.example/api/interpreter",
-                "https://photon.example/api",
-                "https://commons.example/w/api.php",
-                "https://{lang}.wikipedia.example/api/rest_v1",
-                "https://wikidata.example/w/api.php",
-                "MeanderAtlas/0.1-test");
-    }
+    private static final String WAWEL_COMMONS_QUERY =
+            COMMONS_URL
+                    + "?action=query&titles=File:Wawel.jpg&prop=imageinfo&iiprop=url&iiurlwidth=640&format=json&formatversion=2";
+    private static final String WAWEL_OVERPASS_RESPONSE =
+            overpassResponse(
+                    overpassWay(
+                            77,
+                            50.0541,
+                            19.9355,
+                            Map.of(
+                                    "name", "Wawel Castle",
+                                    "historic", "castle",
+                                    "wikimedia_commons", "File:Wawel.jpg")));
+
+    private final RestClient.Builder overpassBuilder = RestClient.builder();
+    private final RestClient.Builder photonBuilder = RestClient.builder();
+    private final RestClient.Builder wikiBuilder = RestClient.builder();
+    private final MockRestServiceServer overpassServer =
+            MockRestServiceServer.bindTo(overpassBuilder).build();
+    private final MockRestServiceServer photonServer =
+            MockRestServiceServer.bindTo(photonBuilder).build();
+    private final MockRestServiceServer wikiServer =
+            MockRestServiceServer.bindTo(wikiBuilder).build();
+    private final CompositeOpenPoiCatalogAdapter adapter = adapter(properties());
 
     @Test
-    void usesOverpassFirstFallsBackToPhotonAndRecoversFrom429WithRetryAfter() {
-        RestClient.Builder overpassBuilder = RestClient.builder();
-        MockRestServiceServer overpassServer =
-                MockRestServiceServer.bindTo(overpassBuilder).build();
-        RestClient.Builder photonBuilder = RestClient.builder();
-        MockRestServiceServer photonServer = MockRestServiceServer.bindTo(photonBuilder).build();
-        RestClient.Builder wikiBuilder = RestClient.builder();
-        MockRestServiceServer wikiServer = MockRestServiceServer.bindTo(wikiBuilder).build();
-
-        EnrichmentProperties props = propertiesWithDelay(10L, 2);
-        List<Long> sleeps = new ArrayList<>();
-        CompositeOpenPoiCatalogAdapter adapter =
-                new CompositeOpenPoiCatalogAdapter(
-                        new OverpassPoiClient(overpassBuilder, props),
-                        new PhotonPoiClient(photonBuilder, props),
-                        new WikimediaPhotoClient(wikiBuilder, props),
-                        props,
-                        sleeps::add);
-
-        PlaceId wawelId = PlaceId.random();
-        PlaceId cafeId = PlaceId.random();
+    void usesOverpassFirstAttachesPhotoAndFallsBackToPhotonForUnmatchedTargets() {
         AnchoredEnrichmentTarget wawel =
-                new AnchoredEnrichmentTarget(
-                        wawelId,
-                        "Wawel Castle",
-                        new GeoPoint(50.0540, 19.9354),
-                        CoordSource.TAKEOUT_S2_APPROX,
-                        CategorySource.HEURISTIC,
-                        null,
-                        null,
-                        "PL",
-                        null);
+                anchoredTarget(
+                        "Wawel Castle", 50.0540, 19.9354, CoordSource.TAKEOUT_S2_APPROX, "PL");
         AnchoredEnrichmentTarget cafe =
-                new AnchoredEnrichmentTarget(
-                        cafeId,
-                        "Cafe Camelot",
-                        new GeoPoint(50.0630, 19.9390),
-                        CoordSource.TAKEOUT,
-                        CategorySource.HEURISTIC,
-                        null,
-                        null,
-                        "PL",
-                        null);
-
-        HttpHeaders retryHeaders = new HttpHeaders();
-        retryHeaders.set(HttpHeaders.RETRY_AFTER, "1");
+                anchoredTarget("Cafe Camelot", 50.0630, 19.9390, CoordSource.TAKEOUT, "PL");
         overpassServer
-                .expect(requestTo("https://overpass.example/api/interpreter"))
-                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).headers(retryHeaders));
-        overpassServer
-                .expect(requestTo("https://overpass.example/api/interpreter"))
-                .andRespond(
-                        withSuccess(
-                                """
-                                {
-                                  "elements": [
-                                    {
-                                      "type": "way",
-                                      "id": 77,
-                                      "center": { "lat": 50.0541, "lon": 19.9355 },
-                                      "tags": {
-                                        "name": "Wawel Castle",
-                                        "historic": "castle",
-                                        "wikimedia_commons": "File:Wawel.jpg"
-                                      }
-                                    }
-                                  ]
-                                }
-                                """,
-                                MediaType.APPLICATION_JSON));
-
+                .expect(requestTo(OVERPASS_URL))
+                .andRespond(withSuccess(WAWEL_OVERPASS_RESPONSE, MediaType.APPLICATION_JSON));
         wikiServer
-                .expect(
-                        requestTo(
-                                "https://commons.example/w/api.php?action=query&titles=File:Wawel.jpg&prop=imageinfo&iiprop=url&iiurlwidth=640&format=json&formatversion=2"))
+                .expect(requestTo(WAWEL_COMMONS_QUERY))
                 .andRespond(
                         withSuccess(
-                                """
-                                {
-                                  "query": {
-                                    "pages": [
-                                      { "imageinfo": [{ "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/w/Wawel.jpg" }] }
-                                    ]
-                                  }
-                                }
-                                """,
-                                MediaType.APPLICATION_JSON));
-
+                                commonsThumbResponse(WAWEL_THUMB_URL), MediaType.APPLICATION_JSON));
         photonServer
                 .expect(
                         requestTo(
                                 "https://photon.example/api?q=Cafe%20Camelot&lat=50.063000&lon=19.939000&limit=5"))
                 .andRespond(
                         withSuccess(
-                                """
-                                {
-                                  "features": [
-                                    {
-                                      "geometry": { "coordinates": [19.9391, 50.0631] },
-                                      "properties": {
-                                        "osm_type": "N",
-                                        "osm_id": 88,
-                                        "osm_key": "amenity",
-                                        "osm_value": "cafe",
-                                        "name": "Cafe Camelot",
-                                        "city": "Krakow",
-                                        "countrycode": "pl"
-                                      }
-                                    }
-                                  ]
-                                }
-                                """,
+                                photonResponse(
+                                        photonPoi(
+                                                "N/88",
+                                                "amenity=cafe",
+                                                "Cafe Camelot",
+                                                "Krakow",
+                                                "pl",
+                                                50.0631,
+                                                19.9391)),
                                 MediaType.APPLICATION_JSON));
 
-        Map<PlaceId, EnrichmentLookupOutcome> outcomes =
+        Map<?, EnrichmentLookupOutcome> outcomes =
                 adapter.enrichAnchoredBatch(List.of(wawel, cafe));
 
-        overpassServer.verify();
-        photonServer.verify();
-        wikiServer.verify();
-
-        assertThat(sleeps).contains(1000L, 10L);
-        assertThat(outcomes.get(wawelId))
+        verifyAll();
+        assertThat(outcomes.get(wawel.placeId()))
                 .isInstanceOfSatisfying(
                         EnrichmentLookupOutcome.Matched.class,
                         matched -> {
                             assertThat(matched.match().category())
                                     .isEqualTo(PlaceCategory.LANDMARK);
-                            assertThat(matched.match().photoUrl())
-                                    .isEqualTo(
-                                            "https://upload.wikimedia.org/wikipedia/commons/thumb/w/Wawel.jpg");
+                            assertThat(matched.match().photoUrl()).isEqualTo(WAWEL_THUMB_URL);
                         });
-        assertThat(outcomes.get(cafeId))
+        assertThat(outcomes.get(cafe.placeId()))
                 .isInstanceOfSatisfying(
                         EnrichmentLookupOutcome.Matched.class,
                         matched -> {
@@ -186,54 +113,37 @@ class CompositeOpenPoiCatalogAdapterTest {
     }
 
     @Test
-    void returnsTransientFailureAfterExhaustingRetriesAndResolvesUnanchoredViaPhoton() {
-        RestClient.Builder overpassBuilder = RestClient.builder();
-        MockRestServiceServer overpassServer =
-                MockRestServiceServer.bindTo(overpassBuilder).build();
-        RestClient.Builder photonBuilder = RestClient.builder();
-        MockRestServiceServer photonServer = MockRestServiceServer.bindTo(photonBuilder).build();
-        RestClient.Builder wikiBuilder = RestClient.builder();
-        MockRestServiceServer wikiServer = MockRestServiceServer.bindTo(wikiBuilder).build();
-
-        EnrichmentProperties props = propertiesWithDelay(0L, 1);
-        CompositeOpenPoiCatalogAdapter adapter =
-                new CompositeOpenPoiCatalogAdapter(
-                        new OverpassPoiClient(overpassBuilder, props),
-                        new PhotonPoiClient(photonBuilder, props),
-                        new WikimediaPhotoClient(wikiBuilder, props),
-                        props,
-                        _ -> {});
-
-        PlaceId failId = PlaceId.random();
-        PlaceId secondCellId = PlaceId.random();
-        AnchoredEnrichmentTarget target =
-                new AnchoredEnrichmentTarget(
-                        failId,
-                        "Wawel",
-                        new GeoPoint(50.0540, 19.9354),
-                        CoordSource.TAKEOUT,
-                        CategorySource.HEURISTIC,
-                        null,
-                        null,
-                        null,
-                        null);
-        AnchoredEnrichmentTarget secondCellTarget =
-                new AnchoredEnrichmentTarget(
-                        secondCellId,
-                        "Eiffel Tower",
-                        new GeoPoint(48.8584, 2.2945),
-                        CoordSource.TAKEOUT,
-                        CategorySource.HEURISTIC,
-                        null,
-                        null,
-                        "FR",
-                        null);
-
+    void keepsMatchWithoutPhotoWhenWikimediaFails() {
+        AnchoredEnrichmentTarget wawel =
+                anchoredTarget("Wawel Castle", 50.0540, 19.9354, CoordSource.TAKEOUT, "PL");
         overpassServer
-                .expect(requestTo("https://overpass.example/api/interpreter"))
+                .expect(requestTo(OVERPASS_URL))
+                .andRespond(withSuccess(WAWEL_OVERPASS_RESPONSE, MediaType.APPLICATION_JSON));
+        wikiServer
+                .expect(requestTo(WAWEL_COMMONS_QUERY))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        EnrichmentLookupOutcome outcome =
+                adapter.enrichAnchoredBatch(List.of(wawel)).get(wawel.placeId());
+
+        verifyAll();
+        assertThat(outcome)
+                .isInstanceOfSatisfying(
+                        EnrichmentLookupOutcome.Matched.class,
+                        matched -> assertThat(matched.match().photoUrl()).isNull());
+    }
+
+    @Test
+    void callsEachProviderOnceAndReportsTransientFailureWhenOverpassFailsAndPhotonHasNoMatch() {
+        AnchoredEnrichmentTarget wawel =
+                anchoredTarget("Wawel", 50.0540, 19.9354, CoordSource.TAKEOUT, null);
+        AnchoredEnrichmentTarget eiffel =
+                anchoredTarget("Eiffel Tower", 48.8584, 2.2945, CoordSource.TAKEOUT, "FR");
+        overpassServer
+                .expect(requestTo(OVERPASS_URL))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
         overpassServer
-                .expect(requestTo("https://overpass.example/api/interpreter"))
+                .expect(requestTo(OVERPASS_URL))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
         photonServer
                 .expect(
@@ -241,85 +151,78 @@ class CompositeOpenPoiCatalogAdapterTest {
                                 "https://photon.example/api?q=Eiffel%20Tower&lat=48.858400&lon=2.294500&limit=5"))
                 .andRespond(
                         withSuccess(
-                                """
-                                {
-                                  "features": [
-                                    {
-                                      "geometry": { "coordinates": [2.2945, 48.8584] },
-                                      "properties": {
-                                        "osm_type": "W",
-                                        "osm_id": 5013364,
-                                        "osm_key": "tourism",
-                                        "osm_value": "attraction",
-                                        "name": "Eiffel Tower",
-                                        "city": "Paris",
-                                        "countrycode": "fr"
-                                      }
-                                    }
-                                  ]
-                                }
-                                """,
+                                photonResponse(
+                                        photonPoi(
+                                                "W/5013364",
+                                                "tourism=attraction",
+                                                "Eiffel Tower",
+                                                "Paris",
+                                                "fr",
+                                                48.8584,
+                                                2.2945)),
                                 MediaType.APPLICATION_JSON));
         photonServer
                 .expect(
                         requestTo(
                                 "https://photon.example/api?q=Wawel&lat=50.054000&lon=19.935400&limit=5"))
-                .andRespond(withSuccess("{\"features\":[]}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(NO_FEATURES, MediaType.APPLICATION_JSON));
 
-        Map<PlaceId, EnrichmentLookupOutcome> failedOutcomes =
-                adapter.enrichAnchoredBatch(List.of(target, secondCellTarget));
-        assertThat(failedOutcomes.get(failId))
+        Map<?, EnrichmentLookupOutcome> outcomes =
+                adapter.enrichAnchoredBatch(List.of(wawel, eiffel));
+
+        verifyAll();
+        assertThat(outcomes.get(wawel.placeId()))
                 .isInstanceOf(EnrichmentLookupOutcome.TransientFailure.class);
-        assertThat(failedOutcomes.get(secondCellId))
+        assertThat(outcomes.get(eiffel.placeId()))
                 .isInstanceOfSatisfying(
                         EnrichmentLookupOutcome.Matched.class,
                         matched -> assertThat(matched.match().cityName()).isEqualTo("Paris"));
-        overpassServer.verify();
-        photonServer.verify();
-        overpassServer.reset();
-        photonServer.reset();
+    }
 
-        PlaceId coordOnlyId = PlaceId.random();
-        AnchoredEnrichmentTarget coordOnlyTarget =
-                new AnchoredEnrichmentTarget(
-                        coordOnlyId,
-                        "52.226346,5.177603",
-                        new GeoPoint(52.226346, 5.177603),
-                        CoordSource.TAKEOUT,
-                        CategorySource.HEURISTIC,
-                        null,
-                        null,
-                        "NL",
-                        null);
+    @Test
+    void reverseGeocodesCoordinateOnlyNamesAndResolvesUnanchoredTitlesViaPhoton() {
+        AnchoredEnrichmentTarget coordOnly =
+                anchoredTarget(
+                        "52.226346,5.177603", 52.226346, 5.177603, CoordSource.TAKEOUT, "NL");
         photonServer
                 .expect(
                         requestTo(
                                 "https://photon.example/reverse?lat=52.226346&lon=5.177603&limit=3"))
                 .andRespond(
                         withSuccess(
-                                """
-                                {
-                                  "features": [
-                                    {
-                                      "geometry": { "coordinates": [5.1776, 52.2263] },
-                                      "properties": {
-                                        "osm_type": "W",
-                                        "osm_id": 7001,
-                                        "osm_key": "historic",
-                                        "osm_value": "monument",
-                                        "name": "Marktplein Hilversum",
-                                        "city": "Hilversum",
-                                        "countrycode": "nl"
-                                      }
-                                    }
-                                  ]
-                                }
-                                """,
+                                photonResponse(
+                                        photonPoi(
+                                                "W/7001",
+                                                "historic=monument",
+                                                "Marktplein Hilversum",
+                                                "Hilversum",
+                                                "nl",
+                                                52.2263,
+                                                5.1776)),
+                                MediaType.APPLICATION_JSON));
+        photonServer
+                .expect(requestTo("https://photon.example/api?q=Colosseum&limit=5"))
+                .andRespond(
+                        withSuccess(
+                                photonResponse(
+                                        photonPoi(
+                                                "W/555",
+                                                "historic=monument",
+                                                "Colosseum",
+                                                "Rome",
+                                                "it",
+                                                41.8902,
+                                                12.4922)),
                                 MediaType.APPLICATION_JSON));
 
-        Map<PlaceId, EnrichmentLookupOutcome> reversedOutcomes =
-                adapter.enrichAnchoredBatch(List.of(coordOnlyTarget));
-        assertThat(reversedOutcomes.get(coordOnlyId))
+        EnrichmentLookupOutcome reversed =
+                adapter.enrichAnchoredBatch(List.of(coordOnly)).get(coordOnly.placeId());
+        EnrichmentLookupOutcome global =
+                adapter.resolveUnanchored(
+                        new UnanchoredLookupTarget(UUID.randomUUID(), "Colosseum", null, "IT"));
+
+        verifyAll();
+        assertThat(reversed)
                 .isInstanceOfSatisfying(
                         EnrichmentLookupOutcome.Matched.class,
                         matched -> {
@@ -327,41 +230,20 @@ class CompositeOpenPoiCatalogAdapterTest {
                                     .isEqualTo("Marktplein Hilversum");
                             assertThat(matched.match().cityName()).isEqualTo("Hilversum");
                         });
-        photonServer.verify();
-        photonServer.reset();
-
-        photonServer
-                .expect(requestTo("https://photon.example/api?q=Colosseum&limit=5"))
-                .andRespond(
-                        withSuccess(
-                                """
-                                {
-                                  "features": [
-                                    {
-                                      "geometry": { "coordinates": [12.4922, 41.8902] },
-                                      "properties": {
-                                        "osm_type": "W",
-                                        "osm_id": 555,
-                                        "osm_key": "historic",
-                                        "osm_value": "monument",
-                                        "name": "Colosseum",
-                                        "city": "Rome",
-                                        "countrycode": "it"
-                                      }
-                                    }
-                                  ]
-                                }
-                                """,
-                                MediaType.APPLICATION_JSON));
-
-        EnrichmentLookupOutcome globalOutcome =
-                adapter.resolveUnanchored(
-                        new UnanchoredLookupTarget(UUID.randomUUID(), "Colosseum", null, "IT"));
-        assertThat(globalOutcome)
+        assertThat(global)
                 .isInstanceOfSatisfying(
                         EnrichmentLookupOutcome.Matched.class,
                         matched -> assertThat(matched.match().cityName()).isEqualTo("Rome"));
+    }
 
+    private CompositeOpenPoiCatalogAdapter adapter(EnrichmentProperties props) {
+        return new CompositeOpenPoiCatalogAdapter(
+                new OverpassPoiClient(overpassBuilder, props),
+                new PhotonPoiClient(photonBuilder, props),
+                new WikimediaPhotoClient(wikiBuilder, props));
+    }
+
+    private void verifyAll() {
         overpassServer.verify();
         photonServer.verify();
         wikiServer.verify();

@@ -1,5 +1,6 @@
 package com.meanderatlas.ingestion.adapter.http;
 
+import com.meanderatlas.ingestion.application.EnrichmentProperties;
 import com.meanderatlas.ingestion.domain.TextNormalizer;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.PhotoLookupResult;
 import java.net.URI;
@@ -8,16 +9,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.jspecify.annotations.Nullable;
-import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 class WikimediaPhotoClient {
 
@@ -26,13 +24,12 @@ class WikimediaPhotoClient {
     private static final Pattern WIKIPEDIA_LANG_PATTERN =
             Pattern.compile("^[a-z]{2,12}(?:-[a-z]+)?$");
     private static final Pattern WIKIDATA_QID_PATTERN = Pattern.compile("^Q[0-9]+$");
-    private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
-    private final RestClient restClient;
+    private final OpenDataHttp http;
     private final EnrichmentProperties properties;
 
     WikimediaPhotoClient(RestClient.Builder builder, EnrichmentProperties properties) {
-        this.restClient = builder.build();
+        this.http = new OpenDataHttp(builder, properties.wikimediaUserAgent());
         this.properties = properties;
     }
 
@@ -76,7 +73,7 @@ class WikimediaPhotoClient {
                         .build()
                         .encode()
                         .toUri();
-        return fetchAndParseCommonsImageInfo(uri, "wikimedia_commons");
+        return parseCommonsImageInfo(http.get(uri), "wikimedia_commons");
     }
 
     private Optional<PhotoLookupResult> resolveFromWikipedia(@Nullable String rawWikipedia) {
@@ -100,22 +97,12 @@ class WikimediaPhotoClient {
                         : baseTemplate;
         String encodedTitle = UriUtils.encodePathSegment(pageTitle, StandardCharsets.UTF_8);
         URI uri = URI.create(normalizedBase + "/page/summary/" + encodedTitle);
-        String body = safeGet(uri);
-        if (body == null) {
-            return Optional.empty();
-        }
-        try {
-            JsonNode root = JSON_MAPPER.readTree(body);
-            String candidate =
-                    firstSafeUrl(
-                            root.path("thumbnail").path("source").asString(""),
-                            root.path("originalimage").path("source").asString(""));
-            return candidate == null
-                    ? Optional.empty()
-                    : Optional.of(new PhotoLookupResult(candidate, "wikipedia"));
-        } catch (JacksonException ex) {
-            return Optional.empty();
-        }
+        JsonNode root = http.get(uri);
+        return Optional.ofNullable(
+                        firstSafeUrl(
+                                root.path("thumbnail").path("source").asString(""),
+                                root.path("originalimage").path("source").asString("")))
+                .map(url -> new PhotoLookupResult(url, "wikipedia"));
     }
 
     private Optional<PhotoLookupResult> resolveFromWikidata(@Nullable String rawWikidata) {
@@ -132,31 +119,21 @@ class WikimediaPhotoClient {
                         .build()
                         .encode()
                         .toUri();
-        String body = safeGet(uri);
-        if (body == null) {
-            return Optional.empty();
-        }
-        try {
-            JsonNode root = JSON_MAPPER.readTree(body);
-            JsonNode p18 = root.path("entities").path(qid).path("claims").path("P18");
-            if (!p18.isArray() || p18.isEmpty()) {
-                return Optional.empty();
-            }
-            String filename =
-                    TextNormalizer.trimToNull(
-                            p18.get(0)
-                                    .path("mainsnak")
-                                    .path("datavalue")
-                                    .path("value")
-                                    .asString(""));
-            if (filename == null) {
-                return Optional.empty();
-            }
-            return resolveFromCommons("File:" + filename)
-                    .map(result -> new PhotoLookupResult(result.photoUrl(), "wikidata"));
-        } catch (JacksonException ex) {
-            return Optional.empty();
-        }
+        String filename =
+                TextNormalizer.trimToNull(
+                        http.get(uri)
+                                .path("entities")
+                                .path(qid)
+                                .path("claims")
+                                .path("P18")
+                                .path(0)
+                                .path("mainsnak")
+                                .path("datavalue")
+                                .path("value")
+                                .asString(""));
+        return Optional.ofNullable(filename)
+                .flatMap(name -> resolveFromCommons("File:" + name))
+                .map(result -> new PhotoLookupResult(result.photoUrl(), "wikidata"));
     }
 
     private Optional<PhotoLookupResult> resolveFromImageTag(@Nullable String rawImage) {
@@ -173,43 +150,23 @@ class WikimediaPhotoClient {
         return Optional.empty();
     }
 
-    private Optional<PhotoLookupResult> fetchAndParseCommonsImageInfo(URI uri, String source) {
-        String body = safeGet(uri);
-        if (body == null) {
-            return Optional.empty();
-        }
-        try {
-            JsonNode pages = JSON_MAPPER.readTree(body).path("query").path("pages");
-            if (pages.isArray()) {
-                return StreamSupport.stream(pages.spliterator(), false)
-                        .map(WikimediaPhotoClient::extractImageInfoUrl)
-                        .flatMap(Optional::stream)
-                        .findFirst()
-                        .map(url -> new PhotoLookupResult(url, source));
-            }
-            if (pages.isObject()) {
-                return pages.properties().stream()
-                        .map(Map.Entry::getValue)
-                        .map(WikimediaPhotoClient::extractImageInfoUrl)
-                        .flatMap(Optional::stream)
-                        .findFirst()
-                        .map(url -> new PhotoLookupResult(url, source));
-            }
-            return Optional.empty();
-        } catch (JacksonException ex) {
-            return Optional.empty();
-        }
+    private static Optional<PhotoLookupResult> parseCommonsImageInfo(JsonNode root, String source) {
+        JsonNode pages = root.path("query").path("pages");
+        Stream<JsonNode> pageNodes =
+                pages.isArray()
+                        ? StreamSupport.stream(pages.spliterator(), false)
+                        : pages.properties().stream().map(Map.Entry::getValue);
+        return pageNodes
+                .map(WikimediaPhotoClient::extractImageInfoUrl)
+                .flatMap(Optional::stream)
+                .findFirst()
+                .map(url -> new PhotoLookupResult(url, source));
     }
 
     private static Optional<String> extractImageInfoUrl(JsonNode pageNode) {
-        JsonNode imageInfo = pageNode.path("imageinfo");
-        if (!imageInfo.isArray() || imageInfo.isEmpty()) {
-            return Optional.empty();
-        }
-        JsonNode first = imageInfo.get(0);
-        String candidate =
-                firstSafeUrl(first.path("thumburl").asString(""), first.path("url").asString(""));
-        return Optional.ofNullable(candidate);
+        JsonNode first = pageNode.path("imageinfo").path(0);
+        return Optional.ofNullable(
+                firstSafeUrl(first.path("thumburl").asString(""), first.path("url").asString("")));
     }
 
     private static @Nullable String firstSafeUrl(String primary, String secondary) {
@@ -217,18 +174,5 @@ class WikimediaPhotoClient {
             return primary;
         }
         return isSafeWikimediaUrl(secondary) ? secondary : null;
-    }
-
-    private @Nullable String safeGet(URI uri) {
-        try {
-            return restClient
-                    .get()
-                    .uri(uri)
-                    .header(HttpHeaders.USER_AGENT, properties.wikimediaUserAgent())
-                    .retrieve()
-                    .body(String.class);
-        } catch (RestClientException ex) {
-            return null;
-        }
     }
 }

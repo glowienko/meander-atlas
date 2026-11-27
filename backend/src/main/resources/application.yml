@@ -6,6 +6,11 @@ spring:
       enabled: true
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  task:
+    execution:
+      shutdown:
+        await-termination: true
+        await-termination-period: 20s
   mvc:
     problemdetails:
       enabled: true
@@ -69,7 +74,6 @@ app:
   enrichment:
     enabled: ${APP_ENRICHMENT_ENABLED:false}
     batch-size: ${APP_ENRICHMENT_BATCH_SIZE:25}
-    request-delay-ms: ${APP_ENRICHMENT_REQUEST_DELAY_MS:1100}
     max-retries: ${APP_ENRICHMENT_MAX_RETRIES:3}
     connect-timeout-ms: ${APP_ENRICHMENT_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${APP_ENRICHMENT_READ_TIMEOUT_MS:30000}

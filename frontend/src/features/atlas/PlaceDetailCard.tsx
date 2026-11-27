@@ -2,6 +2,7 @@ import { CheckCircle2, Compass, ExternalLink, RotateCcw, X } from "lucide-react"
 import { useState } from "react";
 import type { AtlasPlaceView, VisitStatus } from "../../api/client";
 import { categoryLabel, derivedRoleLabel, visitStatusLabel } from "./atlasLabels";
+import { STATUS_COLORS, withAlpha } from "./atlasPalette";
 
 interface PlaceDetailCardProps {
   place: AtlasPlaceView;
@@ -72,13 +73,9 @@ export function PlaceDetailCard({
     <article
       data-testid="place-detail-card"
       aria-label={place.canonicalName}
-      className={`pointer-events-auto fixed bottom-4 left-4 z-20 w-88 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border shadow-lg backdrop-blur-md transition-[left] motion-reduce:transition-none ${
-        offsetForStats ? "md:left-[22rem]" : ""
+      className={`atlas-panel pointer-events-auto fixed bottom-4 left-4 z-20 w-88 max-w-[calc(100vw-2rem)] overflow-hidden transition-[left] motion-reduce:transition-none ${
+        offsetForStats ? "md:left-(--atlas-stats-offset)" : ""
       }`}
-      style={{
-        backgroundColor: "rgba(250, 249, 246, 0.95)",
-        borderColor: "var(--atlas-border)",
-      }}
     >
       {safePhotoUrl && (
         <div
@@ -107,16 +104,14 @@ export function PlaceDetailCard({
             <h3 className="font-editorial text-lg font-semibold leading-snug">
               {place.canonicalName}
             </h3>
-            <p className="mt-0.5 text-[13px]" style={{ color: "var(--atlas-muted)" }}>
-              {locationSummary}
-            </p>
+            <p className="mt-0.5 text-[13px] text-atlas-muted">{locationSummary}</p>
             {isApproxLocation && (
               <span
                 data-testid="place-approx-location-badge"
                 className="mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
                 style={{
-                  borderColor: "rgba(201, 106, 56, 0.35)",
-                  backgroundColor: "rgba(201, 106, 56, 0.08)",
+                  borderColor: withAlpha(STATUS_COLORS.UNVISITED, 0.35),
+                  backgroundColor: withAlpha(STATUS_COLORS.UNVISITED, 0.08),
                   color: "#9a4a20",
                 }}
               >
@@ -130,26 +125,20 @@ export function PlaceDetailCard({
             type="button"
             aria-label="Close place details"
             onClick={onClose}
-            className="cursor-pointer rounded-full p-1 hover:bg-black/5"
-            style={{ color: "var(--atlas-muted)" }}
+            className="atlas-icon-button"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
-        <p
-          className="mt-2 text-[13px] font-medium tabular-nums"
-          style={{ color: "var(--atlas-ink)" }}
-        >
-          <span style={{ color: "var(--atlas-accent)" }}>
-            {visitStatusLabel(place.visitStatus)}
-          </span>
+        <p className="mt-2 text-[13px] font-medium tabular-nums text-atlas-ink">
+          <span className="text-atlas-accent">{visitStatusLabel(place.visitStatus)}</span>
           {" · "}
-          <span style={{ color: "var(--atlas-muted)" }}>{derivedRoleLabel(place.derivedRole)}</span>
+          <span className="text-atlas-muted">{derivedRoleLabel(place.derivedRole)}</span>
           {" · "}
           <span>{categorySummary}</span>
           {place.visitCount > 0 && (
-            <span style={{ color: "var(--atlas-muted)" }}>
+            <span className="text-atlas-muted">
               {" · "}
               {place.visitCount} visit{place.visitCount === 1 ? "" : "s"}
             </span>
@@ -159,31 +148,21 @@ export function PlaceDetailCard({
         {visitDates && (
           <p
             data-testid="place-visit-dates"
-            className="mt-1 text-[12px] tabular-nums"
-            style={{ color: "var(--atlas-muted)" }}
+            className="mt-1 text-[12px] tabular-nums text-atlas-muted"
           >
             {visitDates}
           </p>
         )}
 
         {place.memberships.length > 0 && (
-          <ul className="mt-3 divide-y border-t" style={{ borderColor: "var(--atlas-border)" }}>
+          <ul className="mt-3 divide-y divide-atlas-border border-t border-atlas-border">
             {place.memberships.map((m) => (
-              <li
-                key={`${m.accountLabel}:${m.listName}`}
-                className="py-2 text-sm"
-                style={{ borderColor: "var(--atlas-border)" }}
-              >
+              <li key={`${m.accountLabel}:${m.listName}`} className="py-2 text-sm">
                 <div className="font-medium">
                   {m.accountLabel} · {m.listName}
                 </div>
                 {m.note && (
-                  <div
-                    className="mt-0.5 text-[13px] italic"
-                    style={{ color: "var(--atlas-muted)" }}
-                  >
-                    {m.note}
-                  </div>
+                  <div className="mt-0.5 text-[13px] italic text-atlas-muted">{m.note}</div>
                 )}
               </li>
             ))}
@@ -196,8 +175,7 @@ export function PlaceDetailCard({
               type="button"
               disabled={isMutating}
               onClick={() => onUpdateVisitStatus(place, "UNVISITED")}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border bg-white/80 px-3 py-1.5 text-[13px] font-medium transition-colors hover:bg-black/5 disabled:opacity-50"
-              style={{ borderColor: "var(--atlas-border)" }}
+              className="atlas-pill bg-white/80 py-1.5"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
               Mark Unvisited
@@ -207,8 +185,7 @@ export function PlaceDetailCard({
               type="button"
               disabled={isMutating}
               onClick={() => onUpdateVisitStatus(place, "VISITED")}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: "var(--atlas-accent)" }}
+              className="atlas-pill-solid py-1.5"
             >
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
               {place.visitStatus === "NEEDS_TRIAGE" ? "Confirm Visited" : "Mark Visited"}
@@ -220,8 +197,7 @@ export function PlaceDetailCard({
               href={safeExternalUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
-              style={{ color: "var(--atlas-accent)" }}
+              className="inline-flex items-center gap-1 text-[13px] font-medium hover:underline text-atlas-accent"
             >
               Google Maps
               <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />

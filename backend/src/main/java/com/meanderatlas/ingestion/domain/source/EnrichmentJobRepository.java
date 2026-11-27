@@ -4,6 +4,7 @@ import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
@@ -26,7 +27,7 @@ public interface EnrichmentJobRepository {
 
     void markJobSkipped(UUID jobId, String reason);
 
-    void releaseOnDryRun(List<UUID> jobIds);
+    void releaseDryRunClaims(List<UUID> jobIds);
 
     int countRemainingPendingJobs(UserId userId);
 
@@ -46,5 +47,12 @@ public interface EnrichmentJobRepository {
             ResolutionJobType jobType,
             @Nullable PlaceId placeId,
             int attempts,
-            @Nullable PendingCoordinateJob coordinateJob) {}
+            @Nullable PendingCoordinateJob coordinateJob) {
+
+        public Optional<PlaceId> enrichmentPlaceId() {
+            return jobType == ResolutionJobType.OPEN_CATALOG_ENRICH
+                    ? Optional.ofNullable(placeId)
+                    : Optional.empty();
+        }
+    }
 }

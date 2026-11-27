@@ -466,7 +466,9 @@
           "schema" : {
             "type" : "integer",
             "format" : "int32",
-            "default" : 50
+            "default" : 50,
+            "maximum" : 500,
+            "minimum" : 1
           }
         }, {
           "in" : "query",

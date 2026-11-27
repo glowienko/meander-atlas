@@ -9,6 +9,7 @@ import com.meanderatlas.shared.CurrentUserProvider;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -23,11 +24,15 @@ public class BulkUpdatePlaceVisitStatus {
 
     private final AtlasPlaceRepository placeRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final Clock clock;
 
     public BulkUpdatePlaceVisitStatus(
-            AtlasPlaceRepository placeRepository, CurrentUserProvider currentUserProvider) {
+            AtlasPlaceRepository placeRepository,
+            CurrentUserProvider currentUserProvider,
+            Clock clock) {
         this.placeRepository = placeRepository;
         this.currentUserProvider = currentUserProvider;
+        this.clock = clock;
     }
 
     @Transactional
@@ -43,7 +48,7 @@ public class BulkUpdatePlaceVisitStatus {
                                 Collectors.toUnmodifiableMap(
                                         PlaceVisitState::placeId, Function.identity()));
 
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<StateTransition> changedTransitions =
                 placeIds.stream()
                         .map(id ->

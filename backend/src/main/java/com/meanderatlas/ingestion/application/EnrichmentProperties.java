@@ -1,4 +1,4 @@
-package com.meanderatlas.ingestion.adapter.http;
+package com.meanderatlas.ingestion.application;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
@@ -7,7 +7,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record EnrichmentProperties(
         @DefaultValue("false") boolean enabled,
         @DefaultValue("25") int batchSize,
-        @DefaultValue("1100") long requestDelayMs,
         @DefaultValue("3") int maxRetries,
         @DefaultValue("5000") long connectTimeoutMs,
         @DefaultValue("30000") long readTimeoutMs,

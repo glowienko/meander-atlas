@@ -8,4 +8,6 @@ Add `V4__add_takeout_s2_approx_coord_source.sql` extending `places.coord_source`
 
 ## Consequences
 - All ~6.1k saved bucket-list places appear on the map offline in seconds with zero Google APIs or 30-day TTL, then upgrade progressively to exact `OPEN_CATALOG` coordinates, categories, cities, and open photos.
+- Enrichment makes each Overpass/Photon/Wikimedia call once with no in-process sleep, retry, or circuit breaker; transient failures back off and retry only through the `resolution_jobs` queue (`attempts`, `next_run_at`, `maxRetries` → skipped), and stale `IN_PROGRESS` claims are reclaimed after a lease.
+- The basemap toggle deliberately reintroduces `map.setStyle(..., { diff: false })` (ADR-0002 avoided it for dark mode); sources, layers, and pin images are re-added on `style.load`.
 - Track 1 (FE-only map UX & drag-box selection) and Track 2 (BE S2 materialization + Overpass/Photon/Wikimedia Slice 7) can execute in parallel before a minimal OpenAPI/UI wire-up.

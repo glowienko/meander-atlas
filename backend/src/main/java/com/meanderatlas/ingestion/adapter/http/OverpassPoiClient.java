@@ -1,9 +1,11 @@
 package com.meanderatlas.ingestion.adapter.http;
 
+import com.meanderatlas.ingestion.adapter.http.OpenDataHttp.OpenDataResponseException;
+import com.meanderatlas.ingestion.application.EnrichmentProperties;
 import com.meanderatlas.ingestion.domain.TextNormalizer;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.AnchoredEnrichmentTarget;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.OpenPoiCandidate;
-import com.meanderatlas.shared.CoordSource;
+import com.meanderatlas.ingestion.domain.enrichment.OpenPoiMatcher;
 import com.meanderatlas.shared.GeoPoint;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -16,29 +18,21 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-import org.jspecify.annotations.Nullable;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 class OverpassPoiClient {
 
-    private static final int EXACT_RADIUS_METERS = 600;
-    private static final int APPROX_RADIUS_METERS = 1000;
     private static final int MAX_OVERPASS_CLAUSES_PER_BATCH = 10;
     private static final double SPATIAL_CELL_DEGREES = 2.0;
     private static final String POI_KEY_REGEX =
             "^(tourism|amenity|natural|historic|leisure|shop|craft|man_made|waterway|boundary|railway|aeroway)$";
-    private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
-    private final RestClient restClient;
+    private final OpenDataHttp http;
     private final EnrichmentProperties properties;
 
     OverpassPoiClient(RestClient.Builder builder, EnrichmentProperties properties) {
-        this.restClient = builder.build();
+        this.http = new OpenDataHttp(builder, properties.wikimediaUserAgent());
         this.properties = properties;
     }
 
@@ -61,18 +55,9 @@ class OverpassPoiClient {
         if (batch.isEmpty()) {
             return List.of();
         }
-        String query = buildOverpassQuery(batch);
-        String encodedBody = "data=" + URLEncoder.encode(query, StandardCharsets.UTF_8);
-        String rawResponse =
-                restClient
-                        .post()
-                        .uri(properties.overpassUrl())
-                        .header(HttpHeaders.USER_AGENT, properties.wikimediaUserAgent())
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .body(encodedBody)
-                        .retrieve()
-                        .body(String.class);
-        return parseResponse(rawResponse);
+        String encodedBody =
+                "data=" + URLEncoder.encode(buildOverpassQuery(batch), StandardCharsets.UTF_8);
+        return parseResponse(http.postForm(properties.overpassUrl(), encodedBody));
     }
 
     static String buildOverpassQuery(List<AnchoredEnrichmentTarget> batch) {
@@ -83,22 +68,13 @@ class OverpassPoiClient {
         return "[out:json][timeout:15];(" + clauses + ");out center tags;";
     }
 
-    static List<OpenPoiCandidate> parseResponse(@Nullable String rawResponse) {
-        if (rawResponse == null || rawResponse.isBlank()) {
-            return List.of();
-        }
-        JsonNode root;
-        try {
-            root = JSON_MAPPER.readTree(rawResponse);
-        } catch (JacksonException ex) {
-            throw new OverpassTransientException("Malformed Overpass JSON response", ex);
-        }
+    static List<OpenPoiCandidate> parseResponse(JsonNode root) {
         JsonNode elements = root.path("elements");
         if (!elements.isArray() || elements.isEmpty()) {
             String remark = root.path("remark").asString("");
             String lowerRemark = remark.toLowerCase(Locale.ROOT);
             if (lowerRemark.contains("error") || lowerRemark.contains("timed out")) {
-                throw new OverpassTransientException("Overpass remark indicates error: " + remark);
+                throw new OpenDataResponseException("Overpass remark indicates error: " + remark);
             }
             return List.of();
         }
@@ -114,13 +90,13 @@ class OverpassPoiClient {
         if (type == null || id <= 0) {
             return Optional.empty();
         }
-        GeoPoint coordinates = extractCoordinates(element);
-        if (coordinates == null) {
+        Optional<GeoPoint> coordinates = extractCoordinates(element);
+        if (coordinates.isEmpty()) {
             return Optional.empty();
         }
         Map<String, String> tags = extractTags(element.path("tags"));
         String name =
-                firstNonBlank(
+                OpenDataHttp.firstNonBlank(
                         tags.get("name"),
                         tags.get("name:en"),
                         tags.get("int_name"),
@@ -130,7 +106,7 @@ class OverpassPoiClient {
             return Optional.empty();
         }
         String cityName =
-                firstNonBlank(
+                OpenDataHttp.firstNonBlank(
                         tags.get("addr:city"),
                         tags.get("addr:town"),
                         tags.get("addr:village"),
@@ -145,38 +121,17 @@ class OverpassPoiClient {
                 new OpenPoiCandidate(
                         type + "/" + id,
                         name,
-                        coordinates,
+                        coordinates.get(),
                         tags,
                         cityName,
                         countryCode,
                         openingHours));
     }
 
-    private static @Nullable GeoPoint extractCoordinates(JsonNode element) {
-        JsonNode latNode = element.get("lat");
-        JsonNode lonNode = element.get("lon");
-        if (latNode == null || lonNode == null || !latNode.isNumber() || !lonNode.isNumber()) {
-            JsonNode center = element.get("center");
-            if (center == null || !center.isObject()) {
-                return null;
-            }
-            latNode = center.get("lat");
-            lonNode = center.get("lon");
-        }
-        if (latNode == null || lonNode == null || !latNode.isNumber() || !lonNode.isNumber()) {
-            return null;
-        }
-        double lat = latNode.doubleValue();
-        double lon = lonNode.doubleValue();
-        if (!Double.isFinite(lat)
-                || !Double.isFinite(lon)
-                || lat < -90.0
-                || lat > 90.0
-                || lon < -180.0
-                || lon > 180.0) {
-            return null;
-        }
-        return new GeoPoint(lat, lon);
+    private static Optional<GeoPoint> extractCoordinates(JsonNode element) {
+        JsonNode center = element.path("center");
+        return OpenDataHttp.validPoint(element.get("lat"), element.get("lon"))
+                .or(() -> OpenDataHttp.validPoint(center.get("lat"), center.get("lon")));
     }
 
     private static Map<String, String> extractTags(JsonNode tagsNode) {
@@ -196,17 +151,12 @@ class OverpassPoiClient {
     }
 
     private static String buildTargetClause(AnchoredEnrichmentTarget target) {
-        int radius =
-                target.coordSource() == CoordSource.TAKEOUT
-                                || target.coordSource() == CoordSource.TIMELINE
-                        ? EXACT_RADIUS_METERS
-                        : APPROX_RADIUS_METERS;
         return String.format(
                 Locale.ROOT,
-                "nwr(around:%d,%.6f,%.6f)[\"name\"][~\"%s\"~\".\"];",
-                radius,
-                target.coordinates().latitude(),
-                target.coordinates().longitude(),
+                "nwr(around:%.0f,%s,%s)[\"name\"][~\"%s\"~\".\"];",
+                OpenPoiMatcher.searchRadiusMeters(target.coordSource()),
+                OpenDataHttp.formatCoordinate(target.coordinates().latitude()),
+                OpenDataHttp.formatCoordinate(target.coordinates().longitude()),
                 POI_KEY_REGEX);
     }
 
@@ -222,31 +172,12 @@ class OverpassPoiClient {
                 .mapToObj(start -> items.subList(start, Math.min(start + chunkSize, items.size())));
     }
 
-    private static @Nullable String firstNonBlank(@Nullable String... candidates) {
-        return Stream.of(candidates)
-                .map(TextNormalizer::trimToNull)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
-    }
-
     private record SpatialCell(int latBucket, int lngBucket) implements Comparable<SpatialCell> {
 
         @Override
         public int compareTo(SpatialCell other) {
             int byLat = Integer.compare(latBucket, other.latBucket);
             return byLat != 0 ? byLat : Integer.compare(lngBucket, other.lngBucket);
-        }
-    }
-
-    static final class OverpassTransientException extends RuntimeException {
-
-        OverpassTransientException(String message) {
-            super(message);
-        }
-
-        OverpassTransientException(String message, Throwable cause) {
-            super(message, cause);
         }
     }
 }
