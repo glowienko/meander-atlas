@@ -1,6 +1,7 @@
 package com.meanderatlas.atlas;
 
 import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.VisitSource;
@@ -31,4 +32,6 @@ public record AtlasPlaceView(
         @Nullable String admin1Code,
         @Nullable String admin1Name,
         @Nullable String cityName,
+        @NotNull CoordSource coordSource,
+        @Nullable String photoUrl,
         @NotNull List<PlaceMembershipView> memberships) {}

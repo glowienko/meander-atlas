@@ -41,7 +41,9 @@ class LivingAtlasSchemaE2eTest {
                     "idx_places_canonical_name_trgm",
                     "uq_places_user_google_place_id",
                     "uq_places_user_google_cid",
-                    "idx_resolution_jobs_pending_queue");
+                    "idx_resolution_jobs_pending_queue",
+                    "idx_resolution_jobs_type_status_next_run",
+                    "uq_resolution_jobs_active_enrichment");
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final double KRAKOW_LNG = 19.935412;
@@ -253,6 +255,57 @@ class LivingAtlasSchemaE2eTest {
                                      'UNCATEGORIZED', 'HEURISTIC', 'BACKLOG')
                                 """,
                                 Map.of("id", UUID.randomUUID(), "userId", USER_ID)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        UUID approxPlaceId = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO places
+                    (id, user_id, canonical_name, geom, coord_source,
+                     category, category_source, derived_role)
+                VALUES
+                    (:id, :userId, 'Approx S2 Place',
+                     ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), 'TAKEOUT_S2_APPROX',
+                     'UNCATEGORIZED', 'HEURISTIC', 'BACKLOG')
+                """,
+                Map.of(
+                        "id",
+                        approxPlaceId,
+                        "userId",
+                        USER_ID,
+                        "lng",
+                        KRAKOW_LNG,
+                        "lat",
+                        KRAKOW_LAT));
+
+        assertThatThrownBy(() ->
+                        jdbc.update(
+                                """
+                                INSERT INTO places
+                                    (id, user_id, canonical_name, coord_source,
+                                     category, category_source, derived_role)
+                                VALUES
+                                    (:id, :userId, 'Invalid Coord Source', 'INVALID_SOURCE',
+                                     'UNCATEGORIZED', 'HEURISTIC', 'BACKLOG')
+                                """,
+                                Map.of("id", UUID.randomUUID(), "userId", USER_ID)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThatThrownBy(() ->
+                        jdbc.update(
+                                """
+                                INSERT INTO resolution_jobs
+                                    (id, user_id, import_record_id, place_id, job_type, status, attempts)
+                                VALUES
+                                    (:id, :userId, NULL, :placeId, 'OPEN_CATALOG_ENRICH', 'PENDING', 0)
+                                """,
+                                Map.of(
+                                        "id",
+                                        UUID.randomUUID(),
+                                        "userId",
+                                        USER_ID,
+                                        "placeId",
+                                        placeId)))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 }

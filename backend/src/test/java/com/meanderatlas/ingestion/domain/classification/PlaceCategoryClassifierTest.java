@@ -64,6 +64,22 @@ class PlaceCategoryClassifierTest {
         assertClassified("Hotel Plaża Sopot", PlaceCategory.HOTEL, "hotel");
         assertClassified(
                 "Schronisko PTTK w Dolinie Pięciu Stawów", PlaceCategory.HOTEL, "mountain_hut");
+        assertClassified("Refugio Frey Bariloche", PlaceCategory.HOTEL, "mountain_hut");
+        assertClassified("Hostal Sol Madrid", PlaceCategory.HOTEL, "hostel");
+
+        assertClassified("Miradouro da Senhora do Monte", PlaceCategory.VIEWPOINT, "viewpoint");
+        assertClassified("Burg Eltz", PlaceCategory.LANDMARK, "castle");
+        assertClassified("Palazzo Pitti", PlaceCategory.LANDMARK, "palace");
+        assertClassified("Mercado de San Miguel", PlaceCategory.LANDMARK, "market");
+        assertClassified("Iglesia de San Francisco", PlaceCategory.SACRAL, "church");
+        assertClassified("Cerro Fitz Roy", PlaceCategory.MOUNTAIN, "peak");
+        assertClassified("Playa de las Catedrales", PlaceCategory.WATER, "beach");
+        assertClassified("Lago di Como", PlaceCategory.WATER, "lake");
+        assertClassified("Hakone Onsen", PlaceCategory.WATER, "hot_spring");
+        assertClassified("Museo del Prado", PlaceCategory.MUSEUM, "museum");
+        assertClassified("Parco Sempione", PlaceCategory.NATURE_PARK, "park");
+        assertClassified("Trattoria da Enzo", PlaceCategory.RESTAURANT, "restaurant");
+        assertClassified("Boulangerie Poilane", PlaceCategory.CAFE_BAR, "bakery");
 
         PlaceClassification unknown = PlaceCategoryClassifier.classify("Nyhavn", null, null);
         assertThat(unknown.category()).isEqualTo(PlaceCategory.UNCATEGORIZED);
@@ -93,6 +109,36 @@ class PlaceCategoryClassifierTest {
         assertThat(noteFallback.category()).isEqualTo(PlaceCategory.LANDMARK);
         assertThat(noteFallback.subcategory()).isEqualTo("castle");
         assertThat(noteFallback.source()).isEqualTo(CategorySource.HEURISTIC);
+
+        assertClassified("See You Cafe", PlaceCategory.CAFE_BAR, "cafe");
+        assertClassified("Berghütte Alpenblick", PlaceCategory.HOTEL, "mountain_hut");
+        assertClassified("Restaurante Las Brasas", PlaceCategory.RESTAURANT, "restaurant");
+        assertClassified("Cafe Las Flores", PlaceCategory.CAFE_BAR, "cafe");
+        assertClassified("Plaza de las Flores", PlaceCategory.LANDMARK, "square");
+        assertClassified("Castillo de las Coloradas", PlaceCategory.LANDMARK, "castle");
+        assertClassified("Palacio de las Dueñas", PlaceCategory.LANDMARK, "palace");
+        assertClassified("Praça do Comércio", PlaceCategory.LANDMARK, "square");
+        assertClassified("Inn River", PlaceCategory.WATER, "river");
+        assertClassified("Coney Island Burger", PlaceCategory.RESTAURANT, "burger");
+        assertClassified("Holiday Inn", PlaceCategory.HOTEL, "hotel");
+        assertThat(PlaceCategoryClassifier.classify("Las Vegas", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(PlaceCategoryClassifier.classify("Las Ramblas", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(PlaceCategoryClassifier.classify("Las Palmas", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(PlaceCategoryClassifier.classify("JR Pass Exchange", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(
+                        PlaceCategoryClassifier.classify("Random Spot", "praca w centrum", null)
+                                .category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(PlaceCategoryClassifier.classify("Salzburg", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(PlaceCategoryClassifier.classify("Walking Tour", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(PlaceCategoryClassifier.classify("Galeria Krakowska", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
     }
 
     @Test

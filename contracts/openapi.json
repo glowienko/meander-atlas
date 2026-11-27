@@ -490,6 +490,24 @@
         "tags" : [ "import-controller" ]
       }
     },
+    "/api/v1/imports/materialize-offline" : {
+      "post" : {
+        "operationId" : "materializeOffline",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/OfflineMaterializationSummaryView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "import-controller" ]
+      }
+    },
     "/api/v1/imports/status" : {
       "get" : {
         "operationId" : "status",
@@ -624,6 +642,10 @@
           "cityName" : {
             "type" : "string"
           },
+          "coordSource" : {
+            "type" : "string",
+            "enum" : [ "TAKEOUT", "TAKEOUT_S2_APPROX", "TIMELINE", "OPEN_CATALOG", "GOOGLE_TEMP" ]
+          },
           "countryCode" : {
             "type" : "string"
           },
@@ -657,6 +679,9 @@
               "$ref" : "#/components/schemas/PlaceMembershipView"
             }
           },
+          "photoUrl" : {
+            "type" : "string"
+          },
           "subcategory" : {
             "type" : "string"
           },
@@ -673,7 +698,7 @@
             "enum" : [ "UNVISITED", "VISITED", "NEEDS_TRIAGE" ]
           }
         },
-        "required" : [ "canonicalName", "category", "categorySource", "derivedRole", "id", "lat", "lng", "memberships", "visitCount", "visitStatus" ]
+        "required" : [ "canonicalName", "category", "categorySource", "coordSource", "derivedRole", "id", "lat", "lng", "memberships", "visitCount", "visitStatus" ]
       },
       "AtlasPlacesResponse" : {
         "type" : "object",
@@ -884,6 +909,36 @@
           }
         },
         "required" : [ "accounts", "totalCsvCidMatched", "totalPlacesCreated", "totalPlacesMerged", "totalQueuedResolutionJobs", "totalTimelineMarkedTriage", "totalTimelineMatchedVisited", "totalTimelineUnmatched" ]
+      },
+      "OfflineMaterializationSummaryView" : {
+        "type" : "object",
+        "properties" : {
+          "approxFromS2Count" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "enqueuedEnrichmentCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "exactFromTitleCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "materializedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "mergedByCidCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "remainingLookupCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        },
+        "required" : [ "approxFromS2Count", "enqueuedEnrichmentCount", "exactFromTitleCount", "materializedCount", "mergedByCidCount", "remainingLookupCount" ]
       },
       "PlaceMembershipView" : {
         "type" : "object",

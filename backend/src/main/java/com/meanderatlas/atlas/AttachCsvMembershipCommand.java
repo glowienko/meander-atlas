@@ -1,6 +1,7 @@
 package com.meanderatlas.atlas;
 
 import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.VisitSource;
@@ -12,6 +13,7 @@ import org.jspecify.annotations.Nullable;
 public record AttachCsvMembershipCommand(
         long googleCid,
         String canonicalName,
+        @Nullable GeoPoint exactCoordinates,
         PlaceCategory category,
         @Nullable String subcategory,
         CategorySource categorySource,

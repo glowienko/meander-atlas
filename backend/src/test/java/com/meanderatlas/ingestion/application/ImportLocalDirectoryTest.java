@@ -23,7 +23,9 @@ import com.meanderatlas.ingestion.domain.source.ImportStatusSummary;
 import com.meanderatlas.ingestion.domain.source.NewImportRecord;
 import com.meanderatlas.ingestion.domain.source.NewResolutionJob;
 import com.meanderatlas.ingestion.domain.source.TripImportSourcePort;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.CurrentUserProvider;
+import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
@@ -133,7 +135,9 @@ class ImportLocalDirectoryTest {
 
         FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
         FakeImportRepository importRepo = new FakeImportRepository();
-        ImportLocalDirectory useCase = createUseCase(tempDir, sources, placeRepo, importRepo);
+        FakeEnrichmentJobRepository enrichmentJobRepo = new FakeEnrichmentJobRepository();
+        ImportLocalDirectory useCase =
+                createUseCase(tempDir, sources, placeRepo, importRepo, enrichmentJobRepo);
 
         LocalImportSummaryView firstRun = useCase.execute(null, false);
 
@@ -149,6 +153,7 @@ class ImportLocalDirectoryTest {
         assertThat(importRepo.jobs).hasSize(1);
 
         PlaceId createdPlaceId = placeRepo.findByGoogleCid(USER_ID, 536870913L).orElseThrow().id();
+        assertThat(enrichmentJobRepo.enqueuedEnrichmentPlaceIds()).containsExactly(createdPlaceId);
         assertThat(placeRepo.visitState(createdPlaceId).status()).isEqualTo(VisitStatus.VISITED);
         assertThat(placeRepo.visitState(createdPlaceId).source()).isEqualTo(VisitSource.REVIEW);
         assertThat(placeRepo.visitState(createdPlaceId).visitCount()).isEqualTo(1);
@@ -161,11 +166,82 @@ class ImportLocalDirectoryTest {
         assertThat(placeRepo.visitState(createdPlaceId).visitCount()).isEqualTo(1);
     }
 
+    @Test
+    void materializesCsvRowsOfflineViaTitleCoordsAndS2CellWithCidDedup(@TempDir Path tempDir)
+            throws IOException {
+        Path wantToGoCsv = tempDir.resolve("personal/Want to go.csv");
+        Path favoritesCsv = tempDir.resolve("personal/Favorites.csv");
+        Files.createDirectories(wantToGoCsv.getParent());
+
+        Files.writeString(
+                wantToGoCsv,
+                TakeoutTestData.savedCsv(
+                        "47°55'12.3\"N 106°54'19.8\"E,Dms camp,"
+                                + "https://www.google.com/maps/place/Camp/data=!4m2!3m1!1s0x10000001:0x999001,,",
+                        "Wawel Approx S2,Castle note,"
+                                + "https://www.google.com/maps/place/Wawel/data=!4m2!3m1!1s0x47165b120455da67:0x999002,castle,",
+                        "No Hint Spot,Needs lookup,"
+                                + "https://www.google.com/maps/search/?api=1&query=50,19,,"),
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                favoritesCsv,
+                TakeoutTestData.savedCsv(
+                        "Wawel Approx S2 Duplicate,Duplicate list,"
+                                + "https://www.google.com/maps/place/Wawel/data=!4m2!3m1!1s0x47165b120455da67:0x999002,,"),
+                StandardCharsets.UTF_8);
+
+        List<AccountImportSource> sources =
+                List.of(
+                        new AccountImportSource(
+                                "personal",
+                                "sha-stage-a",
+                                List.of(
+                                        new DiscoveredImportFile(
+                                                "Favorites.csv",
+                                                ImportFileKind.SAVED_CSV,
+                                                favoritesCsv),
+                                        new DiscoveredImportFile(
+                                                "Want to go.csv",
+                                                ImportFileKind.SAVED_CSV,
+                                                wantToGoCsv))));
+
+        FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
+        FakeImportRepository importRepo = new FakeImportRepository();
+        FakeEnrichmentJobRepository enrichmentJobRepo = new FakeEnrichmentJobRepository();
+        ImportLocalDirectory useCase =
+                createUseCase(tempDir, sources, placeRepo, importRepo, enrichmentJobRepo);
+
+        LocalImportSummaryView summary = useCase.execute(null, false);
+
+        assertThat(summary.totalPlacesCreated()).isEqualTo(2);
+        assertThat(summary.totalCsvCidMatched()).isEqualTo(1);
+        assertThat(summary.totalQueuedResolutionJobs()).isEqualTo(1);
+        assertThat(importRepo.jobs).hasSize(1);
+
+        PlaceId dmsPlaceId =
+                placeRepo
+                        .findByGoogleCid(USER_ID, Long.parseUnsignedLong("999001", 16))
+                        .orElseThrow()
+                        .id();
+        PlaceId s2PlaceId =
+                placeRepo
+                        .findByGoogleCid(USER_ID, Long.parseUnsignedLong("999002", 16))
+                        .orElseThrow()
+                        .id();
+        assertThat(placeRepo.place(dmsPlaceId).coordSource).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(placeRepo.place(s2PlaceId).coordSource).isEqualTo(CoordSource.TAKEOUT_S2_APPROX);
+        assertThat(placeRepo.place(s2PlaceId).category).isEqualTo(PlaceCategory.LANDMARK);
+        assertThat(placeRepo.membershipsOf(s2PlaceId)).hasSize(2);
+        assertThat(enrichmentJobRepo.enqueuedEnrichmentPlaceIds())
+                .containsExactlyInAnyOrder(dmsPlaceId, s2PlaceId);
+    }
+
     private static ImportLocalDirectory createUseCase(
             Path tempDir,
             List<AccountImportSource> sources,
             FakeAtlasPlaceRepository placeRepo,
-            FakeImportRepository importRepo) {
+            FakeImportRepository importRepo,
+            FakeEnrichmentJobRepository enrichmentJobRepo) {
         CurrentUserProvider userProvider = () -> USER_ID;
         TripImportSourcePort sourcePort =
                 filter ->
@@ -182,6 +258,7 @@ class ImportLocalDirectoryTest {
         return new ImportLocalDirectory(
                 sourcePort,
                 importRepo,
+                enrichmentJobRepo,
                 atlasFacade,
                 userProvider,
                 TransactionOperations.withoutTransaction());

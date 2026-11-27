@@ -90,12 +90,16 @@ public interface AtlasPlaceRepository {
             UserId userId,
             PlaceId placeId,
             DerivedRole derivedRole,
+            @Nullable GeoPoint upgradedCoordinates,
+            @Nullable CoordSource upgradedCoordSource,
             @Nullable PlaceCategory upgradedCategory,
             @Nullable String upgradedSubcategory,
             @Nullable CategorySource upgradedCategorySource,
             @Nullable String googlePlaceIdToBackfill,
             @Nullable Long googleCidToBackfill,
             @Nullable String fallbackCountryCode);
+
+    List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId);
 
     Optional<TimelineMatchCandidate> findTimelineMatchCandidate(
             UserId userId,

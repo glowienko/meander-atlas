@@ -158,4 +158,99 @@ class UpsertImportedPlaceTest {
         assertThat(repo.visitState(created.placeId()).source())
                 .isEqualTo(VisitSource.MANUAL_SINGLE);
     }
+
+    @Test
+    void upgradesTakeoutS2ApproxCoordinatesToExactTakeoutOnMergeAndNeverDowngrades() {
+        FakeAtlasPlaceRepository repo = new FakeAtlasPlaceRepository();
+        UpsertImportedPlace useCase =
+                new UpsertImportedPlace(repo, () -> USER_ID, new ImportedPlaceMerger(repo));
+
+        GeoPoint approxCoords = new GeoPoint(50.0500, 19.9300);
+        GeoPoint exactCoords = new GeoPoint(50.0540, 19.9354);
+
+        UpsertedPlaceView createdApprox =
+                useCase.execute(
+                        new ImportedPlaceUpsertCommand(
+                                "Wawel Castle",
+                                approxCoords,
+                                CoordSource.TAKEOUT_S2_APPROX,
+                                null,
+                                888L,
+                                PlaceCategory.LANDMARK,
+                                "castle",
+                                CategorySource.HEURISTIC,
+                                null,
+                                null,
+                                "personal",
+                                "Want to go",
+                                ListKind.WANT_TO_GO,
+                                null,
+                                null,
+                                "https://www.google.com/maps/place/Wawel/data=!4m2!3m1!1s0x47165b120455da67:0x378",
+                                null,
+                                null,
+                                null,
+                                null));
+
+        assertThat(createdApprox.created()).isTrue();
+        assertThat(repo.place(createdApprox.placeId()).coordSource)
+                .isEqualTo(CoordSource.TAKEOUT_S2_APPROX);
+        assertThat(repo.place(createdApprox.placeId()).coordinates).isEqualTo(approxCoords);
+
+        UpsertedPlaceView upgradedExact =
+                useCase.execute(
+                        new ImportedPlaceUpsertCommand(
+                                "Wawel Castle",
+                                exactCoords,
+                                CoordSource.TAKEOUT,
+                                "ChIJ-wawel",
+                                888L,
+                                PlaceCategory.LANDMARK,
+                                "castle",
+                                CategorySource.HEURISTIC,
+                                "PL",
+                                "Krakow",
+                                "secondary",
+                                "Starred",
+                                ListKind.STARRED,
+                                null,
+                                null,
+                                "http://maps.google.com/?cid=888",
+                                null,
+                                null,
+                                null,
+                                null));
+
+        assertThat(upgradedExact.created()).isFalse();
+        assertThat(upgradedExact.placeId()).isEqualTo(createdApprox.placeId());
+        assertThat(repo.place(createdApprox.placeId()).coordSource).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(repo.place(createdApprox.placeId()).coordinates).isEqualTo(exactCoords);
+        assertThat(repo.place(createdApprox.placeId()).countryCode).isEqualTo("PL");
+
+        useCase.execute(
+                new ImportedPlaceUpsertCommand(
+                        "Wawel Castle",
+                        new GeoPoint(50.01, 19.90),
+                        CoordSource.TAKEOUT_S2_APPROX,
+                        null,
+                        888L,
+                        PlaceCategory.LANDMARK,
+                        "castle",
+                        CategorySource.HEURISTIC,
+                        null,
+                        null,
+                        "third",
+                        "Favorites",
+                        ListKind.FAVORITE,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+
+        assertThat(repo.place(createdApprox.placeId()).coordSource).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(repo.place(createdApprox.placeId()).coordinates).isEqualTo(exactCoords);
+    }
 }

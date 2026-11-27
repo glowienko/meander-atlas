@@ -259,12 +259,19 @@ class BulkUpdateAndRestoreVisitStatesTest {
                 UserId userId,
                 PlaceId placeId,
                 DerivedRole derivedRole,
+                @Nullable GeoPoint upgradedCoordinates,
+                @Nullable CoordSource upgradedCoordSource,
                 @Nullable PlaceCategory upgradedCategory,
                 @Nullable String upgradedSubcategory,
                 @Nullable CategorySource upgradedCategorySource,
                 @Nullable String googlePlaceIdToBackfill,
                 @Nullable Long googleCidToBackfill,
                 @Nullable String fallbackCountryCode) {}
+
+        @Override
+        public List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId) {
+            return List.of();
+        }
 
         @Override
         public Optional<TimelineMatchCandidate> findTimelineMatchCandidate(

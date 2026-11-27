@@ -5,9 +5,12 @@ import com.meanderatlas.atlas.application.ImportedPlaceMerger.ExistingPlaceMerge
 import com.meanderatlas.atlas.application.ImportedPlaceMerger.InitialVisitDetails;
 import com.meanderatlas.atlas.application.ImportedPlaceMerger.MembershipDetails;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.CurrentUserProvider;
+import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import java.util.Objects;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +31,7 @@ public class AttachCsvMembershipByCid {
     }
 
     @Transactional
-    public boolean execute(AttachCsvMembershipCommand command) {
+    public Optional<PlaceId> execute(AttachCsvMembershipCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         UserId userId = currentUserProvider.currentUserId();
         MembershipDetails membership =
@@ -49,10 +52,15 @@ public class AttachCsvMembershipByCid {
         return placeRepository
                 .findByGoogleCid(userId, command.googleCid())
                 .map(matched -> {
+                    boolean upgradeApproxCoordinates =
+                            command.exactCoordinates() != null
+                                    && matched.coordSource() == CoordSource.TAKEOUT_S2_APPROX;
                     placeMerger.mergeIntoExisting(
                             userId,
                             new ExistingPlaceMerge(
                                     matched,
+                                    upgradeApproxCoordinates ? command.exactCoordinates() : null,
+                                    upgradeApproxCoordinates ? CoordSource.TAKEOUT : null,
                                     command.category(),
                                     command.subcategory(),
                                     command.categorySource(),
@@ -61,8 +69,7 @@ public class AttachCsvMembershipByCid {
                                     null,
                                     null,
                                     initialVisit));
-                    return true;
-                })
-                .orElse(false);
+                    return matched.id();
+                });
     }
 }

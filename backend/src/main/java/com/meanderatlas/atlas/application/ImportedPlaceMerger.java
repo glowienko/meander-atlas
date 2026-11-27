@@ -5,7 +5,9 @@ import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
+import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.PlaceId;
@@ -67,6 +69,8 @@ class ImportedPlaceMerger {
                 userId,
                 matched.id(),
                 resolvedRole,
+                merge.upgradedCoordinates(),
+                merge.upgradedCoordSource(),
                 canUpgradeCategory ? merge.incomingCategory() : null,
                 canUpgradeCategory ? merge.incomingSubcategory() : null,
                 canUpgradeCategory ? merge.incomingCategorySource() : null,
@@ -128,6 +132,8 @@ class ImportedPlaceMerger {
 
     record ExistingPlaceMerge(
             MatchedPlace matched,
+            @Nullable GeoPoint upgradedCoordinates,
+            @Nullable CoordSource upgradedCoordSource,
             PlaceCategory incomingCategory,
             @Nullable String incomingSubcategory,
             CategorySource incomingCategorySource,

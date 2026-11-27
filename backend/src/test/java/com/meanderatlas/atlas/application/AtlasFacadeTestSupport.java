@@ -35,6 +35,7 @@ public final class AtlasFacadeTestSupport {
                 new RestorePlaceVisitStates(placeRepo, userProvider),
                 new UpsertImportedPlace(placeRepo, userProvider, merger),
                 new AttachCsvMembershipByCid(placeRepo, userProvider, merger),
-                new ReconcileTimelineVisit(placeRepo, userProvider));
+                new ReconcileTimelineVisit(placeRepo, userProvider),
+                new FindPlacesNeedingEnrichment(placeRepo, userProvider));
     }
 }

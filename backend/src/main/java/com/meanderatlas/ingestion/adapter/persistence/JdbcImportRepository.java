@@ -144,6 +144,7 @@ class JdbcImportRepository implements ImportRepository {
                             (SELECT COUNT(*)::int
                              FROM resolution_jobs
                              WHERE user_id = :userId
+                               AND job_type = 'COORDINATE_LOOKUP'
                                AND status = 'PENDING') AS pending_count,
                             COUNT(*)::int AS completed_batches,
                             COALESCE(

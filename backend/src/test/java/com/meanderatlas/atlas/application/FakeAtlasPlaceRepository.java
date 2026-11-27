@@ -156,6 +156,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
                         userId,
                         canonicalName,
                         coordinates,
+                        coordSource,
                         googlePlaceId,
                         googleCid,
                         category,
@@ -199,6 +200,8 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             UserId userId,
             PlaceId placeId,
             DerivedRole derivedRole,
+            @Nullable GeoPoint upgradedCoordinates,
+            @Nullable CoordSource upgradedCoordSource,
             @Nullable PlaceCategory upgradedCategory,
             @Nullable String upgradedSubcategory,
             @Nullable CategorySource upgradedCategorySource,
@@ -207,6 +210,13 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             @Nullable String fallbackCountryCode) {
         MutablePlaceRecord record = place(placeId);
         record.derivedRole = derivedRole;
+        if (upgradedCoordinates != null && upgradedCoordSource != null) {
+            record.coordinates = upgradedCoordinates;
+            record.coordSource = upgradedCoordSource;
+            if (fallbackCountryCode != null) {
+                record.countryCode = fallbackCountryCode;
+            }
+        }
         if (upgradedCategory != null) {
             record.category = upgradedCategory;
             record.subcategory = upgradedSubcategory;
@@ -223,6 +233,20 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         if (record.countryCode == null && fallbackCountryCode != null) {
             record.countryCode = fallbackCountryCode;
         }
+    }
+
+    @Override
+    public List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId) {
+        return places.values().stream()
+                .filter(p -> p.userId.equals(userId))
+                .filter(p ->
+                        p.coordSource == CoordSource.TAKEOUT_S2_APPROX
+                                || (p.coordSource == CoordSource.TAKEOUT
+                                        && (p.categorySource == CategorySource.HEURISTIC
+                                                || p.photoUrl == null
+                                                || p.osmId == null)))
+                .map(p -> p.id)
+                .toList();
     }
 
     @Override
@@ -308,9 +332,12 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         public final PlaceId id;
         public final UserId userId;
         public final String canonicalName;
-        public final GeoPoint coordinates;
+        public GeoPoint coordinates;
+        public CoordSource coordSource;
         public @Nullable String googlePlaceId;
         public @Nullable Long googleCid;
+        public @Nullable String osmId;
+        public @Nullable String photoUrl;
         public PlaceCategory category;
         public @Nullable String subcategory;
         public CategorySource categorySource;
@@ -322,6 +349,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
                 UserId userId,
                 String canonicalName,
                 GeoPoint coordinates,
+                CoordSource coordSource,
                 @Nullable String googlePlaceId,
                 @Nullable Long googleCid,
                 PlaceCategory category,
@@ -333,6 +361,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             this.userId = userId;
             this.canonicalName = canonicalName;
             this.coordinates = coordinates;
+            this.coordSource = coordSource;
             this.googlePlaceId = googlePlaceId;
             this.googleCid = googleCid;
             this.category = category;
@@ -347,6 +376,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
                     id,
                     category,
                     categorySource,
+                    coordSource,
                     googlePlaceId,
                     googleCid,
                     countryCode,

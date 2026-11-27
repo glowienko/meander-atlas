@@ -3,6 +3,7 @@ package com.meanderatlas.ingestion.adapter.web;
 import com.meanderatlas.ingestion.ImportFacade;
 import com.meanderatlas.ingestion.ImportStatusView;
 import com.meanderatlas.ingestion.LocalImportSummaryView;
+import com.meanderatlas.ingestion.OfflineMaterializationSummaryView;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,5 +32,10 @@ class ImportController {
     @GetMapping(path = "/status", produces = MediaType.APPLICATION_JSON_VALUE)
     ImportStatusView status() {
         return importFacade.status();
+    }
+
+    @PostMapping(path = "/materialize-offline", produces = MediaType.APPLICATION_JSON_VALUE)
+    OfflineMaterializationSummaryView materializeOffline() {
+        return importFacade.materializeOffline();
     }
 }

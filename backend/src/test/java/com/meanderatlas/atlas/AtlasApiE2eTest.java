@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meanderatlas.TestEnvironment;
 import com.meanderatlas.TestcontainersConfiguration;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
@@ -152,6 +153,13 @@ class AtlasApiE2eTest {
                 "JP-API",
                 jpAdmin1Id,
                 "Kyoto");
+        jdbc.update(
+                "UPDATE places SET photo_url = :photoUrl WHERE id = :id",
+                Map.of(
+                        "id",
+                        hotelId,
+                        "photoUrl",
+                        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Kyoto.jpg/640px-Kyoto.jpg"));
 
         Instant wawelVisitAt = Instant.parse("2026-08-10T09:00:00Z");
         Instant triageAt = Instant.parse("2026-08-15T11:00:00Z");
@@ -171,6 +179,14 @@ class AtlasApiE2eTest {
                 client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
         assertThat(allPlaces).isNotNull();
         assertThat(allPlaces.totalCount()).isEqualTo(4);
+        AtlasPlaceView wawelView = findById(allPlaces.places(), ids.wawelId());
+        assertThat(wawelView.coordSource()).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(wawelView.photoUrl()).isNull();
+        AtlasPlaceView hotelView = findById(allPlaces.places(), ids.hotelId());
+        assertThat(hotelView.coordSource()).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(hotelView.photoUrl())
+                .isEqualTo(
+                        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Kyoto.jpg/640px-Kyoto.jpg");
 
         AtlasPlacesResponse filteredByNoteAndAccount =
                 client.get()
