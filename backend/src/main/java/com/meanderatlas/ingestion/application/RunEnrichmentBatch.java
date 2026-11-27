@@ -128,7 +128,7 @@ public class RunEnrichmentBatch {
     private void drainLoop(UserId userId, int limit, boolean dryRun) {
         int batchLimit = Math.min(limit, Math.max(1, properties.batchSize()));
         boolean keepGoing = true;
-        while (keepGoing && !stopRequested.get()) {
+        while (keepGoing && !stopRequested.get() && !Thread.currentThread().isInterrupted()) {
             EnrichmentBatchResultView batch = runSingleBatch(userId, batchLimit, dryRun);
             keepGoing = !dryRun && batch.claimedCount() > 0 && batch.remainingPendingCount() > 0;
         }
@@ -175,7 +175,16 @@ public class RunEnrichmentBatch {
                     true, dryRun, false, false, 0, 0, 0, 0, 0, 0, 0, remaining);
         }
 
-        List<JobOutcomeEntry> outcomes = resolveOutsideTransaction(claimedBatch);
+        List<JobOutcomeEntry> outcomes;
+        try {
+            outcomes = resolveOutsideTransaction(claimedBatch);
+        } catch (RuntimeException ex) {
+            List<UUID> jobIds =
+                    claimedBatch.jobs().stream().map(ClaimedResolutionJob::jobId).toList();
+            transactionOperations.executeWithoutResult(
+                    _ -> enrichmentJobRepository.releaseOnDryRun(jobIds));
+            throw ex;
+        }
 
         return Objects.requireNonNull(
                 transactionOperations.execute(

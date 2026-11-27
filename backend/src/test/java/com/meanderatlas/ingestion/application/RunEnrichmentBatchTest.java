@@ -277,6 +277,39 @@ class RunEnrichmentBatchTest {
         runner.onShutdown();
     }
 
+    @Test
+    void releasesClaimedJobsAndClearsRunningFlagWhenCatalogPortThrows(@TempDir Path tempDir) {
+        FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
+        FakeEnrichmentJobRepository jobRepo = new FakeEnrichmentJobRepository();
+        PlaceId placeId = insertApproxPlace(placeRepo, "Boom Spot");
+        UUID jobId = jobRepo.addPendingEnrichment(placeId);
+
+        OpenPoiCatalogPort failingPort =
+                new OpenPoiCatalogPort() {
+                    @Override
+                    public Map<PlaceId, EnrichmentLookupOutcome> enrichAnchoredBatch(
+                            List<AnchoredEnrichmentTarget> targets) {
+                        throw new IllegalStateException("unexpected catalog crash");
+                    }
+
+                    @Override
+                    public EnrichmentLookupOutcome resolveUnanchored(
+                            UnanchoredLookupTarget target) {
+                        return new EnrichmentLookupOutcome.NoMatch("unused");
+                    }
+                };
+
+        RunEnrichmentBatch runner =
+                createRunner(tempDir, properties(true, 2), placeRepo, jobRepo, failingPort);
+
+        assertThatThrownBy(() -> runner.execute(5, false, false))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unexpected catalog crash");
+        assertThat(runner.isRunning()).isFalse();
+        assertThat(jobRepo.statusOf(jobId)).isEqualTo("PENDING");
+        assertThat(jobRepo.attemptsOf(jobId)).isZero();
+    }
+
     private static PlaceId insertApproxPlace(FakeAtlasPlaceRepository placeRepo, String name) {
         return placeRepo.insertImportedPlace(
                 USER_ID,

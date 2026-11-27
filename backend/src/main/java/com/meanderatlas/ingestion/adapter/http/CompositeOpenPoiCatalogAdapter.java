@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 
 @Component
 public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
@@ -181,6 +182,10 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
                     return new RetryableResult<>(null, lastError);
                 }
                 sleepQuietly(computeRetryDelayMs(attempt, null));
+            } catch (RestClientException ex) {
+                lastError =
+                        Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
+                return new RetryableResult<>(null, lastError);
             }
         }
         return new RetryableResult<>(null, lastError);

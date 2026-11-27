@@ -35,6 +35,7 @@ services:
       APP_DEFAULT_USER_ID: ${APP_DEFAULT_USER_ID:-00000000-0000-0000-0000-000000000001}
       APP_IMPORTS_DIR: /data/imports
       APP_BOUNDARIES_DIR: /data/boundaries
+      APP_ENRICHMENT_ENABLED: ${APP_ENRICHMENT_ENABLED:-true}
     volumes:
       - "${APP_IMPORTS_DIR:-${HOME}/meander-atlas-data/imports}:/data/imports:ro"
       - "${APP_BOUNDARIES_DIR:-${HOME}/meander-atlas-data/boundaries}:/data/boundaries:ro"
