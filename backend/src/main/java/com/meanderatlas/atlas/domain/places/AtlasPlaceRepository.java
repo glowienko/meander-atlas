@@ -90,12 +90,16 @@ public interface AtlasPlaceRepository {
             UserId userId,
             PlaceId placeId,
             DerivedRole derivedRole,
+            @Nullable GeoPoint upgradedCoordinates,
+            @Nullable CoordSource upgradedCoordSource,
             @Nullable PlaceCategory upgradedCategory,
             @Nullable String upgradedSubcategory,
             @Nullable CategorySource upgradedCategorySource,
             @Nullable String googlePlaceIdToBackfill,
             @Nullable Long googleCidToBackfill,
             @Nullable String fallbackCountryCode);
+
+    List<PlaceId> findPlaceIdsNeedingEnrichment(UserId userId, @Nullable List<PlaceId> within);
 
     Optional<TimelineMatchCandidate> findTimelineMatchCandidate(
             UserId userId,
@@ -105,4 +109,8 @@ public interface AtlasPlaceRepository {
             double triageMaxRadiusMeters);
 
     void backfillGooglePlaceId(UserId userId, PlaceId placeId, String googlePlaceId);
+
+    List<PlaceEnrichmentTarget> findEnrichmentTargets(UserId userId, List<PlaceId> placeIds);
+
+    void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update);
 }

@@ -15,6 +15,10 @@ export type VisitStateSnapshotView = components["schemas"]["VisitStateSnapshotVi
 export type AccountImportSummaryView = components["schemas"]["AccountImportSummaryView"];
 export type LocalImportSummaryView = components["schemas"]["LocalImportSummaryView"];
 export type ImportStatusView = components["schemas"]["ImportStatusView"];
+export type OfflineMaterializationSummaryView =
+  components["schemas"]["OfflineMaterializationSummaryView"];
+export type EnrichmentBatchResultView = components["schemas"]["EnrichmentBatchResultView"];
+export type CoordSource = AtlasPlaceView["coordSource"];
 export type VisitStatus = AtlasPlaceView["visitStatus"];
 export type DerivedRole = AtlasPlaceView["derivedRole"];
 export type PlaceCategory = AtlasPlaceView["category"];
@@ -121,47 +125,104 @@ export async function patchPlaceVisitStatus(
   );
 }
 
+export const BULK_BATCH_SIZE = 500;
+
+export function chunkItems<T>(items: readonly T[], size = BULK_BATCH_SIZE): T[][] {
+  const safeSize = Math.max(1, Math.floor(size));
+  return Array.from({ length: Math.ceil(items.length / safeSize) }, (_, index) =>
+    items.slice(index * safeSize, (index + 1) * safeSize),
+  );
+}
+
+async function sendInChunks<T, R>(
+  items: readonly T[],
+  send: (chunk: T[]) => Promise<R>,
+  rollback: (applied: readonly R[]) => Promise<unknown> = async () => undefined,
+): Promise<R[]> {
+  const sendRemaining = async (chunks: T[][], applied: R[]): Promise<R[]> => {
+    const [chunk, ...rest] = chunks;
+    if (!chunk) {
+      return applied;
+    }
+    const result = await send(chunk).catch(async (error: unknown) => {
+      await rollback(applied).catch(() => undefined);
+      throw error;
+    });
+    return sendRemaining(rest, [...applied, result]);
+  };
+  return sendRemaining(chunkItems(items), []);
+}
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
 export async function patchBulkVisitStatus(
   placeIds: string[],
   targetStatus: VisitStatus,
 ): Promise<BulkVisitStatusResultView> {
-  return unwrapResponse(
-    await apiClient.PATCH("/api/v1/atlas/places/bulk-visit-status", {
-      body: { placeIds, targetStatus },
-    }),
-    "Bulk update visit status",
+  const results = await sendInChunks(
+    placeIds,
+    async (batch) =>
+      unwrapResponse(
+        await apiClient.PATCH("/api/v1/atlas/places/bulk-visit-status", {
+          body: { placeIds: batch, targetStatus },
+        }),
+        "Bulk update visit status",
+      ),
+    (applied) => postRestoreVisitStates(applied.flatMap((result) => result.previousStates)),
   );
+  return {
+    updatedCount: sum(results.map((result) => result.updatedCount)),
+    previousStates: results.flatMap((result) => result.previousStates),
+  };
 }
 
 export async function postRestoreVisitStates(
-  snapshots: VisitStateSnapshotView[],
+  snapshots: readonly VisitStateSnapshotView[],
 ): Promise<RestoreVisitStatesResultView> {
-  return unwrapResponse(
-    await apiClient.POST("/api/v1/atlas/places/bulk-visit-status/restore", {
-      body: { snapshots },
-    }),
-    "Restore visit states",
+  const results = await sendInChunks(snapshots, async (batch) =>
+    unwrapResponse(
+      await apiClient.POST("/api/v1/atlas/places/bulk-visit-status/restore", {
+        body: { snapshots: batch },
+      }),
+      "Restore visit states",
+    ),
   );
+  return { restoredCount: sum(results.map((result) => result.restoredCount)) };
 }
 
 export async function fetchImportStatus(): Promise<ImportStatusView> {
   return unwrapResponse(await apiClient.GET("/api/v1/imports/status"), "Import status request");
 }
 
-export async function postLocalImport(options?: {
-  account?: string;
-  force?: boolean;
-}): Promise<LocalImportSummaryView> {
+export async function postLocalImport(): Promise<LocalImportSummaryView> {
+  return unwrapResponse(await apiClient.POST("/api/v1/imports/local"), "Local import request");
+}
+
+export async function postMaterializeOffline(): Promise<OfflineMaterializationSummaryView> {
   return unwrapResponse(
-    await apiClient.POST("/api/v1/imports/local", {
+    await apiClient.POST("/api/v1/imports/materialize-offline"),
+    "Offline materialization request",
+  );
+}
+
+export async function postRunEnrichment(options?: {
+  limit?: number;
+  dryRun?: boolean;
+  background?: boolean;
+}): Promise<EnrichmentBatchResultView> {
+  return unwrapResponse(
+    await apiClient.POST("/api/v1/imports/enrich", {
       params: {
         query: {
-          account: nonEmpty(options?.account),
-          force: options?.force,
+          limit: options?.limit,
+          dryRun: options?.dryRun,
+          background: options?.background,
         },
       },
     }),
-    "Local import request",
+    "Enrichment batch request",
   );
 }
 

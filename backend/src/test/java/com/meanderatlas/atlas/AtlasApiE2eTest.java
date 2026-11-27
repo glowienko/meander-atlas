@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meanderatlas.TestEnvironment;
 import com.meanderatlas.TestcontainersConfiguration;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
@@ -152,6 +153,13 @@ class AtlasApiE2eTest {
                 "JP-API",
                 jpAdmin1Id,
                 "Kyoto");
+        jdbc.update(
+                "UPDATE places SET photo_url = :photoUrl WHERE id = :id",
+                Map.of(
+                        "id",
+                        hotelId,
+                        "photoUrl",
+                        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Kyoto.jpg/640px-Kyoto.jpg"));
 
         Instant wawelVisitAt = Instant.parse("2026-08-10T09:00:00Z");
         Instant triageAt = Instant.parse("2026-08-15T11:00:00Z");
@@ -171,6 +179,14 @@ class AtlasApiE2eTest {
                 client.get().uri("/api/v1/atlas/places").retrieve().body(AtlasPlacesResponse.class);
         assertThat(allPlaces).isNotNull();
         assertThat(allPlaces.totalCount()).isEqualTo(4);
+        AtlasPlaceView wawelView = findById(allPlaces.places(), ids.wawelId());
+        assertThat(wawelView.coordSource()).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(wawelView.photoUrl()).isNull();
+        AtlasPlaceView hotelView = findById(allPlaces.places(), ids.hotelId());
+        assertThat(hotelView.coordSource()).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(hotelView.photoUrl())
+                .isEqualTo(
+                        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Kyoto.jpg/640px-Kyoto.jpg");
 
         AtlasPlacesResponse filteredByNoteAndAccount =
                 client.get()
@@ -293,6 +309,70 @@ class AtlasApiE2eTest {
         assertThat(malopolskieDossier).isNotNull();
         assertThat(malopolskieDossier.region().name()).isEqualTo("Malopolskie");
         assertThat(malopolskieDossier.places()).hasSize(2);
+    }
+
+    @Test
+    void focusesCountryBoundingBoxOnMainlandExcludingDistantOverseasTerritories() {
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        UUID nlBoundaryId = UUID.randomUUID();
+        insertBoundary(
+                nlBoundaryId,
+                "COUNTRY",
+                "NL-OVERSEAS",
+                "NL-OVERSEAS",
+                "Synthetic Netherlands",
+                "MULTIPOLYGON(((3.5 51.0, 7.0 51.0, 7.0 53.5, 3.5 53.5, 3.5 51.0)),"
+                        + "((-68.4 12.0, -68.1 12.0, -68.1 12.3, -68.4 12.3, -68.4 12.0)))");
+
+        RegionDossierView dossier =
+                client.get()
+                        .uri("/api/v1/atlas/regions/COUNTRY/NL-OVERSEAS")
+                        .retrieve()
+                        .body(RegionDossierView.class);
+        assertThat(dossier).isNotNull();
+        assertThat(dossier.region().minLng()).isGreaterThan(3.0);
+        assertThat(dossier.region().maxLng()).isLessThan(7.5);
+        assertThat(dossier.region().minLat()).isGreaterThan(50.5);
+        assertThat(dossier.region().maxLat()).isLessThan(54.0);
+    }
+
+    @Test
+    void clampsPolarAntarcticaBoundarySoSouthernHemisphereMvtTilesReturn200() {
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        jdbc.update(
+                """
+                INSERT INTO region_boundaries
+                    (id, region_level, code, country_code, name, geom, simplified_geom)
+                VALUES
+                    (:id, 'COUNTRY', 'AQ-TEST', 'AQ-TEST', 'Antarctica Test',
+                     ST_GeomFromText(:wkt, 4326),
+                     ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_ClipByBox2D(
+                         ST_GeomFromText(:wkt, 4326),
+                         ST_MakeEnvelope(-180.0, -85.05, 180.0, 85.05, 4326)
+                     )), 3)))
+                """,
+                Map.of(
+                        "id",
+                        UUID.randomUUID(),
+                        "wkt",
+                        "MULTIPOLYGON(((-70.0 -90.0, -40.0 -90.0, -40.0 -65.0, -70.0 -65.0, -70.0 -90.0)))"));
+        insertBoundary(
+                UUID.randomUUID(),
+                "COUNTRY",
+                "BR-TEST",
+                "BR-TEST",
+                "Brazil Test",
+                "MULTIPOLYGON(((-60.0 -25.0, -40.0 -25.0, -40.0 -5.0, -60.0 -5.0, -60.0 -25.0)))");
+
+        ResponseEntity<byte[]> tileResponse =
+                client.get()
+                        .uri("/api/v1/atlas/tiles/regions/COUNTRY/1/0/1.mvt")
+                        .retrieve()
+                        .toEntity(byte[].class);
+        assertThat(tileResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(tileResponse.getBody()).isNotNull().isNotEmpty();
     }
 
     private static void verifyStats(RestClient client) {

@@ -164,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/enrich": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["enrich"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/local": {
         parameters: {
             query?: never;
@@ -174,6 +190,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["importLocal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/materialize-offline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["materializeOffline"];
         delete?: never;
         options?: never;
         head?: never;
@@ -247,6 +279,8 @@ export interface components {
             /** @enum {string} */
             categorySource: "HEURISTIC" | "OPEN_CATALOG" | "MANUAL";
             cityName?: string;
+            /** @enum {string} */
+            coordSource: "TAKEOUT" | "TAKEOUT_S2_APPROX" | "TIMELINE" | "OPEN_CATALOG" | "GOOGLE_TEMP";
             countryCode?: string;
             /** @enum {string} */
             derivedRole: "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG";
@@ -261,6 +295,7 @@ export interface components {
             /** Format: double */
             lng: number;
             memberships: components["schemas"]["PlaceMembershipView"][];
+            photoUrl?: string;
             subcategory?: string;
             /** Format: int32 */
             visitCount: number;
@@ -322,12 +357,43 @@ export interface components {
             /** Format: int32 */
             visitedCount: number;
         };
+        EnrichmentBatchResultView: {
+            alreadyRunning: boolean;
+            /** Format: int32 */
+            claimedCount: number;
+            dryRun: boolean;
+            enabled: boolean;
+            /** Format: int32 */
+            failedCount: number;
+            /** Format: int32 */
+            matchedCount: number;
+            /** Format: int32 */
+            photosAddedCount: number;
+            /** Format: int32 */
+            remainingPendingCount: number;
+            /** Format: int32 */
+            skippedCount: number;
+            startedInBackground: boolean;
+            /** Format: int32 */
+            upgradedCategoryCount: number;
+            /** Format: int32 */
+            upgradedCoordsCount: number;
+        };
         ImportStatusView: {
             accounts: string[];
             /** Format: int32 */
+            approximatePlaceCount: number;
+            /** Format: int32 */
             completedBatches: number;
+            /** Format: int32 */
+            enrichedPlaceCount: number;
+            enrichmentRunning: boolean;
             /** Format: date-time */
             lastImportedAt?: string;
+            /** Format: int32 */
+            pendingCoordinateLookupCount: number;
+            /** Format: int32 */
+            pendingEnrichmentCount: number;
             /** Format: int32 */
             pendingResolutionCount: number;
         };
@@ -347,6 +413,20 @@ export interface components {
             totalTimelineMatchedVisited: number;
             /** Format: int32 */
             totalTimelineUnmatched: number;
+        };
+        OfflineMaterializationSummaryView: {
+            /** Format: int32 */
+            approxFromS2Count: number;
+            /** Format: int32 */
+            enqueuedEnrichmentCount: number;
+            /** Format: int32 */
+            exactFromTitleCount: number;
+            /** Format: int32 */
+            materializedCount: number;
+            /** Format: int32 */
+            mergedByCidCount: number;
+            /** Format: int32 */
+            remainingLookupCount: number;
         };
         PlaceMembershipView: {
             accountLabel: string;
@@ -725,6 +805,30 @@ export interface operations {
             };
         };
     };
+    enrich: {
+        parameters: {
+            query?: {
+                limit?: number;
+                dryRun?: boolean;
+                background?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentBatchResultView"];
+                };
+            };
+        };
+    };
     importLocal: {
         parameters: {
             query?: {
@@ -744,6 +848,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocalImportSummaryView"];
+                };
+            };
+        };
+    };
+    materializeOffline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfflineMaterializationSummaryView"];
                 };
             };
         };

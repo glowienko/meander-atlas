@@ -6,6 +6,7 @@ import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.stats.AtlasStatsRepository;
 import com.meanderatlas.shared.CurrentUserProvider;
 import java.nio.file.Path;
+import java.time.Clock;
 import org.springframework.transaction.support.TransactionOperations;
 
 public final class AtlasFacadeTestSupport {
@@ -30,11 +31,14 @@ public final class AtlasFacadeTestSupport {
                 new GetRegionSummaries(statsRepo, userProvider),
                 new GetRegionDossier(statsRepo, placeRepo, userProvider),
                 new GetAtlasStats(statsRepo, userProvider),
-                new UpdatePlaceVisitStatus(placeRepo, userProvider),
-                new BulkUpdatePlaceVisitStatus(placeRepo, userProvider),
+                new UpdatePlaceVisitStatus(placeRepo, userProvider, Clock.systemUTC()),
+                new BulkUpdatePlaceVisitStatus(placeRepo, userProvider, Clock.systemUTC()),
                 new RestorePlaceVisitStates(placeRepo, userProvider),
                 new UpsertImportedPlace(placeRepo, userProvider, merger),
                 new AttachCsvMembershipByCid(placeRepo, userProvider, merger),
-                new ReconcileTimelineVisit(placeRepo, userProvider));
+                new ReconcileTimelineVisit(placeRepo, userProvider),
+                new FindPlacesNeedingEnrichment(placeRepo, userProvider),
+                new FindPlaceEnrichmentTargets(placeRepo, userProvider),
+                new ApplyPlaceEnrichment(placeRepo, userProvider));
     }
 }

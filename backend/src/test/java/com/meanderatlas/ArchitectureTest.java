@@ -5,9 +5,13 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.meanderatlas.atlas.domain.AtlasHealthRepository;
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitCallTarget;
+import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaCodeUnit;
+import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaType;
@@ -19,6 +23,9 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,6 +38,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
@@ -92,6 +102,21 @@ class ArchitectureTest {
                     "Scheduled",
                     "PostConstruct",
                     "PreDestroy");
+    private static final String APPLICATION_PACKAGE_PATTERN = "..application..";
+    private static final String ADAPTER_PACKAGE_PATTERN = "..adapter..";
+    private static final Set<String> FORBIDDEN_THREAD_MEMBERS =
+            Set.of(
+                    "sleep",
+                    "ofVirtual",
+                    "ofPlatform",
+                    "startVirtualThread",
+                    JavaConstructor.CONSTRUCTOR_NAME);
+    private static final DescribedPredicate<JavaCall<?>> BLOCKING_THREADING_OR_SYSTEM_CLOCK =
+            DescribedPredicate.describe(
+                    "Thread.sleep/TimeUnit.sleep/Object.wait, raw Thread creation, Executors"
+                            + " factories, or Clock-less now()",
+                    call -> isBlockingThreadingOrSystemClock(call.getTarget()));
+    private static final int EXPECTED_BLOCKING_VIOLATIONS = 10;
     private static final int EXPECTED_SYNTHETIC_VIOLATIONS = 2;
     private static final int EXPECTED_MUTABLE_VIOLATIONS = 3;
     private static final int EXPECTED_DEAD_METHOD_VIOLATIONS = 1;
@@ -209,6 +234,38 @@ class ArchitectureTest {
     }
 
     @Test
+    void applicationLayerNeverDependsOnAdapters() {
+        noClasses()
+                .that()
+                .resideInAPackage(APPLICATION_PACKAGE_PATTERN)
+                .should()
+                .dependOnClassesThat()
+                .resideInAPackage(ADAPTER_PACKAGE_PATTERN)
+                .check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    void productionCodeNeverBlocksSpawnsRawThreadsOrReadsTheSystemClock() {
+        noClasses()
+                .should()
+                .callCodeUnitWhere(BLOCKING_THREADING_OR_SYSTEM_CLOCK)
+                .check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    void blockingRuleRejectsSleepWaitRawThreadsExecutorsAndClocklessNow() {
+        JavaClasses syntheticClasses =
+                new ClassFileImporter().importClasses(SyntheticBlockingHolder.class);
+        var result =
+                noClasses()
+                        .should()
+                        .callCodeUnitWhere(BLOCKING_THREADING_OR_SYSTEM_CLOCK)
+                        .evaluate(syntheticClasses);
+
+        assertThat(result.getFailureReport().getDetails()).hasSize(EXPECTED_BLOCKING_VIOLATIONS);
+    }
+
+    @Test
     void testsAvoidMockitoInFavorOfInMemoryFakes() {
         noClasses()
                 .should()
@@ -254,6 +311,18 @@ class ArchitectureTest {
                 methods().should(beCalledInProductionOrBeEntryPoint()).evaluate(syntheticClasses);
 
         assertThat(result.hasViolation()).isFalse();
+    }
+
+    private static boolean isBlockingThreadingOrSystemClock(CodeUnitCallTarget target) {
+        String name = target.getName();
+        return switch (target.getOwner().getName()) {
+            case "java.lang.Thread" -> FORBIDDEN_THREAD_MEMBERS.contains(name);
+            case "java.util.concurrent.TimeUnit" -> name.equals("sleep");
+            case "java.util.concurrent.Executors" -> true;
+            case "java.time.Instant" ->
+                    name.equals("now") && target.getRawParameterTypes().isEmpty();
+            default -> name.equals("wait") && target.getRawParameterTypes().size() <= 2;
+        };
     }
 
     private static ArchCondition<JavaMethod> beCalledInProductionOrBeEntryPoint() {
@@ -446,6 +515,51 @@ class ArchitectureTest {
         }
 
         public void leakyParam(List<AtlasHealthRepository> repositories) {}
+    }
+
+    static class SyntheticBlockingHolder {
+
+        private volatile boolean ready;
+
+        void sleeps() throws InterruptedException {
+            Thread.sleep(1L);
+            Thread.sleep(Duration.ofMillis(1L));
+            TimeUnit.MILLISECONDS.sleep(1L);
+        }
+
+        synchronized void waits() throws InterruptedException {
+            while (!ready) {
+                wait(1L);
+            }
+        }
+
+        Thread rawThread() {
+            return new Thread(() -> {});
+        }
+
+        Thread startedVirtualThread() {
+            return Thread.startVirtualThread(() -> {});
+        }
+
+        Thread.Builder virtualBuilder() {
+            return Thread.ofVirtual();
+        }
+
+        Thread.Builder platformBuilder() {
+            return Thread.ofPlatform();
+        }
+
+        ExecutorService executor() {
+            return Executors.newVirtualThreadPerTaskExecutor();
+        }
+
+        List<Object> clocklessNow() {
+            return List.of(Instant.now());
+        }
+
+        List<Object> allowedClockAwareCalls(Clock clock) {
+            return List.of(Instant.now(clock), Thread.currentThread());
+        }
     }
 
     static class SyntheticMutableHolder {

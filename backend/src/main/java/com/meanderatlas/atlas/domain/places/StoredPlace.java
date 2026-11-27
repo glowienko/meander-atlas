@@ -1,6 +1,7 @@
 package com.meanderatlas.atlas.domain.places;
 
 import com.meanderatlas.shared.CategorySource;
+import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.GeoPoint;
 import com.meanderatlas.shared.PlaceCategory;
@@ -30,6 +31,8 @@ public record StoredPlace(
         @Nullable String admin1Code,
         @Nullable String admin1Name,
         @Nullable String cityName,
+        CoordSource coordSource,
+        @Nullable String photoUrl,
         List<StoredMembership> memberships) {
 
     public StoredPlace withMemberships(List<StoredMembership> resolvedMemberships) {
@@ -51,6 +54,8 @@ public record StoredPlace(
                 admin1Code,
                 admin1Name,
                 cityName,
+                coordSource,
+                photoUrl,
                 resolvedMemberships);
     }
 }

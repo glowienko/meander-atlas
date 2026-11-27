@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AtlasHealthPill } from "./AtlasHealthPill";
 import {
@@ -8,55 +9,80 @@ import {
   writeAtlasViewState,
 } from "./viewState";
 
+const UP_HEALTH = { status: "UP", database: "postgresql", postgisVersion: "3.5.3" };
+
+function renderPill(overrides: Partial<ComponentProps<typeof AtlasHealthPill>> = {}) {
+  return render(
+    <AtlasHealthPill
+      health={UP_HEALTH}
+      isLoading={false}
+      isError={false}
+      projection="globe"
+      onProjectionChange={vi.fn()}
+      basemap="atlas"
+      onBasemapChange={vi.fn()}
+      statsOpen={false}
+      onToggleStats={vi.fn()}
+      onResetView={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
+
 describe("AtlasHealthPill", () => {
   it("renders live PostGIS health status and toggles projection controls", () => {
     const onProjectionChange = vi.fn();
 
-    render(
-      <AtlasHealthPill
-        health={{ status: "UP", database: "postgresql", postgisVersion: "3.5.3" }}
-        isLoading={false}
-        isError={false}
-        projection="globe"
-        onProjectionChange={onProjectionChange}
-      />,
-    );
+    renderPill({ onProjectionChange });
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("UP · PostGIS 3.5.3");
-    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-accent)]");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-atlas-accent");
 
     fireEvent.click(screen.getByRole("button", { name: "2D Map" }));
     expect(onProjectionChange).toHaveBeenCalledWith("mercator");
   });
 
   it("renders offline state when health query fails", () => {
-    render(
-      <AtlasHealthPill
-        health={undefined}
-        isLoading={false}
-        isError={true}
-        projection="mercator"
-        onProjectionChange={vi.fn()}
-      />,
-    );
+    renderPill({ health: undefined, isError: true, projection: "mercator" });
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("Backend Offline");
-    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-danger)]");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-atlas-danger");
   });
 
   it("renders danger indicator when backend reports non-UP status", () => {
-    render(
-      <AtlasHealthPill
-        health={{ status: "DEGRADED", database: "postgresql", postgisVersion: "3.5.3" }}
-        isLoading={false}
-        isError={false}
-        projection="globe"
-        onProjectionChange={vi.fn()}
-      />,
-    );
+    renderPill({ health: { status: "DEGRADED", database: "postgresql", postgisVersion: "3.5.3" } });
 
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("DEGRADED · PostGIS 3.5.3");
-    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-danger)]");
+    expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-atlas-danger");
+  });
+
+  it("renders basemap toggle and emits selections", () => {
+    const onBasemapChange = vi.fn();
+
+    renderPill({ onBasemapChange });
+
+    const atlasBtn = screen.getByRole("button", { name: "Atlas" });
+    const streetBtn = screen.getByRole("button", { name: "Street" });
+    expect(atlasBtn).toHaveAttribute("aria-pressed", "true");
+    expect(streetBtn).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(streetBtn);
+    expect(onBasemapChange).toHaveBeenCalledWith("street");
+  });
+
+  it("renders Reset view button, clickable brand title, and prominent Stats count", () => {
+    const onResetView = vi.fn();
+    const onToggleStats = vi.fn();
+
+    renderPill({ mappedCount: 7174, onToggleStats, onResetView });
+
+    fireEvent.click(screen.getByTestId("reset-view-button"));
+    fireEvent.click(screen.getByTestId("brand-reset-view-button"));
+    expect(onResetView).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("toggle-stats-button")).toHaveTextContent("Stats");
+    expect(screen.getByTestId("toggle-stats-button")).toHaveTextContent("7,174");
+    fireEvent.click(screen.getByTestId("toggle-stats-button"));
+    expect(onToggleStats).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -99,6 +125,20 @@ describe("viewState URL serialization", () => {
     const fallbackCountry = readAtlasViewState("?region=PL");
     expect(fallbackCountry.regionLevel).toBe("COUNTRY");
     expect(fallbackCountry.regionCode).toBe("PL");
+  });
+
+  it("serializes basemap=street and preserves basemap=offline override", () => {
+    const defaults = defaultAtlasViewState();
+    const streetState = { ...defaults, basemap: "street" as const };
+
+    const streetUrl = writeAtlasViewState(streetState, "");
+    expect(streetUrl).toBe("?basemap=street");
+    expect(readAtlasViewState(streetUrl)).toEqual(streetState);
+    expect(writeAtlasViewState(defaults, streetUrl)).toBe("");
+
+    const offlinePreserved = writeAtlasViewState(streetState, "?basemap=offline");
+    expect(offlinePreserved).toBe("?basemap=offline");
+    expect(readAtlasViewState("?basemap=offline").basemap).toBe("atlas");
   });
 
   it("handles standard, antimeridian, unwrapped, and full-world viewports", () => {

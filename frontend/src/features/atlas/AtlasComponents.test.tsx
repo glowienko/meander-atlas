@@ -2,11 +2,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AtlasPlaceView, AtlasStatsView, RegionDossierView } from "../../api/client";
 import { AtlasFilterBar } from "./AtlasFilterBar";
-import { BulkVisitDialog } from "./BulkVisitDialog";
-import { PlaceDetailCard } from "./PlaceDetailCard";
+import { MapLegend } from "./MapLegend";
+import { formatVisitDates, PlaceDetailCard } from "./PlaceDetailCard";
+import { PlaceSelectionDialog } from "./PlaceSelectionDialog";
 import { RegionDossierDrawer } from "./RegionDossierDrawer";
 import { TravelStatsPanel } from "./TravelStatsPanel";
 import { UndoToast } from "./UndoToast";
+import { withVisitState } from "./useAtlasQueries";
 import { defaultAtlasViewState } from "./viewState";
 
 const SAMPLE_PLACE: AtlasPlaceView = {
@@ -17,6 +19,7 @@ const SAMPLE_PLACE: AtlasPlaceView = {
   category: "LANDMARK",
   subcategory: "castle",
   categorySource: "HEURISTIC",
+  coordSource: "TAKEOUT",
   derivedRole: "MUST_SEE",
   visitStatus: "UNVISITED",
   visitCount: 0,
@@ -47,6 +50,7 @@ const SECOND_PLACE: AtlasPlaceView = {
 describe("Living Atlas components", () => {
   it("renders RegionDossierDrawer completion ring and triggers bulk visit", () => {
     const onOpenBulkVisit = vi.fn();
+    const onClearFilters = vi.fn();
     const dossier: RegionDossierView = {
       region: {
         id: "33333333-3333-3333-3333-333333333333",
@@ -74,16 +78,24 @@ describe("Living Atlas components", () => {
         isLoading={false}
         isError={false}
         isMutating={false}
+        activeFilterCount={1}
+        onClearFilters={onClearFilters}
         onClose={vi.fn()}
         onSelectRegion={vi.fn()}
         onSelectPlace={vi.fn()}
         onToggleVisitStatus={vi.fn()}
         onOpenBulkVisit={onOpenBulkVisit}
+        onResetView={vi.fn()}
       />,
     );
 
     expect(screen.getByTestId("region-completion-ring")).toHaveTextContent("50%");
     expect(screen.getByText("1 of 2 visited (50%)")).toBeInTheDocument();
+    expect(screen.getByTestId("dossier-filter-notice")).toHaveTextContent(
+      "Map filter active (1 pin shown)",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(onClearFilters).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("dossier-bulk-visit-button"));
     expect(onOpenBulkVisit).toHaveBeenCalledWith([SAMPLE_PLACE], "Mark Poland places visited");
   });
@@ -135,15 +147,16 @@ describe("Living Atlas components", () => {
     expect(screen.getByTestId("place-detail-card")).toHaveTextContent("2 visits");
   });
 
-  it("allows unchecking places in BulkVisitDialog and submits remaining IDs", () => {
+  it("allows unchecking single places in PlaceSelectionDialog and submits remaining IDs", () => {
     const onConfirm = vi.fn();
     render(
-      <BulkVisitDialog
+      <PlaceSelectionDialog
         title="Mark Krakow places visited"
         places={[SAMPLE_PLACE, SECOND_PLACE]}
         isSubmitting={false}
         onClose={vi.fn()}
-        onConfirm={onConfirm}
+        onMarkVisited={onConfirm}
+        onMarkUnvisited={vi.fn()}
       />,
     );
 
@@ -218,5 +231,215 @@ describe("Living Atlas components", () => {
 
     fireEvent.click(screen.getByTestId("atlas-undo-button"));
     expect(onUndo).toHaveBeenCalledTimes(1);
+  });
+
+  it("formats and renders visit dates in PlaceDetailCard when valid", () => {
+    expect(formatVisitDates(undefined, undefined)).toBeNull();
+    expect(formatVisitDates("not-a-date", "")).toBeNull();
+    expect(formatVisitDates("2025-10-12T10:00:00Z", undefined)).toBe("Visited Oct 2025");
+    expect(formatVisitDates("2025-10-01T00:00:00Z", "2025-10-20T00:00:00Z")).toBe(
+      "Visited Oct 2025",
+    );
+    expect(formatVisitDates("2024-10-05T00:00:00Z", "2026-03-14T00:00:00Z")).toBe(
+      "First Oct 2024 · Last Mar 2026",
+    );
+
+    const visitedPlace: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      visitStatus: "VISITED",
+      visitCount: 2,
+      firstVisitedAt: "2024-10-05T00:00:00Z",
+      lastVisitedAt: "2026-03-14T00:00:00Z",
+    };
+
+    const { rerender } = render(
+      <PlaceDetailCard
+        place={visitedPlace}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("place-visit-dates")).toHaveTextContent(
+      "First Oct 2024 · Last Mar 2026",
+    );
+
+    rerender(
+      <PlaceDetailCard
+        place={SAMPLE_PLACE}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("place-visit-dates")).not.toBeInTheDocument();
+  });
+
+  it("renders photoUrl banner, Wikimedia attribution, image fallback, and approximate location badge in PlaceDetailCard", () => {
+    const approxWithPhoto: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      coordSource: "TAKEOUT_S2_APPROX",
+      photoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/wawel.jpg",
+    };
+
+    const { rerender } = render(
+      <PlaceDetailCard
+        place={approxWithPhoto}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+
+    const banner = screen.getByTestId("place-photo-banner");
+    expect(banner).toHaveTextContent("Wikimedia");
+    const img = screen.getByRole("img", { name: "Wawel Royal Castle" });
+    expect(img).toHaveAttribute(
+      "src",
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/wawel.jpg",
+    );
+    expect(screen.getByTestId("place-approx-location-badge")).toHaveTextContent(
+      "Approximate location",
+    );
+
+    fireEvent.error(img);
+    expect(screen.queryByTestId("place-photo-banner")).not.toBeInTheDocument();
+
+    const upgradedOpenCatalog: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      coordSource: "OPEN_CATALOG",
+      photoUrl: "javascript:alert(1)",
+    };
+    rerender(
+      <PlaceDetailCard
+        place={upgradedOpenCatalog}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("place-approx-location-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("place-photo-banner")).not.toBeInTheDocument();
+  });
+
+  it("toggles MapLegend popover and shifts left when dossierOpen is true", () => {
+    const { container, rerender } = render(<MapLegend dossierOpen={false} />);
+
+    expect(screen.queryByTestId("map-legend-popover")).not.toBeInTheDocument();
+    const toggle = screen.getByTestId("map-legend-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.firstElementChild).toHaveClass("right-4");
+    expect(container.firstElementChild).not.toHaveClass("md:right-(--atlas-dossier-offset)");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const popover = screen.getByTestId("map-legend-popover");
+    expect(popover).toHaveTextContent("Visited (darker = higher %)");
+    expect(popover).toHaveTextContent("Must-See / Preferred Hotel");
+
+    rerender(<MapLegend dossierOpen={true} />);
+    expect(container.firstElementChild).toHaveClass("md:right-(--atlas-dossier-offset)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close map legend" }));
+    expect(screen.queryByTestId("map-legend-popover")).not.toBeInTheDocument();
+  });
+
+  it("supports visited and unvisited actions, filter toggling, and disable guards in PlaceSelectionDialog", () => {
+    const visitedPlace: AtlasPlaceView = {
+      ...SECOND_PLACE,
+      visitStatus: "VISITED",
+      visitCount: 1,
+    };
+    const triagePlace: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      id: "44444444-4444-4444-4444-444444444444",
+      canonicalName: "Kazimierz Cafe",
+      visitStatus: "NEEDS_TRIAGE",
+    };
+
+    const onMarkVisited = vi.fn();
+    const onMarkUnvisited = vi.fn();
+
+    render(
+      <PlaceSelectionDialog
+        title="Selected area (3 places)"
+        places={[SAMPLE_PLACE, visitedPlace, triagePlace]}
+        isSubmitting={false}
+        onClose={vi.fn()}
+        onMarkVisited={onMarkVisited}
+        onMarkUnvisited={onMarkUnvisited}
+      />,
+    );
+
+    const visitBtn = screen.getByTestId("confirm-bulk-visit-button");
+    const unvisitBtn = screen.getByTestId("confirm-bulk-unvisited-button");
+    expect(visitBtn).toHaveTextContent("Mark 2 as visited");
+    expect(unvisitBtn).toHaveTextContent("Mark 1 unvisited");
+
+    fireEvent.click(visitBtn);
+    expect(onMarkVisited).toHaveBeenCalledWith([SAMPLE_PLACE.id, triagePlace.id]);
+
+    fireEvent.click(unvisitBtn);
+    expect(onMarkUnvisited).toHaveBeenCalledWith([visitedPlace.id]);
+
+    fireEvent.change(screen.getByPlaceholderText("Filter checklist..."), {
+      target: { value: "Hala" },
+    });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Uncheck all" }));
+    expect(unvisitBtn).toBeDisabled();
+    expect(visitBtn).toBeEnabled();
+
+    fireEvent.change(screen.getByPlaceholderText("Filter checklist..."), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Uncheck all" }));
+    expect(visitBtn).toBeDisabled();
+    expect(unvisitBtn).toBeDisabled();
+  });
+
+  it("displays batch note in PlaceSelectionDialog when more than 500 places are selected", () => {
+    const manyPlaces: AtlasPlaceView[] = Array.from({ length: 501 }, (_, index) => ({
+      ...SAMPLE_PLACE,
+      id: `00000000-0000-0000-0000-${String(index).padStart(12, "0")}`,
+      canonicalName: `Place ${index}`,
+    }));
+
+    render(
+      <PlaceSelectionDialog
+        title="Large selection"
+        places={manyPlaces}
+        isSubmitting={false}
+        onClose={vi.fn()}
+        onMarkVisited={vi.fn()}
+        onMarkUnvisited={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("bulk-visit-dialog")).toHaveTextContent("Sent in batches of 500");
+  });
+});
+
+describe("withVisitState", () => {
+  it("applies a visit result to the matching selected place only", () => {
+    const result = {
+      placeId: SAMPLE_PLACE.id,
+      status: "VISITED" as const,
+      source: "MANUAL_SINGLE" as const,
+      visitCount: 1,
+      firstVisitedAt: "2026-11-27T10:00:00Z",
+      lastVisitedAt: "2026-11-27T10:00:00Z",
+      previousState: { placeId: SAMPLE_PLACE.id, status: "UNVISITED" as const, visitCount: 0 },
+    };
+
+    expect(withVisitState(SAMPLE_PLACE, result)).toMatchObject({
+      id: SAMPLE_PLACE.id,
+      visitStatus: "VISITED",
+      visitCount: 1,
+      lastVisitedAt: "2026-11-27T10:00:00Z",
+    });
+    expect(withVisitState(SECOND_PLACE, result)).toBe(SECOND_PLACE);
   });
 });

@@ -44,20 +44,8 @@ public class UpsertImportedPlace {
         UserId userId = currentUserProvider.currentUserId();
         String fallbackCountryCode =
                 RegionCodeNormalizer.normalizeCountryCode(command.countryCode());
-        MembershipDetails membership =
-                new MembershipDetails(
-                        command.accountLabel(),
-                        command.listName(),
-                        command.listKind(),
-                        command.note(),
-                        command.tags(),
-                        command.sourceUrl(),
-                        command.savedAt());
-        InitialVisitDetails initialVisit =
-                InitialVisitDetails.ofNullable(
-                        command.initialVisitStatus(),
-                        command.initialVisitSource(),
-                        command.observedAt());
+        MembershipDetails membership = MembershipDetails.from(command);
+        InitialVisitDetails initialVisit = InitialVisitDetails.from(command);
 
         return placeRepository
                 .findCanonicalMatch(
@@ -123,20 +111,10 @@ public class UpsertImportedPlace {
             MembershipDetails membership,
             @Nullable String fallbackCountryCode,
             @Nullable InitialVisitDetails initialVisit) {
-        String backfillPlaceId = matched.googlePlaceId() == null ? command.googlePlaceId() : null;
-        Long backfillCid = matched.googleCid() == null ? command.googleCid() : null;
         placeMerger.mergeIntoExisting(
                 userId,
-                new ExistingPlaceMerge(
-                        matched,
-                        command.category(),
-                        command.subcategory(),
-                        command.categorySource(),
-                        membership,
-                        backfillPlaceId,
-                        backfillCid,
-                        fallbackCountryCode,
-                        initialVisit));
+                ExistingPlaceMerge.forUpsert(
+                        matched, command, membership, fallbackCountryCode, initialVisit));
         return new UpsertedPlaceView(matched.id(), false);
     }
 }

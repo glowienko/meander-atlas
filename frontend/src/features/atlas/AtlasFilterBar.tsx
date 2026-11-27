@@ -11,7 +11,7 @@ import {
 
 interface AtlasFilterBarProps {
   viewState: AtlasViewState;
-  accountLists: AccountListFacetView[];
+  accountLists: readonly AccountListFacetView[];
   totalCount: number | undefined;
   onChange: (next: AtlasViewState) => void;
   onClear: () => void;
@@ -27,6 +27,8 @@ interface FilterSelectProps {
 }
 
 const FACET_SEPARATOR = "\u0000";
+const FIELD_CLASS =
+  "h-8 cursor-pointer rounded-full border border-atlas-border bg-white/75 px-3 text-[13px] text-atlas-ink outline-none focus:border-atlas-accent";
 
 function FilterSelect({
   testId,
@@ -42,8 +44,7 @@ function FilterSelect({
       aria-label={ariaLabel}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 cursor-pointer rounded-full border bg-white/75 px-3 text-[13px] outline-none focus:border-[var(--atlas-accent)]"
-      style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
+      className={FIELD_CLASS}
     >
       <option value="">{emptyLabel}</option>
       {options.map((option) => (
@@ -80,16 +81,11 @@ export function AtlasFilterBar({
   return (
     <div
       data-testid="atlas-filter-bar"
-      className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border px-3 py-1.5 text-[13px] shadow-sm backdrop-blur-md"
-      style={{
-        backgroundColor: "var(--atlas-surface)",
-        borderColor: "var(--atlas-border)",
-      }}
+      className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-atlas-border bg-atlas-surface px-3 py-1.5 text-[13px] shadow-sm backdrop-blur-md"
     >
       <label className="relative flex items-center">
         <Search
-          className="pointer-events-none absolute left-2.5 h-3.5 w-3.5"
-          style={{ color: "var(--atlas-muted)" }}
+          className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-atlas-muted"
           aria-hidden="true"
         />
         <input
@@ -99,8 +95,7 @@ export function AtlasFilterBar({
           placeholder="Search places, cities, notes..."
           value={viewState.q}
           onChange={(e) => onChange({ ...viewState, q: e.target.value })}
-          className="h-8 w-44 rounded-full border bg-white/75 pl-8 pr-3 text-[13px] outline-none focus:border-[var(--atlas-accent)] sm:w-52"
-          style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
+          className={`${FIELD_CLASS} w-44 pl-8 sm:w-52`}
         />
       </label>
 
@@ -136,8 +131,7 @@ export function AtlasFilterBar({
         aria-label="Filter by account or list"
         value={activeAccountListValue}
         onChange={(e) => handleAccountListChange(e.target.value)}
-        className="h-8 max-w-52 cursor-pointer rounded-full border bg-white/75 px-3 text-[13px] outline-none focus:border-[var(--atlas-accent)]"
-        style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
+        className={`${FIELD_CLASS} max-w-52`}
       >
         <option value="">All lists</option>
         {accountLists.map((facet) => (
@@ -153,8 +147,7 @@ export function AtlasFilterBar({
       {typeof totalCount === "number" && (
         <span
           data-testid="places-count-badge"
-          className="px-1.5 font-medium tabular-nums"
-          style={{ color: "var(--atlas-muted)" }}
+          className="px-1.5 font-medium tabular-nums text-atlas-muted"
         >
           {totalCount} pins
         </span>
@@ -165,8 +158,7 @@ export function AtlasFilterBar({
           type="button"
           data-testid="clear-filters-button"
           onClick={onClear}
-          className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-full border px-3 font-medium transition-colors hover:bg-black/5"
-          style={{ borderColor: "var(--atlas-border)", color: "var(--atlas-ink)" }}
+          className="atlas-pill h-8 gap-1"
         >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
           Clear

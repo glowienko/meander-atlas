@@ -144,7 +144,28 @@ class JdbcImportRepository implements ImportRepository {
                             (SELECT COUNT(*)::int
                              FROM resolution_jobs
                              WHERE user_id = :userId
-                               AND status = 'PENDING') AS pending_count,
+                               AND job_type = 'COORDINATE_LOOKUP'
+                               AND status IN ('PENDING', 'FAILED')) AS pending_coordinate_count,
+                            (SELECT COUNT(*)::int
+                             FROM resolution_jobs
+                             WHERE user_id = :userId
+                               AND job_type = 'OPEN_CATALOG_ENRICH'
+                               AND status IN ('PENDING', 'FAILED')) AS pending_enrichment_count,
+                            (SELECT COUNT(*)::int
+                             FROM places
+                             WHERE user_id = :userId
+                               AND geom IS NOT NULL
+                               AND (
+                                   coord_source = 'OPEN_CATALOG'
+                                   OR category_source = 'OPEN_CATALOG'
+                                   OR photo_url IS NOT NULL
+                                   OR osm_id IS NOT NULL
+                               )) AS enriched_place_count,
+                            (SELECT COUNT(*)::int
+                             FROM places
+                             WHERE user_id = :userId
+                               AND geom IS NOT NULL
+                               AND coord_source = 'TAKEOUT_S2_APPROX') AS approximate_place_count,
                             COUNT(*)::int AS completed_batches,
                             COALESCE(
                                 ARRAY_AGG(DISTINCT account_label ORDER BY account_label ASC),
@@ -168,8 +189,13 @@ class JdbcImportRepository implements ImportRepository {
                                     rs.getObject("last_imported_at", OffsetDateTime.class);
                             Instant lastImportedAt =
                                     lastImportedOdt == null ? null : lastImportedOdt.toInstant();
+                            int pendingCoordinates = rs.getInt("pending_coordinate_count");
                             return new ImportStatusSummary(
-                                    rs.getInt("pending_count"),
+                                    pendingCoordinates,
+                                    pendingCoordinates,
+                                    rs.getInt("pending_enrichment_count"),
+                                    rs.getInt("enriched_place_count"),
+                                    rs.getInt("approximate_place_count"),
                                     rs.getInt("completed_batches"),
                                     accounts,
                                     lastImportedAt);

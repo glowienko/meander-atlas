@@ -25,9 +25,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Types;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -39,6 +41,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -283,6 +286,187 @@ class LocalImportE2eTest {
                                 "PL",
                                 null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void materializesPendingCoordinateJobsOfflineAndUpgradesS2ApproxOnExactMerge()
+            throws IOException {
+        Path s2AccountDir = tempRoot.resolve("imports/s2-first");
+        Path exactAccountDir = tempRoot.resolve("imports/exact-second");
+        Files.createDirectories(s2AccountDir);
+        Files.createDirectories(exactAccountDir);
+
+        Files.writeString(
+                s2AccountDir.resolve("Want to go.csv"),
+                TakeoutTestData.savedCsv(
+                        "Wawel S2 First,Castle,"
+                                + "https://www.google.com/maps/place/Wawel/data=!4m2!3m1!1s0x47165b120455da67:0x20000099,castle,"),
+                StandardCharsets.UTF_8);
+
+        RestClient client = restClient();
+        LocalImportSummaryView s2Import =
+                client.post()
+                        .uri("/api/v1/imports/local?account=s2-first")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(s2Import).isNotNull();
+        assertThat(s2Import.totalPlacesCreated()).isEqualTo(1);
+        assertThat(s2Import.totalQueuedResolutionJobs()).isZero();
+
+        AtlasPlaceView s2BeforeMerge = findPlaceByName(fetchAllPlaces(client), "Wawel S2 First");
+        assertThat(s2BeforeMerge.coordSource()).isEqualTo(CoordSource.TAKEOUT_S2_APPROX);
+
+        Files.writeString(
+                exactAccountDir.resolve("Saved Places.json"),
+                TakeoutTestData.savedPlaceGeoJson(
+                        "Wawel Exact Second", 19.935412, 50.054049, 536871065L, "PL"),
+                StandardCharsets.UTF_8);
+        LocalImportSummaryView exactMergeImport =
+                client.post()
+                        .uri("/api/v1/imports/local?account=exact-second")
+                        .retrieve()
+                        .body(LocalImportSummaryView.class);
+        assertThat(exactMergeImport).isNotNull();
+        assertThat(exactMergeImport.totalPlacesMerged()).isEqualTo(1);
+
+        AtlasPlaceView upgradedPlace = findPlaceByName(fetchAllPlaces(client), "Wawel S2 First");
+        assertThat(upgradedPlace.coordSource()).isEqualTo(CoordSource.TAKEOUT);
+        assertThat(upgradedPlace.lat()).isEqualTo(50.054049);
+        assertThat(upgradedPlace.lng()).isEqualTo(19.935412);
+
+        UUID batchId = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO import_batches
+                    (id, user_id, account_label, content_sha256, source_type, status, record_count)
+                VALUES
+                    (:id, :userId, 'legacy-batch', 'legacy-sha', 'LOCAL_DIRECTORY', 'COMPLETED', 4)
+                """,
+                Map.of("id", batchId, "userId", USER_ID));
+
+        UUID cidJobId =
+                insertPendingCsvLookupJob(
+                        batchId,
+                        "Wawel Legacy CID",
+                        "https://www.google.com/maps/place/Wawel/data=!4m2!3m1!1s0x1:0x20000099",
+                        536871065L,
+                        "{\"listName\":\"Favorites\",\"listKind\":\"FAVORITE\",\"note\":\"Backfilled\"}");
+        UUID dmsJobId =
+                insertPendingCsvLookupJob(
+                        batchId,
+                        "47°55'12.3\"N 106°54'19.8\"E",
+                        "https://www.google.com/maps/search/?api=1&query=47.92,106.90",
+                        null,
+                        "{\"listName\":\"Want to go\",\"listKind\":\"WANT_TO_GO\"}");
+        UUID s2JobId =
+                insertPendingCsvLookupJob(
+                        batchId,
+                        "Miradouro da Senhora",
+                        "https://www.google.com/maps/place/Lima/data=!4m2!3m1!1s0x9105c8cdc0000000:0x30000011",
+                        null,
+                        "{\"listName\":\"Custom Lisbon\"}");
+        UUID stubJobId =
+                insertPendingCsvLookupJob(
+                        batchId,
+                        "Unresolvable Legacy Stub",
+                        "https://www.google.com/maps/place/Stub/data=!4m2!3m1!1s0x10000001:0x0",
+                        null,
+                        "{\"listName\":\"Want to go\"}");
+
+        OfflineMaterializationSummaryView first =
+                client.post()
+                        .uri("/api/v1/imports/materialize-offline")
+                        .retrieve()
+                        .body(OfflineMaterializationSummaryView.class);
+        assertThat(first).isNotNull();
+        assertThat(first.materializedCount()).isEqualTo(3);
+        assertThat(first.exactFromTitleCount()).isEqualTo(1);
+        assertThat(first.approxFromS2Count()).isEqualTo(1);
+        assertThat(first.mergedByCidCount()).isEqualTo(1);
+        assertThat(first.remainingLookupCount()).isEqualTo(1);
+        assertThat(first.enqueuedEnrichmentCount()).isEqualTo(2);
+
+        List<AtlasPlaceView> placesAfter = fetchAllPlaces(client);
+        assertThat(findPlaceByName(placesAfter, "47°55'12.3\"N 106°54'19.8\"E").coordSource())
+                .isEqualTo(CoordSource.TAKEOUT);
+        assertThat(findPlaceByName(placesAfter, "Miradouro da Senhora").coordSource())
+                .isEqualTo(CoordSource.TAKEOUT_S2_APPROX);
+        assertThat(findPlaceByName(placesAfter, "Miradouro da Senhora").category())
+                .isEqualTo(PlaceCategory.VIEWPOINT);
+
+        Integer completedCount =
+                jdbc.queryForObject(
+                        """
+                        SELECT COUNT(*)::int
+                        FROM resolution_jobs
+                        WHERE id IN (:ids)
+                          AND status = 'COMPLETED'
+                          AND place_id IS NOT NULL
+                        """,
+                        Map.of("ids", List.of(cidJobId, dmsJobId, s2JobId)),
+                        Integer.class);
+        assertThat(completedCount).isEqualTo(3);
+
+        Integer stubPending =
+                jdbc.queryForObject(
+                        "SELECT COUNT(*)::int FROM resolution_jobs WHERE id = :id AND status = 'PENDING'",
+                        Map.of("id", stubJobId),
+                        Integer.class);
+        assertThat(stubPending).isEqualTo(1);
+
+        jdbc.update(
+                """
+                UPDATE resolution_jobs
+                SET status = 'COMPLETED'
+                WHERE user_id = :userId
+                  AND place_id = :placeId
+                  AND job_type = 'OPEN_CATALOG_ENRICH'
+                """,
+                Map.of("userId", USER_ID, "placeId", upgradedPlace.id()));
+
+        OfflineMaterializationSummaryView second =
+                client.post()
+                        .uri("/api/v1/imports/materialize-offline")
+                        .retrieve()
+                        .body(OfflineMaterializationSummaryView.class);
+        assertThat(second).isNotNull();
+        assertThat(second.materializedCount()).isZero();
+        assertThat(second.enqueuedEnrichmentCount()).isZero();
+        assertThat(second.remainingLookupCount()).isEqualTo(1);
+    }
+
+    private UUID insertPendingCsvLookupJob(
+            UUID batchId, String title, String url, @Nullable Long googleCid, String payloadJson) {
+        UUID recordId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO import_records (
+                    id, batch_id, user_id, account_label, record_type, source_file,
+                    raw_title, raw_url, google_cid, payload_json
+                )
+                VALUES (
+                    :id, :batchId, :userId, 'legacy', 'SAVED_CSV', 'Want to go.csv',
+                    :rawTitle, :rawUrl, :googleCid, CAST(:payloadJson AS jsonb)
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("id", recordId)
+                        .addValue("batchId", batchId)
+                        .addValue("userId", USER_ID)
+                        .addValue("rawTitle", title)
+                        .addValue("rawUrl", url)
+                        .addValue("googleCid", googleCid, Types.BIGINT)
+                        .addValue("payloadJson", payloadJson));
+        jdbc.update(
+                """
+                INSERT INTO resolution_jobs
+                    (id, user_id, import_record_id, place_id, job_type, status, attempts)
+                VALUES
+                    (:id, :userId, :importRecordId, NULL, 'COORDINATE_LOOKUP', 'PENDING', 0)
+                """,
+                Map.of("id", jobId, "userId", USER_ID, "importRecordId", recordId));
+        return jobId;
     }
 
     private RestClient restClient() {

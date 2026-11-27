@@ -86,6 +86,8 @@ final class AtlasViewMapper {
                 place.admin1Code(),
                 place.admin1Name(),
                 place.cityName(),
+                place.coordSource(),
+                place.photoUrl(),
                 memberships);
     }
 

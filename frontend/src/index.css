@@ -13,6 +13,33 @@
   color-scheme: light;
 }
 
+@theme inline {
+  --color-atlas-bg: var(--atlas-bg);
+  --color-atlas-surface: var(--atlas-surface);
+  --color-atlas-ink: var(--atlas-ink);
+  --color-atlas-muted: var(--atlas-muted);
+  --color-atlas-border: var(--atlas-border);
+  --color-atlas-accent: var(--atlas-accent);
+  --color-atlas-accent-soft: var(--atlas-accent-soft);
+  --color-atlas-danger: var(--atlas-danger);
+}
+
+@utility atlas-pill {
+  @apply inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-atlas-border px-3 py-1 text-[13px] font-medium text-atlas-ink transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility atlas-pill-solid {
+  @apply inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-atlas-accent px-3 py-1 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility atlas-panel {
+  @apply rounded-2xl border border-atlas-border bg-[rgba(250,249,246,0.95)] shadow-lg backdrop-blur-md;
+}
+
+@utility atlas-icon-button {
+  @apply cursor-pointer rounded-full p-1 text-atlas-muted hover:bg-black/5;
+}
+
 html,
 body,
 #root {

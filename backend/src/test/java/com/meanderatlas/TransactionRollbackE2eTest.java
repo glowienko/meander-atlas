@@ -14,6 +14,7 @@ import com.meanderatlas.ingestion.application.ImportLocalDirectory;
 import com.meanderatlas.ingestion.domain.TakeoutTestData;
 import com.meanderatlas.ingestion.domain.source.AccountImportSource;
 import com.meanderatlas.ingestion.domain.source.DiscoveredImportFile;
+import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository;
 import com.meanderatlas.ingestion.domain.source.ImportFileKind;
 import com.meanderatlas.ingestion.domain.source.ImportRecordKind;
 import com.meanderatlas.ingestion.domain.source.ImportRepository;
@@ -63,6 +64,7 @@ class TransactionRollbackE2eTest {
     @Autowired private AtlasPlaceRepository placeRepository;
     @Autowired private RegionBoundaryRepository regionBoundaryRepository;
     @Autowired private ImportRepository importRepository;
+    @Autowired private EnrichmentJobRepository enrichmentJobRepository;
     @Autowired private AtlasFacade atlasFacade;
     @Autowired private NamedParameterJdbcTemplate jdbc;
 
@@ -284,6 +286,7 @@ class TransactionRollbackE2eTest {
                 new ImportLocalDirectory(
                         sourcePort,
                         failingOnComplete,
+                        enrichmentJobRepository,
                         atlasFacade,
                         () -> USER_ID,
                         transactionOperations);

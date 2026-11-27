@@ -10,7 +10,7 @@
 - **Containers & Security:** Temurin 25 (`jdk-noble` → `jre-alpine`), Node 26 (`bookworm-slim` + `npm install -g pnpm`, no Corepack) → `caddy:2-alpine`, `gitleaks`, `scripts/check-privacy.sh`
 
 ## Commands
-- Fast loop (privacy + doc budget + guardrails + unit + compile + NullAway + Checkstyle + FE lint/AST/typecheck/unit): `./scripts/verify.sh --fast`
+- Fast loop (privacy + doc budget + guardrails + unit + compile + NullAway + Checkstyle + FE Biome/ESLint react-hooks/knip/jscpd/AST/typecheck/unit): `./scripts/verify.sh --fast`
 - Full gate (+ gitleaks + Spotless + PostGIS Testcontainers + JaCoCo 90% coverage gate + OpenAPI/doc drift + FE build + Playwright visual proof): `./scripts/verify.sh`
 - Full + containerized stack smoke (`compose --profile app` build, healthchecks, Caddy proxy): `./scripts/verify.sh --docker` (or `./scripts/verify-docker.sh`)
 - Format backend / frontend: `./backend/gradlew -p backend spotlessApply` / `pnpm --dir frontend run format`
@@ -40,7 +40,7 @@
 - **Jackson 3:** Use `tools.jackson.*` packages (never legacy `com.fasterxml.jackson.*`).
 - **Modular starters:** Explicitly use `spring-boot-starter-webmvc` (not `web`) and `spring-boot-starter-flyway` + `flyway-database-postgresql`.
 - **Nullability:** Use JSpecify `org.jspecify.annotations.NullMarked` per package and `@Nullable` (never `org.springframework.lang.*`); enforced as compile errors via Error Prone + NullAway.
-- **Paths & Resilience:** Never use unexpanded `~/` in Java/Compose paths (use `${user.home}` / `${HOME}`); use Spring Framework 7 core `@Retryable` / `@ConcurrencyLimit` (no Resilience4j).
+- **Paths & Resilience:** Never use unexpanded `~/` in Java/Compose paths (use `${user.home}` / `${HOME}`); no in-process retry/backoff/circuit breakers (no Resilience4j) — external failures surface as job outcomes and retry via the `resolution_jobs` queue; no `Thread.sleep`, raw `Thread`/`Executors`, or no-arg `*.now()` in production (use the Spring `AsyncTaskExecutor` and an injected `Clock`; enforced by `ArchitectureTest`).
 - **Testcontainers 2.x:** `org.testcontainers.postgresql.PostgreSQLContainer` (non-generic) with `@ServiceConnection`.
 
 ## Code, Testing & Agent Skills

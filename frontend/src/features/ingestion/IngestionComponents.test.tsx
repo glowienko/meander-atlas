@@ -20,24 +20,72 @@ describe("Ingestion components", () => {
     expect(pendingButton).toBeDisabled();
   });
 
-  it("renders ImportStatusBadge with mapped and pending coordinate counts", () => {
-    render(
+  it("renders ImportStatusBadge with progress counters and materialize/enrich triggers", () => {
+    const onMaterializeOffline = vi.fn();
+    const onRunEnrichment = vi.fn();
+    const { rerender } = render(
       <ImportStatusBadge
         mappedCount={1284}
         status={{
           pendingResolutionCount: 6150,
+          pendingCoordinateLookupCount: 6150,
+          pendingEnrichmentCount: 720,
+          enrichedPlaceCount: 85,
+          approximatePlaceCount: 540,
+          enrichmentRunning: false,
           completedBatches: 2,
           accounts: ["personal", "work"],
           lastImportedAt: "2026-11-24T12:00:00Z",
         }}
+        onMaterializeOffline={onMaterializeOffline}
+        onRunEnrichment={onRunEnrichment}
+        isMaterializing={false}
+        isEnriching={false}
       />,
     );
 
     const badge = screen.getByTestId("import-status-badge");
     expect(badge).toHaveTextContent("1284 mapped");
     expect(badge).toHaveTextContent("6150 awaiting coordinates");
+    expect(badge).toHaveTextContent("85 enriched · 720 pending enrichment · 540 approximate");
     expect(badge).toHaveTextContent("2 batches");
     expect(badge).toHaveTextContent("personal");
     expect(badge).toHaveTextContent("work");
+
+    fireEvent.click(screen.getByTestId("materialize-offline-button"));
+    expect(onMaterializeOffline).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("enrich-batch-button"));
+    expect(onRunEnrichment).toHaveBeenCalledWith({ limit: 10, background: false });
+
+    fireEvent.click(screen.getByTestId("enrich-all-button"));
+    expect(onRunEnrichment).toHaveBeenCalledWith({ limit: 25, background: true });
+
+    rerender(
+      <ImportStatusBadge
+        mappedCount={1284}
+        status={{
+          pendingResolutionCount: 0,
+          pendingCoordinateLookupCount: 0,
+          pendingEnrichmentCount: 720,
+          enrichedPlaceCount: 95,
+          approximatePlaceCount: 530,
+          enrichmentRunning: true,
+          completedBatches: 2,
+          accounts: ["personal"],
+        }}
+        onMaterializeOffline={onMaterializeOffline}
+        onRunEnrichment={onRunEnrichment}
+        isMaterializing={false}
+        isEnriching={false}
+      />,
+    );
+
+    expect(screen.queryByTestId("materialize-offline-button")).not.toBeInTheDocument();
+    expect(screen.getByTestId("enrichment-running-indicator")).toHaveTextContent(
+      "Enriching in background...",
+    );
+    expect(screen.getByTestId("enrich-batch-button")).toBeDisabled();
+    expect(screen.getByTestId("enrich-all-button")).toBeDisabled();
   });
 });

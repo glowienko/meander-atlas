@@ -5,6 +5,9 @@
 <module name="Checker">
   <property name="charset" value="UTF-8"/>
   <property name="severity" value="error"/>
+  <module name="SuppressionFilter">
+    <property name="file" value="${config_loc}/suppressions.xml"/>
+  </module>
   <module name="TreeWalker">
     <module name="MatchXpath">
       <property name="query" value="//SINGLE_LINE_COMMENT | //BLOCK_COMMENT_BEGIN"/>
@@ -14,5 +17,18 @@
       <property name="query" value="//LITERAL_CONTINUE"/>
       <message key="matchxpath.match" value="Prefer functional Stream/Optional pipelines over continue statements."/>
     </module>
+    <module name="ParameterNumber"><property name="max" value="7"/><property name="ignoreOverriddenMethods" value="true"/><property name="tokens" value="METHOD_DEF,CTOR_DEF"/></module>
+    <module name="MethodLength"><property name="max" value="60"/><property name="countEmpty" value="false"/></module>
+    <module name="CyclomaticComplexity"><property name="max" value="10"/><property name="switchBlockAsSingleDecisionPoint" value="true"/></module>
+    <module name="NestedIfDepth"><property name="max" value="2"/></module>
+    <module name="BooleanExpressionComplexity"><property name="max" value="4"/></module>
+    <module name="IllegalCatch"/>
   </module>
+  <module name="RegexpMultiline">
+    <property name="id" value="jsonTextBlock"/>
+    <property name="format" value='"""[ \t]*\r?\n[ \t]*[\{\[]'/>
+    <property name="fileExtensions" value="java"/>
+    <property name="message" value="JSON text blocks belong in a shared *TestData fixture helper, not inline."/>
+  </module>
+  <module name="FileLength"><property name="max" value="450"/></module>
 </module>

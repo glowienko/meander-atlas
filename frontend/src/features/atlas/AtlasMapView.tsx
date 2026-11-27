@@ -1,404 +1,135 @@
-import {
-  type GeoJSONSource,
-  Map as MapLibreMap,
-  type StyleSpecification,
-  setWorkerUrl,
-  type VectorTileSource,
-} from "maplibre-gl";
+import { Map as MapLibreMap, type Point, type StyleSpecification, setWorkerUrl } from "maplibre-gl";
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { useEffect, useRef, useState } from "react";
-import type { AtlasPlaceView, RegionLevel, RegionSummaryView } from "../../api/client";
-import type { AtlasProjection, RegionScope } from "./viewState";
+import {
+  type Ref,
+  type RefObject,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import type { AtlasPlaceView, RegionLevel } from "../../api/client";
+import { PAPER } from "./atlasPalette";
+import {
+  computeMapPadding,
+  filterPlacesInScreenRect,
+  type GeoBounds,
+  isFittableBounds,
+  isSameGlobePoint,
+  type MapOverlays,
+  normalizeLngNear,
+  type ScreenRect,
+} from "./mapGeometry";
+import {
+  addAtlasLayers,
+  clusterExpansionZoom,
+  hitAt,
+  type MapHit,
+  type RegionSelection,
+  STREET_ZOOM,
+  setPlaceHighlights,
+  setPlaces,
+  showAdmin1Country,
+  syncRegionStates,
+} from "./mapLayers";
+import { registerCategoryPinIcon, registerCategoryPinIcons } from "./pinIcons";
+import type { AtlasProjection, MapBasemap } from "./viewState";
 
 setWorkerUrl(maplibreWorkerUrl);
 
-export interface MapViewport {
+export interface MapViewport extends GeoBounds {
   zoom: number;
-  minLng: number;
-  minLat: number;
-  maxLng: number;
-  maxLat: number;
 }
 
-export interface FitBoundsTarget {
-  key: string;
-  minLng: number;
-  minLat: number;
-  maxLng: number;
-  maxLat: number;
+export interface AtlasMapHandle {
+  flyTo: (point: { lng: number; lat: number }, overlays: MapOverlays) => void;
+  fitBounds: (bounds: GeoBounds, overlays: MapOverlays) => void;
+  resetView: () => void;
 }
 
-interface AtlasMapViewProps {
+interface AtlasMapViewProps extends RegionSelection {
+  ref: Ref<AtlasMapHandle>;
   projection: AtlasProjection;
-  places: AtlasPlaceView[];
-  countrySummaries: RegionSummaryView[];
-  admin1Summaries: RegionSummaryView[];
-  selectedCountryCode: string;
-  selectedRegionLevel: RegionScope | "";
-  selectedRegionCode: string;
+  basemap: MapBasemap;
+  places: readonly AtlasPlaceView[];
   selectedPlaceId: string | null;
-  fitBoundsTarget: FitBoundsTarget | null;
+  highlightedPlaceIds: readonly string[];
+  areaSelectMode: boolean;
   onSelectPlace: (placeId: string) => void;
   onSelectRegion: (level: RegionLevel, code: string) => void;
   onViewportChange: (viewport: MapViewport) => void;
+  onSelectAreaPlaces: (places: AtlasPlaceView[]) => void;
 }
 
-const POSITRON_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
-const COUNTRIES_SOURCE_ID = "atlas-countries";
-const ADMIN1_SOURCE_ID = "atlas-admin1";
-const PLACES_SOURCE_ID = "atlas-places";
-const SOURCE_LAYER_REGIONS = "regions";
-
-function createFallbackStyle(): StyleSpecification {
-  return {
-    version: 8,
-    sources: {},
-    layers: [
-      {
-        id: "background",
-        type: "background",
-        paint: {
-          "background-color": "#faf9f6",
-        },
-      },
-    ],
-  };
+interface DragBox {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
 }
 
-function resolveStyle(): string | StyleSpecification {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("basemap") === "offline") {
-    return createFallbackStyle();
-  }
-  return POSITRON_STYLE_URL;
+const OFFLINE_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {},
+  layers: [{ id: "background", type: "background", paint: { "background-color": PAPER } }],
+};
+const STYLE_BY_BASEMAP: Readonly<Record<MapBasemap, string | StyleSpecification>> = {
+  atlas: "https://tiles.openfreemap.org/styles/positron",
+  street: "https://tiles.openfreemap.org/styles/liberty",
+  offline: OFFLINE_STYLE,
+};
+const DEFAULT_CENTER: [number, number] = [12, 34];
+const DEFAULT_ZOOM = 1.4;
+const MIN_DRAG_BOX_PX = 6;
+const MIN_FOCUS_ZOOM = 14;
+const MIN_FIT_BOUNDS_PADDING = 48;
+const EASE_MS = { cluster: 500, focus: 650, reset: 700, fit: 750 } as const;
+
+function easeDuration(ms: number): number {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : ms;
 }
 
-function countryTileUrl(): string {
-  return `${window.location.origin}/api/v1/atlas/tiles/regions/COUNTRY/{z}/{x}/{y}.mvt`;
-}
-
-function admin1TileUrl(countryCode: string): string {
-  return `${window.location.origin}/api/v1/atlas/tiles/regions/ADMIN1/{z}/{x}/{y}.mvt?countryCode=${encodeURIComponent(countryCode)}`;
-}
-
-type GeoJsonData = Parameters<GeoJSONSource["setData"]>[0];
-
-function buildPlacesGeoJson(places: AtlasPlaceView[]): GeoJsonData {
-  return {
-    type: "FeatureCollection",
-    features: places.map((place) => ({
-      type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates: [place.lng, place.lat],
-      },
-      properties: {
-        id: place.id,
-        visitStatus: place.visitStatus,
-        derivedRole: place.derivedRole,
-      },
-    })),
-  };
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-function emitViewport(map: MapLibreMap, callback: (viewport: MapViewport) => void): void {
+function viewportOf(map: MapLibreMap): MapViewport {
   const bounds = map.getBounds();
-  callback({
+  return {
     zoom: map.getZoom(),
     minLng: bounds.getWest(),
     minLat: bounds.getSouth(),
     maxLng: bounds.getEast(),
     maxLat: bounds.getNorth(),
-  });
+  };
 }
 
-function interactiveLayerIds(map: MapLibreMap, selectedCountryCode: string): string[] {
-  return [
-    "atlas-places-pins",
-    "atlas-places-clusters",
-    ...(selectedCountryCode.length > 0 ? ["atlas-admin1-fill"] : []),
-    "atlas-countries-fill",
-  ].filter((layerId) => Boolean(map.getLayer(layerId)));
+function overlayPadding(map: MapLibreMap, overlays: MapOverlays, minimum = 0) {
+  const container = map.getContainer();
+  return computeMapPadding(
+    { ...overlays, viewportWidth: container.clientWidth, viewportHeight: container.clientHeight },
+    minimum,
+  );
 }
 
-function syncRegionFeatureStates(
-  map: MapLibreMap,
-  sourceId: string,
-  summaries: RegionSummaryView[],
-  isSelected: (code: string) => boolean,
-  fallbackSelectedCode?: string,
-): void {
-  if (!map.getSource(sourceId)) {
-    return;
-  }
-  map.removeFeatureState({ source: sourceId, sourceLayer: SOURCE_LAYER_REGIONS });
-  for (const summary of summaries) {
-    map.setFeatureState(
-      {
-        source: sourceId,
-        sourceLayer: SOURCE_LAYER_REGIONS,
-        id: summary.code,
-      },
-      {
-        totalPlaces: summary.totalPlaces,
-        visitedPlaces: summary.visitedPlaces,
-        completionRatio: summary.completionRatio,
-        selected: isSelected(summary.code),
-      },
-    );
-  }
-  if (
-    fallbackSelectedCode &&
-    fallbackSelectedCode.length > 0 &&
-    !summaries.some((summary) => summary.code === fallbackSelectedCode)
-  ) {
-    map.setFeatureState(
-      {
-        source: sourceId,
-        sourceLayer: SOURCE_LAYER_REGIONS,
-        id: fallbackSelectedCode,
-      },
-      {
-        totalPlaces: 0,
-        visitedPlaces: 0,
-        completionRatio: 0,
-        selected: true,
-      },
-    );
-  }
+function boxRect(box: DragBox): ScreenRect {
+  return {
+    minX: Math.min(box.startX, box.currentX),
+    minY: Math.min(box.startY, box.currentY),
+    maxX: Math.max(box.startX, box.currentX),
+    maxY: Math.max(box.startY, box.currentY),
+  };
 }
 
-function syncSourcesAndLayers(
-  map: MapLibreMap,
-  initialCountryCode: string,
-  initialPlaces: AtlasPlaceView[],
-): void {
-  const firstSymbolId = map.getStyle()?.layers?.find((layer) => layer.type === "symbol")?.id;
-  const hasGlyphs = Boolean(map.getStyle()?.glyphs);
-
-  if (!map.getSource(COUNTRIES_SOURCE_ID)) {
-    map.addSource(COUNTRIES_SOURCE_ID, {
-      type: "vector",
-      tiles: [countryTileUrl()],
-      promoteId: "code",
-      minzoom: 0,
-      maxzoom: 14,
-    });
-    map.addLayer(
-      {
-        id: "atlas-countries-fill",
-        type: "fill",
-        source: COUNTRIES_SOURCE_ID,
-        "source-layer": SOURCE_LAYER_REGIONS,
-        paint: {
-          "fill-color": [
-            "case",
-            [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
-            "#1f6f54",
-            [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
-            "#c96a38",
-            "transparent",
-          ],
-          "fill-opacity": [
-            "case",
-            [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
-            ["+", 0.16, ["*", ["coalesce", ["feature-state", "completionRatio"], 0], 0.28]],
-            [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
-            0.12,
-            0,
-          ],
-        },
-      },
-      firstSymbolId,
-    );
-    map.addLayer(
-      {
-        id: "atlas-countries-outline",
-        type: "line",
-        source: COUNTRIES_SOURCE_ID,
-        "source-layer": SOURCE_LAYER_REGIONS,
-        paint: {
-          "line-color": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            "#1d5b4c",
-            [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
-            "rgba(29, 91, 76, 0.5)",
-            [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
-            "rgba(201, 106, 56, 0.55)",
-            "rgba(22, 24, 29, 0.08)",
-          ],
-          "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 2, 0.8],
-        },
-      },
-      firstSymbolId,
-    );
-  }
-
-  if (!map.getSource(ADMIN1_SOURCE_ID)) {
-    const admin1Tiles = initialCountryCode.length > 0 ? [admin1TileUrl(initialCountryCode)] : [];
-    const visibility = initialCountryCode.length > 0 ? "visible" : "none";
-    map.addSource(ADMIN1_SOURCE_ID, {
-      type: "vector",
-      tiles: admin1Tiles,
-      promoteId: "code",
-      minzoom: 0,
-      maxzoom: 14,
-    });
-    map.addLayer(
-      {
-        id: "atlas-admin1-fill",
-        type: "fill",
-        source: ADMIN1_SOURCE_ID,
-        "source-layer": SOURCE_LAYER_REGIONS,
-        layout: { visibility },
-        paint: {
-          "fill-color": [
-            "case",
-            [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
-            "#1f6f54",
-            [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
-            "#c96a38",
-            "transparent",
-          ],
-          "fill-opacity": [
-            "case",
-            [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
-            ["+", 0.18, ["*", ["coalesce", ["feature-state", "completionRatio"], 0], 0.3]],
-            [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
-            0.14,
-            0,
-          ],
-        },
-      },
-      firstSymbolId,
-    );
-    map.addLayer(
-      {
-        id: "atlas-admin1-outline",
-        type: "line",
-        source: ADMIN1_SOURCE_ID,
-        "source-layer": SOURCE_LAYER_REGIONS,
-        layout: { visibility },
-        paint: {
-          "line-color": [
-            "case",
-            ["boolean", ["feature-state", "selected"], false],
-            "#1d5b4c",
-            "rgba(22, 24, 29, 0.25)",
-          ],
-          "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 2, 0.9],
-        },
-      },
-      firstSymbolId,
-    );
-  }
-
-  if (!map.getSource(PLACES_SOURCE_ID)) {
-    map.addSource(PLACES_SOURCE_ID, {
-      type: "geojson",
-      data: buildPlacesGeoJson(initialPlaces),
-      cluster: true,
-      clusterMaxZoom: 12,
-      clusterRadius: 44,
-    });
-    map.addLayer({
-      id: "atlas-places-clusters",
-      type: "circle",
-      source: PLACES_SOURCE_ID,
-      filter: ["has", "point_count"],
-      paint: {
-        "circle-color": "#16181d",
-        "circle-radius": ["step", ["get", "point_count"], 15, 25, 19, 100, 23],
-        "circle-stroke-color": "#faf9f6",
-        "circle-stroke-width": 2,
-      },
-    });
-    if (hasGlyphs) {
-      map.addLayer({
-        id: "atlas-places-cluster-count",
-        type: "symbol",
-        source: PLACES_SOURCE_ID,
-        filter: ["has", "point_count"],
-        layout: {
-          "text-field": "{point_count_abbreviated}",
-          "text-font": ["Noto Sans Bold"],
-          "text-size": 11,
-        },
-        paint: {
-          "text-color": "#faf9f6",
-        },
-      });
-    }
-    map.addLayer({
-      id: "atlas-places-selected",
-      type: "circle",
-      source: PLACES_SOURCE_ID,
-      filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "id"], ""]],
-      paint: {
-        "circle-radius": 13,
-        "circle-color": "rgba(29, 91, 76, 0.18)",
-        "circle-stroke-color": "#1d5b4c",
-        "circle-stroke-width": 2,
-      },
-    });
-    map.addLayer({
-      id: "atlas-places-pins",
-      type: "circle",
-      source: PLACES_SOURCE_ID,
-      filter: ["!", ["has", "point_count"]],
-      paint: {
-        "circle-color": [
-          "match",
-          ["get", "visitStatus"],
-          "VISITED",
-          "#1f6f54",
-          "NEEDS_TRIAGE",
-          "#6d597a",
-          "#c96a38",
-        ],
-        "circle-radius": [
-          "match",
-          ["get", "derivedRole"],
-          ["PREFERRED_HOTEL", "MUST_SEE"],
-          7.5,
-          "FAVORITE",
-          6.5,
-          5.5,
-        ],
-        "circle-stroke-color": [
-          "match",
-          ["get", "derivedRole"],
-          ["PREFERRED_HOTEL", "MUST_SEE"],
-          "#d4a017",
-          "FAVORITE",
-          "#b84a62",
-          "#faf9f6",
-        ],
-        "circle-stroke-width": [
-          "match",
-          ["get", "derivedRole"],
-          ["PREFERRED_HOTEL", "MUST_SEE"],
-          2.5,
-          "FAVORITE",
-          2,
-          1.5,
-        ],
-      },
-    });
-  }
+function styledMap(
+  mapRef: RefObject<MapLibreMap | null>,
+  styleLoadedRef: RefObject<boolean>,
+  styleRevision: number,
+): MapLibreMap | null {
+  return styleRevision > 0 && styleLoadedRef.current ? mapRef.current : null;
 }
 
 export function AtlasMapView({
+  ref,
   projection,
+  basemap,
   places,
   countrySummaries,
   admin1Summaries,
@@ -406,130 +137,162 @@ export function AtlasMapView({
   selectedRegionLevel,
   selectedRegionCode,
   selectedPlaceId,
-  fitBoundsTarget,
+  highlightedPlaceIds,
+  areaSelectMode,
   onSelectPlace,
   onSelectRegion,
   onViewportChange,
+  onSelectAreaPlaces,
 }: AtlasMapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleLoadedRef = useRef(false);
+  const suppressNextClickRef = useRef(false);
   const [styleRevision, setStyleRevision] = useState(0);
+  const [dragBox, setDragBox] = useState<DragBox | null>(null);
 
-  const projectionRef = useRef(projection);
-  const placesRef = useRef(places);
-  const selectedCountryCodeRef = useRef(selectedCountryCode);
-  const onSelectPlaceRef = useRef(onSelectPlace);
-  const onSelectRegionRef = useRef(onSelectRegion);
-  const onViewportChangeRef = useRef(onViewportChange);
-  const lastFitKeyRef = useRef<string | null>(null);
+  const emitViewport = useEffectEvent((map: MapLibreMap) => onViewportChange(viewportOf(map)));
 
-  projectionRef.current = projection;
-  placesRef.current = places;
-  selectedCountryCodeRef.current = selectedCountryCode;
-  onSelectPlaceRef.current = onSelectPlace;
-  onSelectRegionRef.current = onSelectRegion;
-  onViewportChangeRef.current = onViewportChange;
+  const zoomToCluster = (map: MapLibreMap, hit: Extract<MapHit, { kind: "cluster" }>) => {
+    void clusterExpansionZoom(map, hit.clusterId)?.then((zoom) => {
+      if (mapRef.current === map) {
+        map.easeTo({ center: hit.center, zoom, duration: easeDuration(EASE_MS.cluster) });
+      }
+    });
+  };
+
+  const handleMapClick = useEffectEvent((map: MapLibreMap, point: Point) => {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+    const hit = hitAt(map, point, selectedCountryCode);
+    if (hit?.kind === "place") {
+      onSelectPlace(hit.placeId);
+    } else if (hit?.kind === "region") {
+      onSelectRegion(hit.level, hit.code);
+    } else if (hit?.kind === "cluster") {
+      zoomToCluster(map, hit);
+    }
+  });
+
+  const updateHoverCursor = useEffectEvent((map: MapLibreMap, point: Point) => {
+    const hovered = !areaSelectMode && hitAt(map, point, selectedCountryCode) !== null;
+    map.getCanvas().style.cursor = areaSelectMode ? "crosshair" : hovered ? "pointer" : "";
+  });
+
+  const startsAreaDrag = useEffectEvent(
+    (event: PointerEvent) =>
+      event.button === 0 && styleLoadedRef.current && (areaSelectMode || event.shiftKey),
+  );
+
+  const releaseDragPan = useEffectEvent((map: MapLibreMap) => {
+    if (!areaSelectMode) {
+      map.dragPan.enable();
+    }
+  });
+
+  const selectPlacesInRect = useEffectEvent((map: MapLibreMap, rect: ScreenRect) => {
+    const centerLng = map.getCenter().lng;
+    const matched = filterPlacesInScreenRect(
+      places,
+      rect,
+      ([lng, lat]) => map.project([normalizeLngNear(lng, centerLng), lat]),
+      projection === "globe"
+        ? (place, point) => isSameGlobePoint(place, map.unproject([point.x, point.y]))
+        : undefined,
+    );
+    if (matched.length > 0) {
+      onSelectAreaPlaces(matched);
+    }
+  });
+
+  useImperativeHandle(ref, () => {
+    const withMap = (run: (map: MapLibreMap) => void) => {
+      if (mapRef.current) {
+        run(mapRef.current);
+      }
+    };
+    return {
+      flyTo: (point, overlays) =>
+        withMap((map) =>
+          map.easeTo({
+            center: [point.lng, point.lat],
+            zoom: Math.max(map.getZoom(), MIN_FOCUS_ZOOM),
+            padding: overlayPadding(map, overlays),
+            duration: easeDuration(EASE_MS.focus),
+          }),
+        ),
+      fitBounds: (bounds, overlays) =>
+        withMap((map) => {
+          if (isFittableBounds(bounds)) {
+            map.fitBounds(
+              [
+                [bounds.minLng, bounds.minLat],
+                [bounds.maxLng, bounds.maxLat],
+              ],
+              {
+                padding: overlayPadding(map, overlays, MIN_FIT_BOUNDS_PADDING),
+                maxZoom: STREET_ZOOM,
+                duration: easeDuration(EASE_MS.fit),
+              },
+            );
+          }
+        }),
+      resetView: () =>
+        withMap((map) => {
+          map.stop();
+          map.easeTo({
+            center: DEFAULT_CENTER,
+            zoom: DEFAULT_ZOOM,
+            bearing: 0,
+            pitch: 0,
+            padding: { top: 0, right: 0, bottom: 0, left: 0 },
+            duration: easeDuration(EASE_MS.reset),
+          });
+        }),
+    };
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
     }
-
-    styleLoadedRef.current = false;
-    delete container.dataset.mapLoaded;
-    delete container.dataset.styleLoaded;
-    delete container.dataset.projection;
-
     const map = new MapLibreMap({
       container,
-      style: resolveStyle(),
-      center: [12, 34],
-      zoom: 1.7,
+      center: DEFAULT_CENTER,
+      zoom: DEFAULT_ZOOM,
+      boxZoom: false,
       attributionControl: { compact: true },
     });
+    let hoverFrame = 0;
 
+    map.on("styleimagemissing", (event) => registerCategoryPinIcon(map, event.id));
     map.on("style.load", () => {
       styleLoadedRef.current = true;
-      map.setProjection({ type: projectionRef.current });
-      syncSourcesAndLayers(map, selectedCountryCodeRef.current, placesRef.current);
+      registerCategoryPinIcons(map);
+      addAtlasLayers(map);
       container.dataset.styleLoaded = "true";
-      container.dataset.projection = projectionRef.current;
-      emitViewport(map, onViewportChangeRef.current);
-      setStyleRevision((rev) => rev + 1);
+      emitViewport(map);
+      setStyleRevision((revision) => revision + 1);
     });
-
     map.once("load", () => {
       container.dataset.mapLoaded = "true";
     });
-
-    map.on("moveend", () => {
-      emitViewport(map, onViewportChangeRef.current);
-    });
-
-    map.on("click", (event) => {
-      const candidateLayers = interactiveLayerIds(map, selectedCountryCodeRef.current);
-      if (candidateLayers.length === 0) {
-        return;
-      }
-
-      const features = map.queryRenderedFeatures(event.point, { layers: candidateLayers });
-      const top = features[0];
-      if (!top) {
-        return;
-      }
-
-      const layerId = top.layer.id;
-      const props = top.properties ?? {};
-      if (layerId === "atlas-places-pins" && typeof props.id === "string") {
-        onSelectPlaceRef.current(props.id);
-        return;
-      }
-      if (
-        layerId === "atlas-places-clusters" &&
-        typeof props.cluster_id === "number" &&
-        top.geometry.type === "Point"
-      ) {
-        const source = map.getSource(PLACES_SOURCE_ID) as GeoJSONSource | undefined;
-        const coords = top.geometry.coordinates;
-        if (source && coords.length >= 2) {
-          const lng = Number(coords[0]);
-          const lat = Number(coords[1]);
-          void source.getClusterExpansionZoom(props.cluster_id).then((zoom) => {
-            map.easeTo({
-              center: [lng, lat],
-              zoom,
-              duration: prefersReducedMotion() ? 0 : 500,
-            });
-          });
-        }
-        return;
-      }
-      if (layerId === "atlas-admin1-fill" && typeof props.code === "string") {
-        onSelectRegionRef.current("ADMIN1", props.code);
-        return;
-      }
-      if (layerId === "atlas-countries-fill" && typeof props.code === "string") {
-        onSelectRegionRef.current("COUNTRY", props.code);
-      }
-    });
-
+    map.on("moveend", () => emitViewport(map));
+    map.on("click", (event) => handleMapClick(map, event.point));
     map.on("mousemove", (event) => {
-      const hoverLayers = interactiveLayerIds(map, selectedCountryCodeRef.current);
-      if (hoverLayers.length === 0) {
-        return;
-      }
-      const hits = map.queryRenderedFeatures(event.point, { layers: hoverLayers });
-      map.getCanvas().style.cursor = hits.length > 0 ? "pointer" : "";
+      cancelAnimationFrame(hoverFrame);
+      hoverFrame = requestAnimationFrame(() => updateHoverCursor(map, event.point));
     });
-
     mapRef.current = map;
 
     return () => {
+      cancelAnimationFrame(hoverFrame);
       styleLoadedRef.current = false;
-      map.remove();
       mapRef.current = null;
+      map.remove();
       delete container.dataset.mapLoaded;
       delete container.dataset.styleLoaded;
       delete container.dataset.projection;
@@ -538,83 +301,150 @@ export function AtlasMapView({
 
   useEffect(() => {
     const map = mapRef.current;
-    const container = containerRef.current;
-    if (!map || !styleLoadedRef.current) {
+    if (!map) {
       return;
     }
-    map.setProjection({ type: projection });
-    if (container) {
-      container.dataset.projection = projection;
-    }
-  }, [projection]);
+    styleLoadedRef.current = false;
+    delete map.getContainer().dataset.styleLoaded;
+    map.setStyle(STYLE_BY_BASEMAP[basemap], { diff: false });
+  }, [basemap]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleLoadedRef.current || styleRevision === 0) {
+    if (map) {
+      map.dragPan[areaSelectMode ? "disable" : "enable"]();
+      map.getCanvas().style.cursor = areaSelectMode ? "crosshair" : "";
+    }
+  }, [areaSelectMode]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const map = mapRef.current;
+    if (!container || !map) {
       return;
     }
-    const source = map.getSource(PLACES_SOURCE_ID) as GeoJSONSource | undefined;
-    source?.setData(buildPlacesGeoJson(places));
+    let drag: { pointerId: number; box: DragBox } | null = null;
+    let clickResetTimer = 0;
+
+    const pointIn = (event: PointerEvent) => {
+      const rect = container.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+        y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+      };
+    };
+    const endDrag = () => {
+      if (drag && container.hasPointerCapture(drag.pointerId)) {
+        container.releasePointerCapture(drag.pointerId);
+      }
+      drag = null;
+      setDragBox(null);
+      releaseDragPan(map);
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (drag || !startsAreaDrag(event)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      map.dragPan.disable();
+      container.setPointerCapture(event.pointerId);
+      const { x, y } = pointIn(event);
+      drag = {
+        pointerId: event.pointerId,
+        box: { startX: x, startY: y, currentX: x, currentY: y },
+      };
+      setDragBox(drag.box);
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      if (drag?.pointerId !== event.pointerId) {
+        return;
+      }
+      const { x, y } = pointIn(event);
+      drag = { ...drag, box: { ...drag.box, currentX: x, currentY: y } };
+      setDragBox(drag.box);
+    };
+    const handlePointerUp = (event: PointerEvent) => {
+      if (drag?.pointerId !== event.pointerId) {
+        return;
+      }
+      const rect = boxRect(drag.box);
+      endDrag();
+      if (rect.maxX - rect.minX >= MIN_DRAG_BOX_PX && rect.maxY - rect.minY >= MIN_DRAG_BOX_PX) {
+        suppressNextClickRef.current = true;
+        clickResetTimer = window.setTimeout(() => {
+          suppressNextClickRef.current = false;
+        }, 0);
+        selectPlacesInRect(map, rect);
+      }
+    };
+    const handlePointerCancel = (event: PointerEvent) => {
+      if (drag?.pointerId === event.pointerId) {
+        endDrag();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && drag) {
+        endDrag();
+      }
+    };
+
+    container.addEventListener("pointerdown", handlePointerDown, true);
+    container.addEventListener("pointermove", handlePointerMove);
+    container.addEventListener("pointerup", handlePointerUp);
+    container.addEventListener("pointercancel", handlePointerCancel);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      container.removeEventListener("pointerdown", handlePointerDown, true);
+      container.removeEventListener("pointermove", handlePointerMove);
+      container.removeEventListener("pointerup", handlePointerUp);
+      container.removeEventListener("pointercancel", handlePointerCancel);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.clearTimeout(clickResetTimer);
+      drag = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = styledMap(mapRef, styleLoadedRef, styleRevision);
+    if (map) {
+      map.setProjection({ type: projection });
+      map.getContainer().dataset.projection = projection;
+    }
+  }, [projection, styleRevision]);
+
+  useEffect(() => {
+    const map = styledMap(mapRef, styleLoadedRef, styleRevision);
+    if (map) {
+      setPlaces(map, places);
+    }
   }, [places, styleRevision]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleLoadedRef.current || styleRevision === 0) {
-      return;
+    const map = styledMap(mapRef, styleLoadedRef, styleRevision);
+    if (map) {
+      setPlaceHighlights(map, selectedPlaceId, highlightedPlaceIds);
     }
-    if (map.getLayer("atlas-places-selected")) {
-      map.setFilter("atlas-places-selected", [
-        "all",
-        ["!", ["has", "point_count"]],
-        ["==", ["get", "id"], selectedPlaceId ?? ""],
-      ]);
-    }
-  }, [selectedPlaceId, styleRevision]);
+  }, [selectedPlaceId, highlightedPlaceIds, styleRevision]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleLoadedRef.current || styleRevision === 0) {
-      return;
-    }
-    const admin1Source = map.getSource(ADMIN1_SOURCE_ID) as VectorTileSource | undefined;
-    if (admin1Source) {
-      if (selectedCountryCode.length > 0) {
-        admin1Source.setTiles([admin1TileUrl(selectedCountryCode)]);
-        if (map.getLayer("atlas-admin1-fill")) {
-          map.setLayoutProperty("atlas-admin1-fill", "visibility", "visible");
-        }
-        if (map.getLayer("atlas-admin1-outline")) {
-          map.setLayoutProperty("atlas-admin1-outline", "visibility", "visible");
-        }
-      } else {
-        if (map.getLayer("atlas-admin1-fill")) {
-          map.setLayoutProperty("atlas-admin1-fill", "visibility", "none");
-        }
-        if (map.getLayer("atlas-admin1-outline")) {
-          map.setLayoutProperty("atlas-admin1-outline", "visibility", "none");
-        }
-      }
+    const map = styledMap(mapRef, styleLoadedRef, styleRevision);
+    if (map) {
+      showAdmin1Country(map, selectedCountryCode);
     }
   }, [selectedCountryCode, styleRevision]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleLoadedRef.current || styleRevision === 0) {
-      return;
+    const map = styledMap(mapRef, styleLoadedRef, styleRevision);
+    if (map) {
+      syncRegionStates(map, {
+        countrySummaries,
+        admin1Summaries,
+        selectedCountryCode,
+        selectedRegionLevel,
+        selectedRegionCode,
+      });
     }
-    syncRegionFeatureStates(
-      map,
-      COUNTRIES_SOURCE_ID,
-      countrySummaries,
-      (code) => code === selectedCountryCode,
-      selectedCountryCode,
-    );
-    syncRegionFeatureStates(
-      map,
-      ADMIN1_SOURCE_ID,
-      admin1Summaries,
-      (code) => selectedRegionLevel === "ADMIN1" && code === selectedRegionCode,
-    );
   }, [
     countrySummaries,
     admin1Summaries,
@@ -624,36 +454,25 @@ export function AtlasMapView({
     styleRevision,
   ]);
 
-  useEffect(() => {
-    if (!fitBoundsTarget) {
-      lastFitKeyRef.current = null;
-      return;
-    }
-    const map = mapRef.current;
-    if (!map || !styleLoadedRef.current || styleRevision === 0) {
-      return;
-    }
-    if (lastFitKeyRef.current === fitBoundsTarget.key) {
-      return;
-    }
-    lastFitKeyRef.current = fitBoundsTarget.key;
-
-    const lngSpan = fitBoundsTarget.maxLng - fitBoundsTarget.minLng;
-    const latSpan = fitBoundsTarget.maxLat - fitBoundsTarget.minLat;
-    if (lngSpan > 0 && latSpan > 0 && lngSpan <= 170 && latSpan <= 120) {
-      map.fitBounds(
-        [
-          [fitBoundsTarget.minLng, fitBoundsTarget.minLat],
-          [fitBoundsTarget.maxLng, fitBoundsTarget.maxLat],
-        ],
-        { padding: 72, maxZoom: 9, duration: prefersReducedMotion() ? 0 : 750 },
-      );
-    }
-  }, [fitBoundsTarget, styleRevision]);
+  const selectionRect = dragBox ? boxRect(dragBox) : null;
 
   return (
-    <section className="h-full w-full" aria-label="MeanderAtlas world globe">
+    <section className="relative h-full w-full" aria-label="MeanderAtlas world globe">
       <div ref={containerRef} data-testid="atlas-map-canvas" className="h-full w-full" />
+      {selectionRect &&
+        selectionRect.maxX > selectionRect.minX &&
+        selectionRect.maxY > selectionRect.minY && (
+          <div
+            data-testid="area-selection-box"
+            className="pointer-events-none absolute z-10 rounded border-2 border-dashed border-atlas-accent bg-atlas-accent/15"
+            style={{
+              left: selectionRect.minX,
+              top: selectionRect.minY,
+              width: selectionRect.maxX - selectionRect.minX,
+              height: selectionRect.maxY - selectionRect.minY,
+            }}
+          />
+        )}
     </section>
   );
 }

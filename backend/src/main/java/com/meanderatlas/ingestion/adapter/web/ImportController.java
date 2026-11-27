@@ -1,8 +1,12 @@
 package com.meanderatlas.ingestion.adapter.web;
 
+import com.meanderatlas.ingestion.EnrichmentBatchResultView;
 import com.meanderatlas.ingestion.ImportFacade;
 import com.meanderatlas.ingestion.ImportStatusView;
 import com.meanderatlas.ingestion.LocalImportSummaryView;
+import com.meanderatlas.ingestion.OfflineMaterializationSummaryView;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,5 +35,20 @@ class ImportController {
     @GetMapping(path = "/status", produces = MediaType.APPLICATION_JSON_VALUE)
     ImportStatusView status() {
         return importFacade.status();
+    }
+
+    @PostMapping(path = "/materialize-offline", produces = MediaType.APPLICATION_JSON_VALUE)
+    OfflineMaterializationSummaryView materializeOffline() {
+        return importFacade.materializeOffline();
+    }
+
+    @PostMapping(path = "/enrich", produces = MediaType.APPLICATION_JSON_VALUE)
+    EnrichmentBatchResultView enrich(
+            @RequestParam(defaultValue = "50") @Min(1) @Max(500) int limit,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            @RequestParam(defaultValue = "false") boolean background) {
+        return background
+                ? importFacade.startEnrichmentDrain(limit, dryRun)
+                : importFacade.enrich(limit, dryRun);
     }
 }

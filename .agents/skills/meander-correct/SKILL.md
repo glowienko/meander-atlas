@@ -18,6 +18,12 @@ Never leave a review finding as a one-off code edit. Convert every failure mode 
 | Comment-checker false positive or missed comment (JSX, templates, regex) | Add a failing test case to `frontend/scripts/check-no-comments.test.mjs` |
 | Doc bloat (`AGENTS.md > 120` lines, `docs/adr/*.md > 15` lines) | Enforced by `scripts/check-docs-budget.sh` |
 | Container build, missing healthcheck tool, reverse-proxy/compose failure | Add assertion to `scripts/verify-docker.sh` |
+| Blocking call, raw thread, system clock, hand-rolled retry in production | Extend the `ArchitectureTest` blocking/clock rule + its synthetic violation count |
+| Long methods, >7 params, god files, complexity, `catch (Exception)`, inline JSON test fixtures | Checkstyle (`backend/config/checkstyle/`); known debt only in `suppressions.xml`, which may only shrink |
+| Test-only production file/export, unused dependency | `knip` (`pnpm --dir frontend run check:dead`) |
+| Ref written during render, effect deps, setState in effect | ESLint `react-hooks` compiler rules (`pnpm --dir frontend run lint:react`) |
+| Copy-pasted logic (BE or FE) | `jscpd` thresholds in `check:dup`; lower the threshold when duplication drops |
+| Oversized/complex React function | Biome `noExcessive*` rules; per-file overrides in `biome.json` are debt, only shrink |
 | Runtime browser/WebGL/worker/map-state bug | Add state assertion (not URL-only) to `frontend/e2e/` Playwright spec |
 
 ## 2. Red → Green → Encode

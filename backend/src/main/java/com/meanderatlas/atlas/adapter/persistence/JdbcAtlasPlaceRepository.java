@@ -4,6 +4,8 @@ import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.BoundingBox;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -89,22 +91,44 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
 
     private static final String UPDATE_PLACE_AFTER_MERGE_SQL =
             """
-            WITH resolved_country AS (
+            WITH target_geom AS (
                 SELECT
                     p.id,
-                    p.geom,
-                    p.admin1_id,
-                    COALESCE(
-                        p.country_code,
-                        %s,
-                        CAST(:fallbackCountryCode AS TEXT)
-                    ) AS next_country_code
+                    p.country_code AS existing_country_code,
+                    p.admin1_id AS existing_admin1_id,
+                    CASE
+                        WHEN CAST(:upgradedCoordSource AS TEXT) IS NOT NULL
+                            THEN ST_SetSRID(ST_MakePoint(:upgradedLng, :upgradedLat), 4326)
+                        ELSE p.geom
+                    END AS next_geom
                 FROM places p
                 WHERE p.id = CAST(:placeId AS uuid)
                   AND p.user_id = CAST(:userId AS uuid)
+            ),
+            resolved_country AS (
+                SELECT
+                    tg.id,
+                    tg.next_geom,
+                    tg.existing_admin1_id,
+                    CASE
+                        WHEN CAST(:upgradedCoordSource AS TEXT) IS NOT NULL
+                            THEN COALESCE(
+                                %s,
+                                CAST(:fallbackCountryCode AS TEXT),
+                                tg.existing_country_code
+                            )
+                        ELSE COALESCE(
+                            tg.existing_country_code,
+                            %s,
+                            CAST(:fallbackCountryCode AS TEXT)
+                        )
+                    END AS next_country_code
+                FROM target_geom tg
             )
             UPDATE places p
-            SET derived_role = :derivedRole,
+            SET geom = rc.next_geom,
+                coord_source = COALESCE(CAST(:upgradedCoordSource AS TEXT), p.coord_source),
+                derived_role = :derivedRole,
                 category = COALESCE(CAST(:upgradedCategory AS TEXT), p.category),
                 subcategory = CASE
                     WHEN CAST(:upgradedCategory AS TEXT) IS NOT NULL
@@ -135,14 +159,98 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                     ELSE p.google_cid
                 END,
                 country_code = rc.next_country_code,
-                admin1_id = COALESCE(rc.admin1_id, %s),
+                admin1_id = CASE
+                    WHEN CAST(:upgradedCoordSource AS TEXT) IS NOT NULL
+                        THEN COALESCE(%s, rc.existing_admin1_id)
+                    ELSE COALESCE(rc.existing_admin1_id, %s)
+                END,
                 updated_at = now()
             FROM resolved_country rc
             WHERE p.id = rc.id
             """
                     .formatted(
-                            SpatialRegionSql.countryLookupSql("p.geom"),
-                            SpatialRegionSql.admin1LookupSql("rc.geom", "rc.next_country_code"));
+                            SpatialRegionSql.countryLookupSql("tg.next_geom"),
+                            SpatialRegionSql.countryLookupSql("tg.next_geom"),
+                            SpatialRegionSql.admin1LookupSql(
+                                    "rc.next_geom", "rc.next_country_code"),
+                            SpatialRegionSql.admin1LookupSql(
+                                    "rc.next_geom", "rc.next_country_code"));
+
+    private static final String APPLY_PLACE_ENRICHMENT_SQL =
+            """
+            WITH target_geom AS (
+                SELECT
+                    p.id,
+                    p.country_code AS existing_country_code,
+                    p.admin1_id AS existing_admin1_id,
+                    (:upgradeCoordinates
+                     AND (p.coord_source = 'TAKEOUT_S2_APPROX' OR p.coord_source IS NULL))
+                        AS can_upgrade_coords,
+                    CASE
+                        WHEN :upgradeCoordinates
+                             AND (p.coord_source = 'TAKEOUT_S2_APPROX' OR p.coord_source IS NULL)
+                            THEN ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+                        ELSE p.geom
+                    END AS next_geom
+                FROM places p
+                WHERE p.id = CAST(:placeId AS uuid)
+                  AND p.user_id = CAST(:userId AS uuid)
+            ),
+            resolved_country AS (
+                SELECT
+                    tg.id,
+                    tg.can_upgrade_coords,
+                    tg.next_geom,
+                    tg.existing_admin1_id,
+                    CASE
+                        WHEN tg.can_upgrade_coords
+                            THEN COALESCE(%s, tg.existing_country_code)
+                        ELSE tg.existing_country_code
+                    END AS next_country_code
+                FROM target_geom tg
+            )
+            UPDATE places p
+            SET canonical_name = COALESCE(CAST(:upgradedCanonicalName AS TEXT), p.canonical_name),
+                geom = rc.next_geom,
+                coord_source = CASE
+                    WHEN rc.can_upgrade_coords THEN 'OPEN_CATALOG'
+                    ELSE p.coord_source
+                END,
+                osm_id = COALESCE(CAST(:osmId AS TEXT), p.osm_id),
+                category = CASE
+                    WHEN :upgradeCategory AND p.category_source <> 'MANUAL'
+                        THEN CAST(:category AS TEXT)
+                    ELSE p.category
+                END,
+                subcategory = CASE
+                    WHEN :upgradeCategory AND p.category_source <> 'MANUAL'
+                        THEN CAST(:subcategory AS TEXT)
+                    ELSE p.subcategory
+                END,
+                category_source = CASE
+                    WHEN :upgradeCategory AND p.category_source <> 'MANUAL'
+                        THEN 'OPEN_CATALOG'
+                    ELSE p.category_source
+                END,
+                derived_role = :derivedRole,
+                country_code = rc.next_country_code,
+                admin1_id = CASE
+                    WHEN rc.can_upgrade_coords
+                        THEN COALESCE(%s, rc.existing_admin1_id)
+                    ELSE rc.existing_admin1_id
+                END,
+                city_name = COALESCE(NULLIF(p.city_name, ''), CAST(:cityName AS TEXT)),
+                photo_url = COALESCE(NULLIF(p.photo_url, ''), CAST(:photoUrl AS TEXT)),
+                opening_hours_json = COALESCE(
+                    CAST(:openingHoursJson AS jsonb), p.opening_hours_json),
+                updated_at = now()
+            FROM resolved_country rc
+            WHERE p.id = rc.id
+            """
+                    .formatted(
+                            SpatialRegionSql.countryLookupSql("tg.next_geom"),
+                            SpatialRegionSql.admin1LookupSql(
+                                    "rc.next_geom", "rc.next_country_code"));
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -186,7 +294,9 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                     p.admin1_id,
                     rb.code AS admin1_code,
                     rb.name AS admin1_name,
-                    p.city_name
+                    p.city_name,
+                    p.coord_source,
+                    p.photo_url
                 FROM places p
                 LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
                 LEFT JOIN region_boundaries rb ON rb.id = p.admin1_id
@@ -349,7 +459,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
         return jdbcTemplate
                 .query(
                         """
-                        SELECT id, category, category_source, google_place_id, google_cid,
+                        SELECT id, category, category_source, coord_source, google_place_id, google_cid,
                                country_code, admin1_id
                         FROM places
                         WHERE user_id = :userId
@@ -473,6 +583,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
             UserId userId,
             PlaceId placeId,
             DerivedRole derivedRole,
+            @Nullable GeoPoint upgradedCoordinates,
+            @Nullable CoordSource upgradedCoordSource,
             @Nullable PlaceCategory upgradedCategory,
             @Nullable String upgradedSubcategory,
             @Nullable CategorySource upgradedCategorySource,
@@ -485,6 +597,16 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         .addValue("placeId", placeId.value())
                         .addValue("userId", userId.value())
                         .addValue("derivedRole", derivedRole.name())
+                        .addValue(
+                                "upgradedLng",
+                                upgradedCoordinates == null ? 0.0 : upgradedCoordinates.longitude())
+                        .addValue(
+                                "upgradedLat",
+                                upgradedCoordinates == null ? 0.0 : upgradedCoordinates.latitude())
+                        .addValue(
+                                "upgradedCoordSource",
+                                upgradedCoordSource == null ? null : upgradedCoordSource.name(),
+                                Types.VARCHAR)
                         .addValue(
                                 "upgradedCategory",
                                 upgradedCategory == null ? null : upgradedCategory.name(),
@@ -501,6 +623,37 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         .addValue("fallbackCountryCode", fallbackCountryCode, Types.VARCHAR)
                         .addValue(
                                 "coastalFallbackMeters", SpatialRegionSql.COASTAL_FALLBACK_METERS));
+    }
+
+    @Override
+    public List<PlaceId> findPlaceIdsNeedingEnrichment(
+            UserId userId, @Nullable List<PlaceId> within) {
+        return jdbcTemplate.query(
+                """
+                SELECT id
+                FROM places
+                WHERE user_id = :userId
+                  AND geom IS NOT NULL
+                  AND (:unrestricted OR id = ANY(:placeIds))
+                  AND (
+                      coord_source = 'TAKEOUT_S2_APPROX'
+                      OR (
+                          coord_source = 'TAKEOUT'
+                          AND (category_source = 'HEURISTIC' OR photo_url IS NULL OR osm_id IS NULL)
+                      )
+                  )
+                ORDER BY created_at ASC, id ASC
+                """,
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue("unrestricted", within == null)
+                        .addValue(
+                                "placeIds",
+                                JdbcRowReaders.uuidArray(
+                                        within == null
+                                                ? List.of()
+                                                : within.stream().map(PlaceId::value).toList())),
+                (rs, _) -> new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")));
     }
 
     @Override
@@ -542,11 +695,83 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         googlePlaceId));
     }
 
+    @Override
+    public List<PlaceEnrichmentTarget> findEnrichmentTargets(
+            UserId userId, List<PlaceId> placeIds) {
+        if (placeIds.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> rawIds = placeIds.stream().map(PlaceId::value).toList();
+        return jdbcTemplate.query(
+                """
+                SELECT id, canonical_name, ST_Y(geom) AS lat, ST_X(geom) AS lng,
+                       coord_source, category, category_source, osm_id, photo_url,
+                       country_code, city_name
+                FROM places
+                WHERE user_id = :userId
+                  AND geom IS NOT NULL
+                  AND id = ANY(:placeIds)
+                """,
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue("placeIds", JdbcRowReaders.uuidArray(rawIds)),
+                (rs, _) -> {
+                    String rawCoordSource = rs.getString("coord_source");
+                    CoordSource coordSource =
+                            rawCoordSource == null
+                                    ? CoordSource.TAKEOUT_S2_APPROX
+                                    : CoordSource.valueOf(rawCoordSource);
+                    return new PlaceEnrichmentTarget(
+                            new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
+                            JdbcRowReaders.requiredString(rs, "canonical_name"),
+                            new GeoPoint(rs.getDouble("lat"), rs.getDouble("lng")),
+                            coordSource,
+                            PlaceCategory.valueOf(JdbcRowReaders.requiredString(rs, "category")),
+                            CategorySource.valueOf(
+                                    JdbcRowReaders.requiredString(rs, "category_source")),
+                            rs.getString("osm_id"),
+                            rs.getString("photo_url"),
+                            rs.getString("country_code"),
+                            rs.getString("city_name"));
+                });
+    }
+
+    @Override
+    public void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update) {
+        GeoPoint coordinates = update.upgradedCoordinates();
+        PlaceCategory category = update.upgradedCategory();
+        jdbcTemplate.update(
+                APPLY_PLACE_ENRICHMENT_SQL,
+                new MapSqlParameterSource()
+                        .addValue("placeId", update.placeId().value())
+                        .addValue("userId", userId.value())
+                        .addValue(
+                                "upgradedCanonicalName",
+                                update.upgradedCanonicalName(),
+                                Types.VARCHAR)
+                        .addValue("upgradeCoordinates", coordinates != null)
+                        .addValue("lng", coordinates == null ? 0.0 : coordinates.longitude())
+                        .addValue("lat", coordinates == null ? 0.0 : coordinates.latitude())
+                        .addValue("osmId", update.osmId(), Types.VARCHAR)
+                        .addValue("upgradeCategory", category != null)
+                        .addValue(
+                                "category",
+                                category == null ? null : category.name(),
+                                Types.VARCHAR)
+                        .addValue("subcategory", update.upgradedSubcategory(), Types.VARCHAR)
+                        .addValue("derivedRole", update.derivedRole().name())
+                        .addValue("cityName", update.cityName(), Types.VARCHAR)
+                        .addValue("photoUrl", update.photoUrl(), Types.VARCHAR)
+                        .addValue("openingHoursJson", update.openingHoursJson(), Types.VARCHAR)
+                        .addValue(
+                                "coastalFallbackMeters", SpatialRegionSql.COASTAL_FALLBACK_METERS));
+    }
+
     private Optional<MatchedPlace> findByGooglePlaceId(UserId userId, String googlePlaceId) {
         return jdbcTemplate
                 .query(
                         """
-                        SELECT id, category, category_source, google_place_id, google_cid,
+                        SELECT id, category, category_source, coord_source, google_place_id, google_cid,
                                country_code, admin1_id
                         FROM places
                         WHERE user_id = :userId
@@ -571,8 +796,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         WITH target AS (
                             SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography AS geog
                         )
-                        SELECT p.id, p.category, p.category_source, p.google_place_id, p.google_cid,
-                               p.country_code, p.admin1_id
+                        SELECT p.id, p.category, p.category_source, p.coord_source,
+                               p.google_place_id, p.google_cid, p.country_code, p.admin1_id
                         FROM places p
                         CROSS JOIN target
                         WHERE p.user_id = :userId
@@ -765,6 +990,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 rs.getString("admin1_code"),
                 rs.getString("admin1_name"),
                 rs.getString("city_name"),
+                CoordSource.valueOf(JdbcRowReaders.requiredString(rs, "coord_source")),
+                rs.getString("photo_url"),
                 List.of());
     }
 
@@ -773,6 +1000,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 new PlaceId(JdbcRowReaders.requiredUuid(rs, "id")),
                 PlaceCategory.valueOf(JdbcRowReaders.requiredString(rs, "category")),
                 CategorySource.valueOf(JdbcRowReaders.requiredString(rs, "category_source")),
+                CoordSource.valueOf(JdbcRowReaders.requiredString(rs, "coord_source")),
                 rs.getString("google_place_id"),
                 rs.getObject("google_cid", Long.class),
                 rs.getString("country_code"),

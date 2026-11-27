@@ -6,8 +6,10 @@ import com.meanderatlas.atlas.application.ImportedPlaceMerger.InitialVisitDetail
 import com.meanderatlas.atlas.application.ImportedPlaceMerger.MembershipDetails;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.shared.CurrentUserProvider;
+import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import java.util.Objects;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,41 +30,20 @@ public class AttachCsvMembershipByCid {
     }
 
     @Transactional
-    public boolean execute(AttachCsvMembershipCommand command) {
+    public Optional<PlaceId> execute(AttachCsvMembershipCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         UserId userId = currentUserProvider.currentUserId();
-        MembershipDetails membership =
-                new MembershipDetails(
-                        command.accountLabel(),
-                        command.listName(),
-                        command.listKind(),
-                        command.note(),
-                        command.tags(),
-                        command.sourceUrl(),
-                        command.savedAt());
-        InitialVisitDetails initialVisit =
-                InitialVisitDetails.ofNullable(
-                        command.initialVisitStatus(),
-                        command.initialVisitSource(),
-                        command.observedAt());
+        MembershipDetails membership = MembershipDetails.from(command);
+        InitialVisitDetails initialVisit = InitialVisitDetails.from(command);
 
         return placeRepository
                 .findByGoogleCid(userId, command.googleCid())
                 .map(matched -> {
                     placeMerger.mergeIntoExisting(
                             userId,
-                            new ExistingPlaceMerge(
-                                    matched,
-                                    command.category(),
-                                    command.subcategory(),
-                                    command.categorySource(),
-                                    membership,
-                                    null,
-                                    null,
-                                    null,
-                                    initialVisit));
-                    return true;
-                })
-                .orElse(false);
+                            ExistingPlaceMerge.forCsvAttach(
+                                    matched, command, membership, initialVisit));
+                    return matched.id();
+                });
     }
 }

@@ -3,6 +3,8 @@ package com.meanderatlas.atlas.application;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
+import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -156,13 +158,15 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
                         userId,
                         canonicalName,
                         coordinates,
+                        coordSource,
                         googlePlaceId,
                         googleCid,
                         category,
                         subcategory,
                         categorySource,
                         derivedRole,
-                        fallbackCountryCode));
+                        fallbackCountryCode,
+                        cityName));
         return id;
     }
 
@@ -199,6 +203,8 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             UserId userId,
             PlaceId placeId,
             DerivedRole derivedRole,
+            @Nullable GeoPoint upgradedCoordinates,
+            @Nullable CoordSource upgradedCoordSource,
             @Nullable PlaceCategory upgradedCategory,
             @Nullable String upgradedSubcategory,
             @Nullable CategorySource upgradedCategorySource,
@@ -207,6 +213,13 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             @Nullable String fallbackCountryCode) {
         MutablePlaceRecord record = place(placeId);
         record.derivedRole = derivedRole;
+        if (upgradedCoordinates != null && upgradedCoordSource != null) {
+            record.coordinates = upgradedCoordinates;
+            record.coordSource = upgradedCoordSource;
+            if (fallbackCountryCode != null) {
+                record.countryCode = fallbackCountryCode;
+            }
+        }
         if (upgradedCategory != null) {
             record.category = upgradedCategory;
             record.subcategory = upgradedSubcategory;
@@ -223,6 +236,22 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         if (record.countryCode == null && fallbackCountryCode != null) {
             record.countryCode = fallbackCountryCode;
         }
+    }
+
+    @Override
+    public List<PlaceId> findPlaceIdsNeedingEnrichment(
+            UserId userId, @Nullable List<PlaceId> within) {
+        return places.values().stream()
+                .filter(p -> p.userId.equals(userId))
+                .filter(p -> within == null || within.contains(p.id))
+                .filter(p ->
+                        p.coordSource == CoordSource.TAKEOUT_S2_APPROX
+                                || (p.coordSource == CoordSource.TAKEOUT
+                                        && (p.categorySource == CategorySource.HEURISTIC
+                                                || p.photoUrl == null
+                                                || p.osmId == null)))
+                .map(p -> p.id)
+                .toList();
     }
 
     @Override
@@ -280,6 +309,72 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         }
     }
 
+    @Override
+    public List<PlaceEnrichmentTarget> findEnrichmentTargets(
+            UserId userId, List<PlaceId> placeIds) {
+        return placeIds.stream()
+                .distinct()
+                .map(places::get)
+                .filter(Objects::nonNull)
+                .filter(p -> p.userId.equals(userId))
+                .map(p ->
+                        new PlaceEnrichmentTarget(
+                                p.id,
+                                p.canonicalName,
+                                p.coordinates,
+                                p.coordSource,
+                                p.category,
+                                p.categorySource,
+                                p.osmId,
+                                p.photoUrl,
+                                p.countryCode,
+                                p.cityName))
+                .toList();
+    }
+
+    @Override
+    public void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update) {
+        PlaceId placeId = update.placeId();
+        String upgradedCanonicalName = update.upgradedCanonicalName();
+        GeoPoint refinedCoordinates = update.upgradedCoordinates();
+        String osmId = update.osmId();
+        PlaceCategory category = update.upgradedCategory();
+        String subcategory = update.upgradedSubcategory();
+        DerivedRole derivedRole = update.derivedRole();
+        String cityName = update.cityName();
+        String photoUrl = update.photoUrl();
+        String openingHoursJson = update.openingHoursJson();
+        MutablePlaceRecord record = place(placeId);
+        if (!record.userId.equals(userId)) {
+            return;
+        }
+        if (upgradedCanonicalName != null) {
+            record.canonicalName = upgradedCanonicalName;
+        }
+        if (refinedCoordinates != null && record.coordSource == CoordSource.TAKEOUT_S2_APPROX) {
+            record.coordinates = refinedCoordinates;
+            record.coordSource = CoordSource.OPEN_CATALOG;
+        }
+        if (osmId != null) {
+            record.osmId = osmId;
+        }
+        if (category != null && record.categorySource != CategorySource.MANUAL) {
+            record.category = category;
+            record.subcategory = subcategory;
+            record.categorySource = CategorySource.OPEN_CATALOG;
+        }
+        record.derivedRole = derivedRole;
+        if ((record.cityName == null || record.cityName.isBlank()) && cityName != null) {
+            record.cityName = cityName;
+        }
+        if ((record.photoUrl == null || record.photoUrl.isBlank()) && photoUrl != null) {
+            record.photoUrl = photoUrl;
+        }
+        if (openingHoursJson != null) {
+            record.openingHoursJson = openingHoursJson;
+        }
+    }
+
     private TimelineMatchCandidate toTimelineCandidate(
             MutablePlaceRecord record, MatchConfidence confidence) {
         PlaceVisitState state =
@@ -307,32 +402,40 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
     public static final class MutablePlaceRecord {
         public final PlaceId id;
         public final UserId userId;
-        public final String canonicalName;
-        public final GeoPoint coordinates;
+        public String canonicalName;
+        public GeoPoint coordinates;
+        public CoordSource coordSource;
         public @Nullable String googlePlaceId;
         public @Nullable Long googleCid;
+        public @Nullable String osmId;
+        public @Nullable String photoUrl;
         public PlaceCategory category;
         public @Nullable String subcategory;
         public CategorySource categorySource;
         public DerivedRole derivedRole;
         public @Nullable String countryCode;
+        public @Nullable String cityName;
+        public @Nullable String openingHoursJson;
 
         private MutablePlaceRecord(
                 PlaceId id,
                 UserId userId,
                 String canonicalName,
                 GeoPoint coordinates,
+                CoordSource coordSource,
                 @Nullable String googlePlaceId,
                 @Nullable Long googleCid,
                 PlaceCategory category,
                 @Nullable String subcategory,
                 CategorySource categorySource,
                 DerivedRole derivedRole,
-                @Nullable String countryCode) {
+                @Nullable String countryCode,
+                @Nullable String cityName) {
             this.id = id;
             this.userId = userId;
             this.canonicalName = canonicalName;
             this.coordinates = coordinates;
+            this.coordSource = coordSource;
             this.googlePlaceId = googlePlaceId;
             this.googleCid = googleCid;
             this.category = category;
@@ -340,6 +443,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             this.categorySource = categorySource;
             this.derivedRole = derivedRole;
             this.countryCode = countryCode;
+            this.cityName = cityName;
         }
 
         private MatchedPlace toMatchedPlace() {
@@ -347,6 +451,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
                     id,
                     category,
                     categorySource,
+                    coordSource,
                     googlePlaceId,
                     googleCid,
                     countryCode,

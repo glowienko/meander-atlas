@@ -106,10 +106,10 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
                     rc.visited_places,
                     rc.unvisited_places,
                     rc.needs_triage_places,
-                    ST_XMin(rb.simplified_geom) AS min_lng,
-                    ST_YMin(rb.simplified_geom) AS min_lat,
-                    ST_XMax(rb.simplified_geom) AS max_lng,
-                    ST_YMax(rb.simplified_geom) AS max_lat
+                    COALESCE(rb.focus_min_lng, ST_XMin(rb.simplified_geom)) AS min_lng,
+                    COALESCE(rb.focus_min_lat, ST_YMin(rb.simplified_geom)) AS min_lat,
+                    COALESCE(rb.focus_max_lng, ST_XMax(rb.simplified_geom)) AS max_lng,
+                    COALESCE(rb.focus_max_lat, ST_YMax(rb.simplified_geom)) AS max_lat
                 FROM region_counts rc
                 JOIN region_boundaries rb
                   ON %s
@@ -152,10 +152,10 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
                     COUNT(p.id) FILTER (
                         WHERE pvs.status = 'NEEDS_TRIAGE'
                     )::int AS needs_triage_places,
-                    ST_XMin(rb.simplified_geom) AS min_lng,
-                    ST_YMin(rb.simplified_geom) AS min_lat,
-                    ST_XMax(rb.simplified_geom) AS max_lng,
-                    ST_YMax(rb.simplified_geom) AS max_lat
+                    COALESCE(rb.focus_min_lng, ST_XMin(rb.simplified_geom)) AS min_lng,
+                    COALESCE(rb.focus_min_lat, ST_YMin(rb.simplified_geom)) AS min_lat,
+                    COALESCE(rb.focus_max_lng, ST_XMax(rb.simplified_geom)) AS max_lng,
+                    COALESCE(rb.focus_max_lat, ST_YMax(rb.simplified_geom)) AS max_lat
                 FROM region_boundaries rb
                 LEFT JOIN places p
                   ON p.user_id = :userId

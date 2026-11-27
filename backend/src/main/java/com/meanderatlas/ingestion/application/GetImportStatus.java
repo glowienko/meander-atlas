@@ -12,11 +12,15 @@ public class GetImportStatus {
 
     private final ImportRepository importRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final RunEnrichmentBatch runEnrichmentBatch;
 
     public GetImportStatus(
-            ImportRepository importRepository, CurrentUserProvider currentUserProvider) {
+            ImportRepository importRepository,
+            CurrentUserProvider currentUserProvider,
+            RunEnrichmentBatch runEnrichmentBatch) {
         this.importRepository = importRepository;
         this.currentUserProvider = currentUserProvider;
+        this.runEnrichmentBatch = runEnrichmentBatch;
     }
 
     @Transactional(readOnly = true)
@@ -25,6 +29,11 @@ public class GetImportStatus {
                 importRepository.fetchStatus(currentUserProvider.currentUserId());
         return new ImportStatusView(
                 summary.pendingResolutionCount(),
+                summary.pendingCoordinateLookupCount(),
+                summary.pendingEnrichmentCount(),
+                summary.enrichedPlaceCount(),
+                summary.approximatePlaceCount(),
+                runEnrichmentBatch.isRunning(),
                 summary.completedBatches(),
                 summary.accounts(),
                 summary.lastImportedAt());

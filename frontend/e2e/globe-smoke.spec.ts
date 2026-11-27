@@ -97,6 +97,7 @@ test("syncs synthetic local folder, visualizes Live Atlas stats and pins, and su
   const dossier = page.getByTestId("region-dossier-drawer");
   await expect(dossier).toContainText("Poland", { timeout: 15_000 });
   await expect(dossier).toContainText("Wawel Royal Castle");
+  await expect(dossier.getByTestId("dossier-filter-notice")).toContainText("Map filter active");
 
   await dossier.getByRole("button", { name: "Wawel Royal Castle" }).click();
   const detailCard = page.getByTestId("place-detail-card");
@@ -117,6 +118,16 @@ test("syncs synthetic local folder, visualizes Live Atlas stats and pins, and su
   await expect(page.getByTestId("atlas-undo-toast")).toContainText("Marked 1 place as visited");
   await page.getByTestId("atlas-undo-button").click();
   await expect(bulkButton).toBeVisible({ timeout: 10_000 });
+
+  await page.getByTestId("map-legend-toggle").click();
+  await expect(page.getByTestId("map-legend-popover")).toBeVisible();
+  await page.getByRole("button", { name: "Close map legend" }).click();
+  await expect(page.getByTestId("map-legend-popover")).not.toBeVisible();
+
+  await page.getByTestId("brand-reset-view-button").click();
+  await expect(dossier).not.toBeVisible();
+  await expect(detailCard).not.toBeVisible();
+  await expect(page).not.toHaveURL(/region=/);
 
   expect(consoleErrors, `Console errors: ${consoleErrors.join("; ")}`).toEqual([]);
   expect(pageErrors, `Page errors: ${pageErrors.join("; ")}`).toEqual([]);

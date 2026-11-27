@@ -36,6 +36,21 @@
       "suspicious": {
         "noExplicitAny": "error",
         "noConsole": "error"
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": {
+            "maxAllowedComplexity": 15
+          }
+        },
+        "noExcessiveLinesPerFunction": {
+          "level": "error",
+          "options": {
+            "maxLines": 120,
+            "skipBlankLines": true
+          }
+        }
       }
     }
   },
@@ -44,5 +59,46 @@
       "quoteStyle": "double",
       "semicolons": "always"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["**/*.test.ts", "**/*.test.tsx", "e2e/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveLinesPerFunction": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/App.tsx",
+        "src/features/atlas/AtlasMapView.tsx",
+        "src/features/atlas/PlaceDetailCard.tsx",
+        "src/features/atlas/viewState.ts",
+        "src/features/ingestion/ImportStatusBadge.tsx",
+        "src/features/atlas/pinIcons.ts"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": {
+                "maxAllowedComplexity": 22
+              }
+            },
+            "noExcessiveLinesPerFunction": {
+              "level": "error",
+              "options": {
+                "maxLines": 240,
+                "skipBlankLines": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

@@ -9,7 +9,7 @@ import com.meanderatlas.shared.CurrentUserProvider;
 import com.meanderatlas.shared.PlaceId;
 import com.meanderatlas.shared.UserId;
 import com.meanderatlas.shared.VisitSource;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -21,11 +21,15 @@ public class UpdatePlaceVisitStatus {
 
     private final AtlasPlaceRepository placeRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final Clock clock;
 
     public UpdatePlaceVisitStatus(
-            AtlasPlaceRepository placeRepository, CurrentUserProvider currentUserProvider) {
+            AtlasPlaceRepository placeRepository,
+            CurrentUserProvider currentUserProvider,
+            Clock clock) {
         this.placeRepository = placeRepository;
         this.currentUserProvider = currentUserProvider;
+        this.clock = clock;
     }
 
     @Transactional
@@ -42,7 +46,7 @@ public class UpdatePlaceVisitStatus {
                         .orElseGet(() -> PlaceVisitState.unvisited(placeId, userId));
         VisitStateSnapshotView previousSnapshot = AtlasViewMapper.toVisitStateSnapshot(current);
         PlaceVisitState updated =
-                current.apply(request.status(), VisitSource.MANUAL_SINGLE, Instant.now());
+                current.apply(request.status(), VisitSource.MANUAL_SINGLE, clock.instant());
         if (!updated.equals(current)) {
             placeRepository.upsertVisitStates(List.of(updated));
         }
