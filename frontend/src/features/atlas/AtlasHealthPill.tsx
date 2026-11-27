@@ -12,6 +12,7 @@ interface AtlasHealthPillProps {
   basemap?: AtlasBasemap;
   onBasemapChange?: (basemap: AtlasBasemap) => void;
   statsOpen?: boolean;
+  mappedCount?: number;
   onToggleStats?: () => void;
   onResetView?: () => void;
   extraActions?: ReactNode;
@@ -26,6 +27,7 @@ export function AtlasHealthPill({
   basemap = "atlas",
   onBasemapChange,
   statsOpen = false,
+  mappedCount,
   onToggleStats,
   onResetView,
   extraActions,
@@ -52,7 +54,21 @@ export function AtlasHealthPill({
       }}
     >
       <div className="flex items-center gap-2.5 pr-1">
-        <span className="font-editorial text-base font-semibold tracking-tight">MeanderAtlas</span>
+        {onResetView ? (
+          <button
+            type="button"
+            data-testid="brand-reset-view-button"
+            title="Reset to world view"
+            onClick={onResetView}
+            className="font-editorial cursor-pointer text-base font-semibold tracking-tight transition-opacity hover:opacity-75"
+          >
+            MeanderAtlas
+          </button>
+        ) : (
+          <span className="font-editorial text-base font-semibold tracking-tight">
+            MeanderAtlas
+          </span>
+        )}
         <span
           className="h-3.5 w-px"
           style={{ backgroundColor: "var(--atlas-border)" }}
@@ -158,17 +174,28 @@ export function AtlasHealthPill({
         <button
           type="button"
           data-testid="toggle-stats-button"
+          title="Open travel statistics and sync status"
           onClick={onToggleStats}
           aria-pressed={statsOpen}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-medium transition-colors"
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-semibold shadow-xs transition-colors"
           style={{
-            borderColor: "var(--atlas-border)",
-            backgroundColor: statsOpen ? "var(--atlas-accent-soft)" : "transparent",
-            color: statsOpen ? "var(--atlas-accent)" : "var(--atlas-ink)",
+            borderColor: statsOpen ? "var(--atlas-accent)" : "rgba(29, 91, 76, 0.35)",
+            backgroundColor: statsOpen ? "var(--atlas-accent)" : "var(--atlas-accent-soft)",
+            color: statsOpen ? "#ffffff" : "var(--atlas-accent)",
           }}
         >
           <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
-          Stats
+          <span>Stats</span>
+          {mappedCount !== undefined && (
+            <span
+              className="rounded-full px-1.5 py-0.2 text-[11px] tabular-nums"
+              style={{
+                backgroundColor: statsOpen ? "rgba(255, 255, 255, 0.22)" : "rgba(29, 91, 76, 0.14)",
+              }}
+            >
+              {mappedCount.toLocaleString()}
+            </span>
+          )}
         </button>
       )}
 

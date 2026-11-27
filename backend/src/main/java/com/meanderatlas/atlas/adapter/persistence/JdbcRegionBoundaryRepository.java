@@ -24,7 +24,7 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
     private static final String UPSERT_SQL =
             """
             WITH mercator_bounds AS (
-                SELECT ST_MakeEnvelope(-180.0, -85.05112878, 180.0, 85.05112878, 4326) AS env
+                SELECT ST_MakeEnvelope(-180.0, -85.05, 180.0, 85.05, 4326) AS env
             ),
             validated AS (
                 SELECT
@@ -39,13 +39,13 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                 SELECT
                     v.valid_geom,
                     CASE
-                        WHEN ST_YMin(v.valid_geom) < -85.05112878
-                          OR ST_YMax(v.valid_geom) > 85.05112878
+                        WHEN ST_YMin(v.valid_geom) < -85.05
+                          OR ST_YMax(v.valid_geom) > 85.05
                           OR ST_XMin(v.valid_geom) < -180.0
                           OR ST_XMax(v.valid_geom) > 180.0
                             THEN ST_Multi(
                                 ST_CollectionExtract(
-                                    ST_Intersection(v.valid_geom, mb.env),
+                                    ST_MakeValid(ST_ClipByBox2D(v.valid_geom, mb.env)),
                                     3
                                 )
                             )
@@ -78,11 +78,10 @@ class JdbcRegionBoundaryRepository implements RegionBoundaryRepository {
                 CASE
                     WHEN candidate_simplified IS NOT NULL AND NOT ST_IsEmpty(candidate_simplified)
                         THEN candidate_simplified
-                    WHEN mercator_geom IS NOT NULL AND NOT ST_IsEmpty(mercator_geom)
-                        THEN mercator_geom
-                    ELSE valid_geom
+                    ELSE mercator_geom
                 END
             FROM simplified
+            WHERE mercator_geom IS NOT NULL AND NOT ST_IsEmpty(mercator_geom)
             ON CONFLICT (region_level, code) DO UPDATE
             SET country_code = EXCLUDED.country_code,
                 name = EXCLUDED.name,

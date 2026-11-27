@@ -100,6 +100,7 @@ export function ImportStatusBadge({
             <button
               type="button"
               data-testid="materialize-offline-button"
+              title="Decodes offline Google S2 Cell IDs and DMS coordinate titles into map pins with zero network calls. Remaining rows without S2/DMS hints require Enrich."
               disabled={isMaterializing || isEnriching}
               onClick={onMaterializeOffline}
               className="inline-flex cursor-pointer items-center gap-1 rounded-full border bg-white/90 px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50"
@@ -118,6 +119,7 @@ export function ImportStatusBadge({
               <button
                 type="button"
                 data-testid="enrich-batch-button"
+                title="Enriches up to 10 places using OpenStreetMap (Overpass/Photon) and Wikimedia to refine approximate pins, categories, cities, photos, and coordinate-only names."
                 disabled={enrichDisabled}
                 onClick={() =>
                   onRunEnrichment({ limit: DEFAULT_ENRICH_BATCH_SIZE, background: false })
@@ -131,6 +133,7 @@ export function ImportStatusBadge({
               <button
                 type="button"
                 data-testid="enrich-all-button"
+                title="Runs resumable background enrichment across all pending places with polite rate limiting."
                 disabled={enrichDisabled}
                 onClick={() =>
                   onRunEnrichment({ limit: BACKGROUND_ENRICH_BATCH_SIZE, background: true })

@@ -337,6 +337,44 @@ class AtlasApiE2eTest {
         assertThat(dossier.region().maxLat()).isLessThan(54.0);
     }
 
+    @Test
+    void clampsPolarAntarcticaBoundarySoSouthernHemisphereMvtTilesReturn200() {
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        jdbc.update(
+                """
+                INSERT INTO region_boundaries
+                    (id, region_level, code, country_code, name, geom, simplified_geom)
+                VALUES
+                    (:id, 'COUNTRY', 'AQ-TEST', 'AQ-TEST', 'Antarctica Test',
+                     ST_GeomFromText(:wkt, 4326),
+                     ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_ClipByBox2D(
+                         ST_GeomFromText(:wkt, 4326),
+                         ST_MakeEnvelope(-180.0, -85.05, 180.0, 85.05, 4326)
+                     )), 3)))
+                """,
+                Map.of(
+                        "id",
+                        UUID.randomUUID(),
+                        "wkt",
+                        "MULTIPOLYGON(((-70.0 -90.0, -40.0 -90.0, -40.0 -65.0, -70.0 -65.0, -70.0 -90.0)))"));
+        insertBoundary(
+                UUID.randomUUID(),
+                "COUNTRY",
+                "BR-TEST",
+                "BR-TEST",
+                "Brazil Test",
+                "MULTIPOLYGON(((-60.0 -25.0, -40.0 -25.0, -40.0 -5.0, -60.0 -5.0, -60.0 -25.0)))");
+
+        ResponseEntity<byte[]> tileResponse =
+                client.get()
+                        .uri("/api/v1/atlas/tiles/regions/COUNTRY/1/0/1.mvt")
+                        .retrieve()
+                        .toEntity(byte[].class);
+        assertThat(tileResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(tileResponse.getBody()).isNotNull().isNotEmpty();
+    }
+
     private static void verifyStats(RestClient client) {
         AtlasStatsView stats =
                 client.get().uri("/api/v1/atlas/stats").retrieve().body(AtlasStatsView.class);

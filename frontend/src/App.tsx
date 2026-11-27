@@ -466,6 +466,7 @@ function AtlasShell() {
           basemap={viewState.basemap}
           onBasemapChange={handleBasemapChange}
           statsOpen={viewState.statsOpen}
+          mappedCount={statsQuery.data?.totalMappedPlaces}
           onToggleStats={() => setViewState((prev) => ({ ...prev, statsOpen: !prev.statsOpen }))}
           onResetView={handleResetView}
           extraActions={

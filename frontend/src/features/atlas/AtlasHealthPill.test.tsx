@@ -83,8 +83,9 @@ describe("AtlasHealthPill", () => {
     expect(onBasemapChange).toHaveBeenCalledWith("street");
   });
 
-  it("renders Reset view button when onResetView is provided", () => {
+  it("renders Reset view button, clickable brand title, and prominent Stats count", () => {
     const onResetView = vi.fn();
+    const onToggleStats = vi.fn();
 
     render(
       <AtlasHealthPill
@@ -93,12 +94,19 @@ describe("AtlasHealthPill", () => {
         isError={false}
         projection="globe"
         onProjectionChange={vi.fn()}
+        mappedCount={7174}
+        onToggleStats={onToggleStats}
         onResetView={onResetView}
       />,
     );
 
     fireEvent.click(screen.getByTestId("reset-view-button"));
-    expect(onResetView).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("brand-reset-view-button"));
+    expect(onResetView).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("toggle-stats-button")).toHaveTextContent("Stats");
+    expect(screen.getByTestId("toggle-stats-button")).toHaveTextContent("7,174");
+    fireEvent.click(screen.getByTestId("toggle-stats-button"));
+    expect(onToggleStats).toHaveBeenCalledTimes(1);
   });
 });
 

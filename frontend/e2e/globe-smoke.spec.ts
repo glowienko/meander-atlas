@@ -119,7 +119,12 @@ test("syncs synthetic local folder, visualizes Live Atlas stats and pins, and su
   await page.getByTestId("atlas-undo-button").click();
   await expect(bulkButton).toBeVisible({ timeout: 10_000 });
 
-  await page.getByTestId("reset-view-button").click();
+  await page.getByTestId("map-legend-toggle").click();
+  await expect(page.getByTestId("map-legend-popover")).toBeVisible();
+  await page.getByRole("button", { name: "Close map legend" }).click();
+  await expect(page.getByTestId("map-legend-popover")).not.toBeVisible();
+
+  await page.getByTestId("brand-reset-view-button").click();
   await expect(dossier).not.toBeVisible();
   await expect(detailCard).not.toBeVisible();
   await expect(page).not.toHaveURL(/region=/);
