@@ -72,7 +72,7 @@ app:
     request-delay-ms: ${APP_ENRICHMENT_REQUEST_DELAY_MS:1100}
     max-retries: ${APP_ENRICHMENT_MAX_RETRIES:3}
     connect-timeout-ms: ${APP_ENRICHMENT_CONNECT_TIMEOUT_MS:5000}
-    read-timeout-ms: ${APP_ENRICHMENT_READ_TIMEOUT_MS:20000}
+    read-timeout-ms: ${APP_ENRICHMENT_READ_TIMEOUT_MS:30000}
     overpass-url: ${APP_ENRICHMENT_OVERPASS_URL:https://overpass-api.de/api/interpreter}
     photon-url: ${APP_ENRICHMENT_PHOTON_URL:https://photon.komoot.io/api}
     wikimedia-commons-api-url: ${APP_ENRICHMENT_WIKIMEDIA_COMMONS_URL:https://commons.wikimedia.org/w/api.php}

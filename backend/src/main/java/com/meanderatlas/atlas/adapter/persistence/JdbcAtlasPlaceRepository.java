@@ -209,7 +209,8 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 FROM target_geom tg
             )
             UPDATE places p
-            SET geom = rc.next_geom,
+            SET canonical_name = COALESCE(CAST(:upgradedCanonicalName AS TEXT), p.canonical_name),
+                geom = rc.next_geom,
                 coord_source = CASE
                     WHEN rc.can_upgrade_coords THEN 'OPEN_CATALOG'
                     ELSE p.coord_source
@@ -728,6 +729,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
     public void applyPlaceEnrichment(
             UserId userId,
             PlaceId placeId,
+            @Nullable String upgradedCanonicalName,
             boolean upgradeCoordinates,
             @Nullable GeoPoint refinedCoordinates,
             @Nullable String osmId,
@@ -743,6 +745,7 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                 new MapSqlParameterSource()
                         .addValue("placeId", placeId.value())
                         .addValue("userId", userId.value())
+                        .addValue("upgradedCanonicalName", upgradedCanonicalName, Types.VARCHAR)
                         .addValue("upgradeCoordinates", upgradeCoordinates)
                         .addValue(
                                 "lng",

@@ -91,7 +91,7 @@ class OverpassPoiClientTest {
 
         String ql = OverpassPoiClient.buildOverpassQuery(List.of(krakow, warsaw));
         assertThat(ql).contains("around:600,50.054000,19.935400");
-        assertThat(ql).contains("around:2500,52.215100,21.035800");
+        assertThat(ql).contains("around:1000,52.215100,21.035800");
 
         server.expect(requestTo("https://overpass.example/api/interpreter"))
                 .andExpect(method(HttpMethod.POST))

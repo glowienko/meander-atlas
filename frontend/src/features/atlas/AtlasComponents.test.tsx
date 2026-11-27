@@ -50,6 +50,7 @@ const SECOND_PLACE: AtlasPlaceView = {
 describe("Living Atlas components", () => {
   it("renders RegionDossierDrawer completion ring and triggers bulk visit", () => {
     const onOpenBulkVisit = vi.fn();
+    const onClearFilters = vi.fn();
     const dossier: RegionDossierView = {
       region: {
         id: "33333333-3333-3333-3333-333333333333",
@@ -77,6 +78,8 @@ describe("Living Atlas components", () => {
         isLoading={false}
         isError={false}
         isMutating={false}
+        activeFilterCount={1}
+        onClearFilters={onClearFilters}
         onClose={vi.fn()}
         onSelectRegion={vi.fn()}
         onSelectPlace={vi.fn()}
@@ -87,6 +90,11 @@ describe("Living Atlas components", () => {
 
     expect(screen.getByTestId("region-completion-ring")).toHaveTextContent("50%");
     expect(screen.getByText("1 of 2 visited (50%)")).toBeInTheDocument();
+    expect(screen.getByTestId("dossier-filter-notice")).toHaveTextContent(
+      "Map filter active (1 pin shown)",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(onClearFilters).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("dossier-bulk-visit-button"));
     expect(onOpenBulkVisit).toHaveBeenCalledWith([SAMPLE_PLACE], "Mark Poland places visited");
   });

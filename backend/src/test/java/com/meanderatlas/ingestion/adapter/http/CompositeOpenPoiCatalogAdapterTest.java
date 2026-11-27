@@ -223,11 +223,71 @@ class CompositeOpenPoiCatalogAdapterTest {
         overpassServer
                 .expect(requestTo("https://overpass.example/api/interpreter"))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        photonServer
+                .expect(
+                        requestTo(
+                                "https://photon.example/api?q=Wawel&lat=50.054000&lon=19.935400&limit=5"))
+                .andRespond(withSuccess("{\"features\":[]}", MediaType.APPLICATION_JSON));
 
         Map<PlaceId, EnrichmentLookupOutcome> failedOutcomes =
                 adapter.enrichAnchoredBatch(List.of(target));
         assertThat(failedOutcomes.get(failId))
                 .isInstanceOf(EnrichmentLookupOutcome.TransientFailure.class);
+        overpassServer.verify();
+        photonServer.verify();
+        overpassServer.reset();
+        photonServer.reset();
+
+        PlaceId coordOnlyId = PlaceId.random();
+        AnchoredEnrichmentTarget coordOnlyTarget =
+                new AnchoredEnrichmentTarget(
+                        coordOnlyId,
+                        "52.226346,5.177603",
+                        new GeoPoint(52.226346, 5.177603),
+                        CoordSource.TAKEOUT,
+                        CategorySource.HEURISTIC,
+                        null,
+                        null,
+                        "NL",
+                        null);
+        photonServer
+                .expect(
+                        requestTo(
+                                "https://photon.example/reverse?lat=52.226346&lon=5.177603&limit=3"))
+                .andRespond(
+                        withSuccess(
+                                """
+                                {
+                                  "features": [
+                                    {
+                                      "geometry": { "coordinates": [5.1776, 52.2263] },
+                                      "properties": {
+                                        "osm_type": "W",
+                                        "osm_id": 7001,
+                                        "osm_key": "historic",
+                                        "osm_value": "monument",
+                                        "name": "Marktplein Hilversum",
+                                        "city": "Hilversum",
+                                        "countrycode": "nl"
+                                      }
+                                    }
+                                  ]
+                                }
+                                """,
+                                MediaType.APPLICATION_JSON));
+
+        Map<PlaceId, EnrichmentLookupOutcome> reversedOutcomes =
+                adapter.enrichAnchoredBatch(List.of(coordOnlyTarget));
+        assertThat(reversedOutcomes.get(coordOnlyId))
+                .isInstanceOfSatisfying(
+                        EnrichmentLookupOutcome.Matched.class,
+                        matched -> {
+                            assertThat(matched.match().candidate().name())
+                                    .isEqualTo("Marktplein Hilversum");
+                            assertThat(matched.match().cityName()).isEqualTo("Hilversum");
+                        });
+        photonServer.verify();
+        photonServer.reset();
 
         photonServer
                 .expect(requestTo("https://photon.example/api?q=Colosseum&limit=5"))

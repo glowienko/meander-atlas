@@ -10,7 +10,7 @@ public record EnrichmentProperties(
         @DefaultValue("1100") long requestDelayMs,
         @DefaultValue("3") int maxRetries,
         @DefaultValue("5000") long connectTimeoutMs,
-        @DefaultValue("20000") long readTimeoutMs,
+        @DefaultValue("30000") long readTimeoutMs,
         @DefaultValue("https://overpass-api.de/api/interpreter") String overpassUrl,
         @DefaultValue("https://photon.komoot.io/api") String photonUrl,
         @DefaultValue("https://commons.wikimedia.org/w/api.php") String wikimediaCommonsApiUrl,

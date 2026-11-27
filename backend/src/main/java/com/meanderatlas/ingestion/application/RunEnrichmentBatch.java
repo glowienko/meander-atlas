@@ -37,6 +37,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 import tools.jackson.databind.json.JsonMapper;
@@ -44,6 +46,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class RunEnrichmentBatch {
 
+    private static final Logger LOG = LoggerFactory.getLogger(RunEnrichmentBatch.class);
     private static final int MIN_LIMIT = 1;
     private static final int MAX_LIMIT = 500;
     private static final long BASE_RETRY_SECONDS = 30L;
@@ -106,11 +109,18 @@ public class RunEnrichmentBatch {
         }
         if (background) {
             int remaining = countRemainingInReadTx(userId);
+            LOG.info(
+                    "Starting background enrichment drain (limit={}, dryRun={}, remaining={})",
+                    limit,
+                    dryRun,
+                    remaining);
             Thread.ofVirtual()
                     .name("enrichment-drain")
                     .start(() -> {
                         try {
                             drainLoop(userId, limit, dryRun);
+                        } catch (RuntimeException ex) {
+                            LOG.error("Background enrichment drain aborted unexpectedly", ex);
                         } finally {
                             running.set(false);
                         }
@@ -175,10 +185,19 @@ public class RunEnrichmentBatch {
                     true, dryRun, false, false, 0, 0, 0, 0, 0, 0, 0, remaining);
         }
 
+        LOG.info(
+                "Claimed {} enrichment jobs (dryRun={}, anchoredTargets={})",
+                claimedBatch.jobs().size(),
+                dryRun,
+                claimedBatch.targetsById().size());
         List<JobOutcomeEntry> outcomes;
         try {
             outcomes = resolveOutsideTransaction(claimedBatch);
         } catch (RuntimeException ex) {
+            LOG.error(
+                    "Enrichment resolution threw unexpectedly; releasing {} claimed jobs",
+                    claimedBatch.jobs().size(),
+                    ex);
             List<UUID> jobIds =
                     claimedBatch.jobs().stream().map(ClaimedResolutionJob::jobId).toList();
             transactionOperations.executeWithoutResult(
@@ -186,9 +205,22 @@ public class RunEnrichmentBatch {
             throw ex;
         }
 
-        return Objects.requireNonNull(
-                transactionOperations.execute(
-                        _ -> persistOrRelease(userId, claimedBatch, outcomes, dryRun)));
+        EnrichmentBatchResultView result =
+                Objects.requireNonNull(
+                        transactionOperations.execute(
+                                _ -> persistOrRelease(userId, claimedBatch, outcomes, dryRun)));
+        LOG.info(
+                "Enrichment batch finished (dryRun={}, claimed={}, matched={}, coordsUpgraded={}, categoryUpgraded={}, photosAdded={}, failed={}, skipped={}, remaining={})",
+                result.dryRun(),
+                result.claimedCount(),
+                result.matchedCount(),
+                result.upgradedCoordsCount(),
+                result.upgradedCategoryCount(),
+                result.photosAddedCount(),
+                result.failedCount(),
+                result.skippedCount(),
+                result.remainingPendingCount());
+        return result;
     }
 
     private List<JobOutcomeEntry> resolveOutsideTransaction(ClaimedBatch claimedBatch) {
@@ -345,7 +377,8 @@ public class RunEnrichmentBatch {
                                     match.subcategory(),
                                     match.cityName(),
                                     match.photoUrl(),
-                                    openingHoursJson));
+                                    openingHoursJson,
+                                    match.candidate().name()));
             enrichmentJobRepository.markJobCompleted(job.jobId(), placeId);
             return new BatchStats(
                     1,
@@ -405,7 +438,8 @@ public class RunEnrichmentBatch {
                                 hasCatalogCategory ? match.subcategory() : null,
                                 match.cityName(),
                                 match.photoUrl(),
-                                openingHoursJson));
+                                openingHoursJson,
+                                match.candidate().name()));
         enrichmentJobRepository.markJobCompleted(job.jobId(), upserted.placeId());
         int coordsUpgraded = upserted.created() || enriched.coordsUpgraded() ? 1 : 0;
         int categoryUpgraded =

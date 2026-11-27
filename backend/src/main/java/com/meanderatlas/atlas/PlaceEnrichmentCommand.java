@@ -13,4 +13,5 @@ public record PlaceEnrichmentCommand(
         @Nullable String subcategory,
         @Nullable String cityName,
         @Nullable String photoUrl,
-        @Nullable String openingHoursJson) {}
+        @Nullable String openingHoursJson,
+        @Nullable String resolvedCanonicalName) {}

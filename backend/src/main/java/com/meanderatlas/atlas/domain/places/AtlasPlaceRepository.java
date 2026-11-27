@@ -115,6 +115,7 @@ public interface AtlasPlaceRepository {
     void applyPlaceEnrichment(
             UserId userId,
             PlaceId placeId,
+            @Nullable String upgradedCanonicalName,
             boolean upgradeCoordinates,
             @Nullable GeoPoint refinedCoordinates,
             @Nullable String osmId,

@@ -168,6 +168,22 @@ function AtlasShell() {
     );
   }, [places, dossierPlaces, selectedPlaceId, selectedPlaceFallback]);
 
+  const mapPlaces = useMemo(() => {
+    if (!selectedPlace || places.some((p) => p.id === selectedPlace.id)) {
+      return places;
+    }
+    return [...places, selectedPlace];
+  }, [places, selectedPlace]);
+
+  const hasActiveFilters = Boolean(
+    viewState.q ||
+      viewState.visitStatus ||
+      viewState.derivedRole ||
+      viewState.category ||
+      viewState.account ||
+      viewState.list,
+  );
+
   const fitBoundsTarget: FitBoundsTarget | null = useMemo(() => {
     const region = dossierQuery.data?.region;
     if (!region) {
@@ -400,7 +416,7 @@ function AtlasShell() {
       <AtlasMapView
         projection={viewState.projection}
         basemap={viewState.basemap}
-        places={places}
+        places={mapPlaces}
         countrySummaries={countrySummariesQuery.data ?? []}
         admin1Summaries={admin1SummariesQuery.data ?? []}
         selectedCountryCode={selectedCountryCode}
@@ -496,6 +512,10 @@ function AtlasShell() {
           isLoading={dossierQuery.isLoading}
           isError={dossierQuery.isError}
           isMutating={isMutating}
+          activeFilterCount={hasActiveFilters ? places.length : undefined}
+          onClearFilters={
+            hasActiveFilters ? () => setViewState((prev) => clearAtlasFilters(prev)) : undefined
+          }
           onClose={() => setViewState((prev) => ({ ...prev, regionLevel: "", regionCode: "" }))}
           onSelectRegion={handleSelectRegion}
           onSelectPlace={(place) => {

@@ -14,6 +14,9 @@ import org.jspecify.annotations.Nullable;
 public final class PlaceCategoryClassifier {
 
     private static final String WORD_END = ")(?:$|[^a-z0-9])";
+    private static final Pattern PARKING_EXCLUSION =
+            Pattern.compile(
+                    "(?:^|[^a-z0-9])(?:q-park|qpark|parking|car park|parkhaus|parkplatz|parkeergarage|garaz)(?:$|[^a-z0-9])");
     private static final PlaceClassification UNCATEGORIZED =
             PlaceClassification.heuristic(PlaceCategory.UNCATEGORIZED, null);
 
@@ -541,6 +544,9 @@ public final class PlaceCategoryClassifier {
         }
         String loweredRaw = trimmed.toLowerCase(Locale.ROOT);
         String folded = TextNormalizer.normalizeFolded(trimmed);
+        if (PARKING_EXCLUSION.matcher(folded).find()) {
+            return UNCATEGORIZED;
+        }
         return RULES.stream()
                 .filter(rule -> rule.matches(folded, loweredRaw))
                 .findFirst()

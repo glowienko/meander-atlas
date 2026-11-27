@@ -82,7 +82,8 @@ class ApplyPlaceEnrichmentTest {
                                 "hotel",
                                 "Kraków",
                                 "https://upload.wikimedia.org/wikipedia/commons/thumb/c/Copernicus.jpg",
-                                "{\"raw\":\"24/7\"}"));
+                                "{\"raw\":\"24/7\"}",
+                                "Hotel Copernicus Official"));
 
         assertThat(result.coordsUpgraded()).isTrue();
         assertThat(result.categoryUpgraded()).isTrue();
@@ -135,7 +136,8 @@ class ApplyPlaceEnrichmentTest {
                                 "cafe",
                                 "Other City",
                                 "https://upload.wikimedia.org/wikipedia/commons/new.jpg",
-                                null));
+                                null,
+                                "Different Name"));
 
         assertThat(result.coordsUpgraded()).isFalse();
         assertThat(result.categoryUpgraded()).isFalse();
@@ -150,6 +152,68 @@ class ApplyPlaceEnrichmentTest {
         assertThat(stored.photoUrl)
                 .isEqualTo("https://upload.wikimedia.org/wikipedia/commons/existing.jpg");
         assertThat(stored.osmId).isEqualTo("node/777");
+        assertThat(stored.canonicalName).isEqualTo("Cafe Camelot");
+    }
+
+    @Test
+    void upgradesCoordinateOnlyCanonicalNameWithoutOverwritingNormalNames(@TempDir Path tempDir) {
+        FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
+        AtlasFacade facade = createFacade(tempDir, placeRepo);
+
+        PlaceId decimalId =
+                placeRepo.insertImportedPlace(
+                        USER_ID,
+                        "52.226346,5.177603",
+                        new GeoPoint(52.226346, 5.177603),
+                        CoordSource.TAKEOUT,
+                        null,
+                        null,
+                        PlaceCategory.UNCATEGORIZED,
+                        null,
+                        CategorySource.HEURISTIC,
+                        DerivedRole.BACKLOG,
+                        "NL",
+                        null);
+        PlaceId dmsId =
+                placeRepo.insertImportedPlace(
+                        USER_ID,
+                        "47°55'12.3\"N 106°54'19.8\"E",
+                        new GeoPoint(47.920083, 106.9055),
+                        CoordSource.TAKEOUT,
+                        null,
+                        null,
+                        PlaceCategory.UNCATEGORIZED,
+                        null,
+                        CategorySource.HEURISTIC,
+                        DerivedRole.BACKLOG,
+                        "MN",
+                        null);
+
+        facade.applyPlaceEnrichment(
+                new PlaceEnrichmentCommand(
+                        decimalId,
+                        null,
+                        "node/100",
+                        PlaceCategory.LANDMARK,
+                        "square",
+                        "Hilversum",
+                        null,
+                        null,
+                        "Marktplein Hilversum"));
+        facade.applyPlaceEnrichment(
+                new PlaceEnrichmentCommand(
+                        dmsId,
+                        null,
+                        "way/200",
+                        null,
+                        null,
+                        "Ulaanbaatar",
+                        null,
+                        null,
+                        "Sukhbaatar Square"));
+
+        assertThat(placeRepo.place(decimalId).canonicalName).isEqualTo("Marktplein Hilversum");
+        assertThat(placeRepo.place(dmsId).canonicalName).isEqualTo("Sukhbaatar Square");
     }
 
     @Test
@@ -161,6 +225,7 @@ class ApplyPlaceEnrichmentTest {
                         facade.applyPlaceEnrichment(
                                 new PlaceEnrichmentCommand(
                                         PlaceId.random(),
+                                        null,
                                         null,
                                         null,
                                         null,

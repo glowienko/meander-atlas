@@ -24,12 +24,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 
 @Service
 public class MaterializePendingCoordinateJobs {
 
+    private static final Logger LOG =
+            LoggerFactory.getLogger(MaterializePendingCoordinateJobs.class);
     private static final int BATCH_SIZE = 200;
     private static final String LIST_NAME_REVIEWS = "Google Reviews";
 
@@ -68,13 +72,23 @@ public class MaterializePendingCoordinateJobs {
                 totals.exactFromTitleCount()
                         + totals.approxFromS2Count()
                         + totals.mergedByCidCount();
-        return new OfflineMaterializationSummaryView(
-                materializedCount,
-                totals.exactFromTitleCount(),
-                totals.approxFromS2Count(),
-                totals.mergedByCidCount(),
-                finalCounts.remainingLookupCount(),
-                finalCounts.enqueuedEnrichmentCount());
+        OfflineMaterializationSummaryView summary =
+                new OfflineMaterializationSummaryView(
+                        materializedCount,
+                        totals.exactFromTitleCount(),
+                        totals.approxFromS2Count(),
+                        totals.mergedByCidCount(),
+                        finalCounts.remainingLookupCount(),
+                        finalCounts.enqueuedEnrichmentCount());
+        LOG.info(
+                "Offline materialization finished (materialized={}, exactTitle={}, approxS2={}, mergedByCid={}, remainingLookup={}, enqueuedEnrichment={})",
+                summary.materializedCount(),
+                summary.exactFromTitleCount(),
+                summary.approxFromS2Count(),
+                summary.mergedByCidCount(),
+                summary.remainingLookupCount(),
+                summary.enqueuedEnrichmentCount());
+        return summary;
     }
 
     private BatchTotals drainPendingCoordinateJobs(UserId userId) {

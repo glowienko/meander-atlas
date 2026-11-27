@@ -23,6 +23,7 @@ import tools.jackson.databind.json.JsonMapper;
 class PhotonPoiClient {
 
     private static final int DEFAULT_LIMIT = 5;
+    private static final int REVERSE_LIMIT = 3;
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
     private final RestClient restClient;
@@ -54,6 +55,36 @@ class PhotonPoiClient {
                         .retrieve()
                         .body(String.class);
         return parseResponse(rawResponse);
+    }
+
+    List<OpenPoiCandidate> reverse(GeoPoint point) {
+        URI uri =
+                UriComponentsBuilder.fromUriString(resolveReverseUrl(properties.photonUrl()))
+                        .queryParam("lat", String.format(Locale.ROOT, "%.6f", point.latitude()))
+                        .queryParam("lon", String.format(Locale.ROOT, "%.6f", point.longitude()))
+                        .queryParam("limit", REVERSE_LIMIT)
+                        .build()
+                        .encode()
+                        .toUri();
+        String rawResponse =
+                restClient
+                        .get()
+                        .uri(uri)
+                        .header(HttpHeaders.USER_AGENT, properties.wikimediaUserAgent())
+                        .retrieve()
+                        .body(String.class);
+        return parseResponse(rawResponse);
+    }
+
+    static String resolveReverseUrl(String photonUrl) {
+        String trimmed =
+                photonUrl.endsWith("/")
+                        ? photonUrl.substring(0, photonUrl.length() - 1)
+                        : photonUrl;
+        if (trimmed.endsWith("/api")) {
+            return trimmed.substring(0, trimmed.length() - 4) + "/reverse";
+        }
+        return trimmed + "/reverse";
     }
 
     static List<OpenPoiCandidate> parseResponse(@Nullable String rawResponse) {
@@ -89,7 +120,10 @@ class PhotonPoiClient {
                 firstNonBlank(
                         textOrNull(props, "name"),
                         textOrNull(props, "street"),
-                        textOrNull(props, "city"));
+                        textOrNull(props, "district"),
+                        textOrNull(props, "locality"),
+                        textOrNull(props, "city"),
+                        textOrNull(props, "county"));
         if (name == null) {
             return Optional.empty();
         }

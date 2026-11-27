@@ -169,14 +169,20 @@ class JdbcEnrichmentJobRepository implements EnrichmentJobRepository {
                 jdbcTemplate.query(
                         """
                         WITH claimed AS (
-                            SELECT id
-                            FROM resolution_jobs
-                            WHERE user_id = :userId
-                              AND job_type IN ('OPEN_CATALOG_ENRICH', 'COORDINATE_LOOKUP')
-                              AND status IN ('PENDING', 'FAILED')
-                              AND next_run_at <= now()
-                            ORDER BY (job_type = 'OPEN_CATALOG_ENRICH') DESC, next_run_at ASC, id ASC
-                            FOR UPDATE SKIP LOCKED
+                            SELECT rj.id
+                            FROM resolution_jobs rj
+                            LEFT JOIN places p ON p.id = rj.place_id
+                            WHERE rj.user_id = :userId
+                              AND rj.job_type IN ('OPEN_CATALOG_ENRICH', 'COORDINATE_LOOKUP')
+                              AND rj.status IN ('PENDING', 'FAILED')
+                              AND rj.next_run_at <= now()
+                            ORDER BY
+                                (rj.job_type = 'OPEN_CATALOG_ENRICH') DESC,
+                                rj.attempts ASC,
+                                FLOOR(ST_Y(p.geom)) ASC NULLS LAST,
+                                FLOOR(ST_X(p.geom)) ASC NULLS LAST,
+                                rj.id ASC
+                            FOR UPDATE OF rj SKIP LOCKED
                             LIMIT :limit
                         )
                         UPDATE resolution_jobs rj

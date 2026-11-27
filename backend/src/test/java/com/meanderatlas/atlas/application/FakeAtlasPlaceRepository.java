@@ -333,6 +333,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
     public void applyPlaceEnrichment(
             UserId userId,
             PlaceId placeId,
+            @Nullable String upgradedCanonicalName,
             boolean upgradeCoordinates,
             @Nullable GeoPoint refinedCoordinates,
             @Nullable String osmId,
@@ -346,6 +347,9 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         MutablePlaceRecord record = place(placeId);
         if (!record.userId.equals(userId)) {
             return;
+        }
+        if (upgradedCanonicalName != null) {
+            record.canonicalName = upgradedCanonicalName;
         }
         if (upgradeCoordinates
                 && refinedCoordinates != null
@@ -400,7 +404,7 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
     public static final class MutablePlaceRecord {
         public final PlaceId id;
         public final UserId userId;
-        public final String canonicalName;
+        public String canonicalName;
         public GeoPoint coordinates;
         public CoordSource coordSource;
         public @Nullable String googlePlaceId;

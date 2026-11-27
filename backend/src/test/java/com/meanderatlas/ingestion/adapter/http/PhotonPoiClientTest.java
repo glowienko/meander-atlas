@@ -113,5 +113,42 @@ class PhotonPoiClientTest {
         assertThat(global.getFirst().cityName()).isEqualTo("Paris");
         assertThat(client.search("   ", null)).isEmpty();
         assertThat(PhotonPoiClient.parseResponse("{bad")).isEmpty();
+        assertThat(PhotonPoiClient.resolveReverseUrl("https://photon.example/api"))
+                .isEqualTo("https://photon.example/reverse");
+        assertThat(PhotonPoiClient.resolveReverseUrl("http://127.0.0.1:8080/photon"))
+                .isEqualTo("http://127.0.0.1:8080/photon/reverse");
+
+        server.reset();
+        server.expect(
+                        requestTo(
+                                "https://photon.example/reverse?lat=52.226346&lon=5.177603&limit=3"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(
+                        withSuccess(
+                                """
+                                {
+                                  "features": [
+                                    {
+                                      "geometry": { "coordinates": [5.1776, 52.2263] },
+                                      "properties": {
+                                        "osm_type": "W",
+                                        "osm_id": 99001,
+                                        "osm_key": "place",
+                                        "osm_value": "square",
+                                        "name": "Marktplein",
+                                        "city": "Hilversum",
+                                        "countrycode": "nl"
+                                      }
+                                    }
+                                  ]
+                                }
+                                """,
+                                MediaType.APPLICATION_JSON));
+
+        List<OpenPoiCandidate> reversed = client.reverse(new GeoPoint(52.226346, 5.177603));
+        server.verify();
+        assertThat(reversed).hasSize(1);
+        assertThat(reversed.getFirst().name()).isEqualTo("Marktplein");
+        assertThat(reversed.getFirst().cityName()).isEqualTo("Hilversum");
     }
 }

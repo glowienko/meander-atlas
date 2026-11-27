@@ -1,12 +1,14 @@
 package com.meanderatlas.ingestion.domain.enrichment;
 
 import com.meanderatlas.ingestion.domain.TextNormalizer;
+import com.meanderatlas.ingestion.domain.TitleCoordinateParser;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.AnchoredEnrichmentTarget;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.OpenPoiCandidate;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.OpenPoiMatch;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort.UnanchoredLookupTarget;
 import com.meanderatlas.ingestion.domain.enrichment.OsmTagCategoryMapper.OsmCategoryMapping;
 import com.meanderatlas.shared.CoordSource;
+import com.meanderatlas.shared.GeoPoint;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -29,6 +31,7 @@ public final class OpenPoiMatcher {
     private static final double APPROX_MIN_NAME = 0.65;
     private static final double APPROX_MIN_COMBINED = 0.70;
     private static final double UNANCHORED_MIN_NAME = 0.80;
+    private static final double REVERSE_MAX_DISTANCE_METERS = 1500.0;
     private static final double AMBIGUITY_DISTANCE_METERS = 2000.0;
     private static final double AMBIGUITY_SCORE_DELTA = 0.05;
     private static final double TOKEN_FUZZY_THRESHOLD = 0.85;
@@ -41,6 +44,9 @@ public final class OpenPoiMatcher {
     private OpenPoiMatcher() {}
 
     public static boolean isGenericPlaceholder(@Nullable String rawTitle) {
+        if (TitleCoordinateParser.parse(rawTitle).isPresent()) {
+            return true;
+        }
         String folded = normalizeName(rawTitle);
         if (folded.isEmpty()) {
             return true;
@@ -50,6 +56,28 @@ public final class OpenPoiMatcher {
         }
         String trimmed = rawTitle == null ? "" : rawTitle.trim();
         return COORDINATE_TEXT.matcher(trimmed).matches();
+    }
+
+    public static Optional<OpenPoiMatch> matchReverseGeocoded(
+            GeoPoint targetCoordinates, List<OpenPoiCandidate> candidates) {
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+        return candidates.stream()
+                .filter(candidate -> !isGenericPlaceholder(candidate.name()))
+                .map(candidate ->
+                        new ScoredCandidate(
+                                candidate,
+                                1.0,
+                                1.0,
+                                GeoDistance.metersBetween(
+                                        targetCoordinates, candidate.coordinates())))
+                .filter(scored -> scored.distanceMeters() <= REVERSE_MAX_DISTANCE_METERS)
+                .min(
+                        Comparator.comparingDouble(ScoredCandidate::distanceMeters)
+                                .thenComparing(scored ->
+                                        Objects.requireNonNullElse(scored.candidate().osmId(), "")))
+                .map(ScoredCandidate::toMatch);
     }
 
     public static Optional<OpenPoiMatch> matchAnchored(

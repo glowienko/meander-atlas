@@ -7,6 +7,8 @@ interface RegionDossierDrawerProps {
   isLoading: boolean;
   isError: boolean;
   isMutating: boolean;
+  activeFilterCount?: number;
+  onClearFilters?: () => void;
   onClose: () => void;
   onSelectRegion: (level: RegionLevel, code: string) => void;
   onSelectPlace: (place: AtlasPlaceView) => void;
@@ -22,6 +24,8 @@ export function RegionDossierDrawer({
   isLoading,
   isError,
   isMutating,
+  activeFilterCount,
+  onClearFilters,
   onClose,
   onSelectRegion,
   onSelectPlace,
@@ -96,6 +100,29 @@ export function RegionDossierDrawer({
           <p className="text-[13px]" style={{ color: "var(--atlas-danger)" }}>
             Could not load region dossier.
           </p>
+        )}
+
+        {activeFilterCount !== undefined && onClearFilters && (
+          <div
+            data-testid="dossier-filter-notice"
+            className="mb-3 flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-[12px]"
+            style={{
+              borderColor: "rgba(201, 106, 56, 0.35)",
+              backgroundColor: "rgba(201, 106, 56, 0.08)",
+              color: "#7c3b19",
+            }}
+          >
+            <span>
+              Map filter active ({activeFilterCount} pin{activeFilterCount === 1 ? "" : "s"} shown)
+            </span>
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className="shrink-0 cursor-pointer font-semibold underline"
+            >
+              Show all
+            </button>
+          </div>
         )}
 
         {dossier && region && (

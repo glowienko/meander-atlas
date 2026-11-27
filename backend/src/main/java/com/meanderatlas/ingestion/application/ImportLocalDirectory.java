@@ -53,6 +53,8 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
 import tools.jackson.databind.json.JsonMapper;
@@ -60,6 +62,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class ImportLocalDirectory {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ImportLocalDirectory.class);
     private static final String SOURCE_TYPE_LOCAL = "LOCAL_DIRECTORY";
     private static final String LIST_NAME_SAVED_DEFAULT = "Saved Places";
     private static final String LIST_NAME_REVIEWS = "Google Reviews";
@@ -114,23 +117,42 @@ public class ImportLocalDirectory {
                                                         item.source().accountLabel())))
                         .toList();
 
-        return new LocalImportSummaryView(
-                accountSummaries,
-                sumInt(accountSummaries.stream().mapToInt(AccountImportSummaryView::placesCreated)),
-                sumInt(accountSummaries.stream().mapToInt(AccountImportSummaryView::placesMerged)),
-                sumInt(accountSummaries.stream().mapToInt(AccountImportSummaryView::csvCidMatched)),
-                sumInt(
-                        accountSummaries.stream()
-                                .mapToInt(AccountImportSummaryView::queuedResolutionJobs)),
-                sumInt(
-                        accountSummaries.stream()
-                                .mapToInt(AccountImportSummaryView::timelineMatchedVisited)),
-                sumInt(
-                        accountSummaries.stream()
-                                .mapToInt(AccountImportSummaryView::timelineMarkedTriage)),
-                sumInt(
-                        accountSummaries.stream()
-                                .mapToInt(AccountImportSummaryView::timelineUnmatched)));
+        LocalImportSummaryView summary =
+                new LocalImportSummaryView(
+                        accountSummaries,
+                        sumInt(
+                                accountSummaries.stream()
+                                        .mapToInt(AccountImportSummaryView::placesCreated)),
+                        sumInt(
+                                accountSummaries.stream()
+                                        .mapToInt(AccountImportSummaryView::placesMerged)),
+                        sumInt(
+                                accountSummaries.stream()
+                                        .mapToInt(AccountImportSummaryView::csvCidMatched)),
+                        sumInt(
+                                accountSummaries.stream()
+                                        .mapToInt(AccountImportSummaryView::queuedResolutionJobs)),
+                        sumInt(
+                                accountSummaries.stream()
+                                        .mapToInt(
+                                                AccountImportSummaryView::timelineMatchedVisited)),
+                        sumInt(
+                                accountSummaries.stream()
+                                        .mapToInt(AccountImportSummaryView::timelineMarkedTriage)),
+                        sumInt(
+                                accountSummaries.stream()
+                                        .mapToInt(AccountImportSummaryView::timelineUnmatched)));
+        LOG.info(
+                "Local import finished (accounts={}, created={}, merged={}, csvCidMatched={}, queuedLookup={}, timelineMatched={}, timelineTriage={}, timelineUnmatched={})",
+                summary.accounts().size(),
+                summary.totalPlacesCreated(),
+                summary.totalPlacesMerged(),
+                summary.totalCsvCidMatched(),
+                summary.totalQueuedResolutionJobs(),
+                summary.totalTimelineMatchedVisited(),
+                summary.totalTimelineMarkedTriage(),
+                summary.totalTimelineUnmatched());
+        return summary;
     }
 
     private PreparedAccount prepareAccount(

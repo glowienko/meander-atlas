@@ -1,6 +1,7 @@
 package com.meanderatlas.ingestion.adapter.http;
 
 import com.meanderatlas.ingestion.adapter.http.OverpassPoiClient.OverpassTransientException;
+import com.meanderatlas.ingestion.domain.TitleCoordinateParser;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort;
 import com.meanderatlas.ingestion.domain.enrichment.OpenPoiMatcher;
 import com.meanderatlas.shared.PlaceId;
@@ -11,7 +12,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
@@ -23,6 +27,7 @@ import org.springframework.web.client.RestClientException;
 @Component
 public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
 
+    private static final Logger LOG = LoggerFactory.getLogger(CompositeOpenPoiCatalogAdapter.class);
     private static final long MAX_RETRY_AFTER_MS = 60_000L;
     private static final Set<String> PHOTO_TAG_KEYS =
             Set.of("wikimedia_commons", "wikipedia", "wikidata", "image");
@@ -61,10 +66,26 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
         if (targets.isEmpty()) {
             return Map.of();
         }
-        List<List<AnchoredEnrichmentTarget>> batches =
-                overpassPoiClient.partitionIntoBatches(targets);
-        return batches.stream()
-                .flatMap(batch -> enrichSingleSpatialBatch(batch).entrySet().stream())
+        List<AnchoredEnrichmentTarget> coordOnlyTargets =
+                targets.stream()
+                        .filter(target ->
+                                TitleCoordinateParser.parse(target.canonicalName()).isPresent())
+                        .toList();
+        List<AnchoredEnrichmentTarget> namedTargets =
+                targets.stream()
+                        .filter(target ->
+                                TitleCoordinateParser.parse(target.canonicalName()).isEmpty())
+                        .toList();
+
+        Stream<Map.Entry<PlaceId, EnrichmentLookupOutcome>> reverseEntries =
+                coordOnlyTargets.stream()
+                        .map(target ->
+                                Map.entry(target.placeId(), resolveCoordinateOnlyTarget(target)));
+        Stream<Map.Entry<PlaceId, EnrichmentLookupOutcome>> namedEntries =
+                overpassPoiClient.partitionIntoBatches(namedTargets).stream()
+                        .flatMap(batch -> enrichSingleSpatialBatch(batch).entrySet().stream());
+
+        return Stream.concat(reverseEntries, namedEntries)
                 .collect(
                         Collectors.toUnmodifiableMap(
                                 Map.Entry::getKey, Map.Entry::getValue, (a, _) -> a));
@@ -92,13 +113,18 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
             List<AnchoredEnrichmentTarget> batch) {
         RetryableResult<List<OpenPoiCandidate>> overpassResult =
                 executeWithRetry(() -> overpassPoiClient.fetchBatch(batch), "overpass");
-        if (overpassResult.error() != null) {
-            EnrichmentLookupOutcome failure =
-                    new EnrichmentLookupOutcome.TransientFailure(overpassResult.error());
+        String overpassError = overpassResult.error();
+        if (overpassError != null) {
+            LOG.warn(
+                    "Overpass batch failed for {} targets ({}); falling back to Photon",
+                    batch.size(),
+                    overpassError);
             return batch.stream()
                     .collect(
                             Collectors.toUnmodifiableMap(
-                                    AnchoredEnrichmentTarget::placeId, _ -> failure, (a, _) -> a));
+                                    AnchoredEnrichmentTarget::placeId,
+                                    target -> resolveViaPhotonFallback(target, overpassError),
+                                    (a, _) -> a));
         }
         List<OpenPoiCandidate> overpassCandidates =
                 Objects.requireNonNullElse(overpassResult.value(), List.of());
@@ -108,6 +134,44 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
                                 AnchoredEnrichmentTarget::placeId,
                                 target -> resolveAnchoredTarget(target, overpassCandidates),
                                 (a, _) -> a));
+    }
+
+    private EnrichmentLookupOutcome resolveCoordinateOnlyTarget(AnchoredEnrichmentTarget target) {
+        RetryableResult<List<OpenPoiCandidate>> reverseResult =
+                executeWithRetry(
+                        () -> photonPoiClient.reverse(target.coordinates()), "photon-reverse");
+        if (reverseResult.error() != null) {
+            return new EnrichmentLookupOutcome.TransientFailure(reverseResult.error());
+        }
+        List<OpenPoiCandidate> candidates =
+                Objects.requireNonNullElse(reverseResult.value(), List.of());
+        Optional<OpenPoiMatch> matched =
+                OpenPoiMatcher.matchReverseGeocoded(target.coordinates(), candidates);
+        if (matched.isEmpty()) {
+            return new EnrichmentLookupOutcome.NoMatch(
+                    "No reverse-geocoded place near coordinates");
+        }
+        return new EnrichmentLookupOutcome.Matched(
+                attachPhotoIfEligible(matched.get(), target.photoUrl()));
+    }
+
+    private EnrichmentLookupOutcome resolveViaPhotonFallback(
+            AnchoredEnrichmentTarget target, String overpassError) {
+        RetryableResult<List<OpenPoiCandidate>> photonResult =
+                executeWithRetry(
+                        () -> photonPoiClient.search(target.canonicalName(), target.coordinates()),
+                        "photon-fallback");
+        if (photonResult.error() != null) {
+            return new EnrichmentLookupOutcome.TransientFailure(photonResult.error());
+        }
+        List<OpenPoiCandidate> photonCandidates =
+                Objects.requireNonNullElse(photonResult.value(), List.of());
+        Optional<OpenPoiMatch> photonMatch = OpenPoiMatcher.matchAnchored(target, photonCandidates);
+        if (photonMatch.isEmpty()) {
+            return new EnrichmentLookupOutcome.TransientFailure(overpassError);
+        }
+        return new EnrichmentLookupOutcome.Matched(
+                attachPhotoIfEligible(photonMatch.get(), target.photoUrl()));
     }
 
     private EnrichmentLookupOutcome resolveAnchoredTarget(
@@ -172,19 +236,48 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
                 HttpStatusCode status = ex.getStatusCode();
                 lastError = sourceName + " HTTP " + status.value();
                 if (!isRetryableStatus(status) || attempt + 1 >= maxAttempts) {
+                    LOG.warn(
+                            "Enrichment {} failed on attempt {}/{}: {}",
+                            sourceName,
+                            attempt + 1,
+                            maxAttempts,
+                            lastError);
                     return new RetryableResult<>(null, lastError);
                 }
-                sleepQuietly(computeRetryDelayMs(attempt, ex.getResponseHeaders()));
+                long retryDelayMs = computeRetryDelayMs(attempt, ex.getResponseHeaders());
+                LOG.warn(
+                        "Enrichment {} retryable error on attempt {}/{} ({}); backing off {}ms",
+                        sourceName,
+                        attempt + 1,
+                        maxAttempts,
+                        lastError,
+                        retryDelayMs);
+                sleepQuietly(retryDelayMs);
             } catch (ResourceAccessException | OverpassTransientException ex) {
                 lastError =
                         Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
                 if (attempt + 1 >= maxAttempts) {
+                    LOG.warn(
+                            "Enrichment {} I/O failure on attempt {}/{}: {}",
+                            sourceName,
+                            attempt + 1,
+                            maxAttempts,
+                            lastError);
                     return new RetryableResult<>(null, lastError);
                 }
-                sleepQuietly(computeRetryDelayMs(attempt, null));
+                long retryDelayMs = computeRetryDelayMs(attempt, null);
+                LOG.warn(
+                        "Enrichment {} I/O failure on attempt {}/{} ({}); retrying in {}ms",
+                        sourceName,
+                        attempt + 1,
+                        maxAttempts,
+                        lastError,
+                        retryDelayMs);
+                sleepQuietly(retryDelayMs);
             } catch (RestClientException ex) {
                 lastError =
                         Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
+                LOG.warn("Enrichment {} client error: {}", sourceName, lastError);
                 return new RetryableResult<>(null, lastError);
             }
         }

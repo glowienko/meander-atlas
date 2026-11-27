@@ -311,6 +311,32 @@ class AtlasApiE2eTest {
         assertThat(malopolskieDossier.places()).hasSize(2);
     }
 
+    @Test
+    void focusesCountryBoundingBoxOnMainlandExcludingDistantOverseasTerritories() {
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        UUID nlBoundaryId = UUID.randomUUID();
+        insertBoundary(
+                nlBoundaryId,
+                "COUNTRY",
+                "NL-OVERSEAS",
+                "NL-OVERSEAS",
+                "Synthetic Netherlands",
+                "MULTIPOLYGON(((3.5 51.0, 7.0 51.0, 7.0 53.5, 3.5 53.5, 3.5 51.0)),"
+                        + "((-68.4 12.0, -68.1 12.0, -68.1 12.3, -68.4 12.3, -68.4 12.0)))");
+
+        RegionDossierView dossier =
+                client.get()
+                        .uri("/api/v1/atlas/regions/COUNTRY/NL-OVERSEAS")
+                        .retrieve()
+                        .body(RegionDossierView.class);
+        assertThat(dossier).isNotNull();
+        assertThat(dossier.region().minLng()).isGreaterThan(3.0);
+        assertThat(dossier.region().maxLng()).isLessThan(7.5);
+        assertThat(dossier.region().minLat()).isGreaterThan(50.5);
+        assertThat(dossier.region().maxLat()).isLessThan(54.0);
+    }
+
     private static void verifyStats(RestClient client) {
         AtlasStatsView stats =
                 client.get().uri("/api/v1/atlas/stats").retrieve().body(AtlasStatsView.class);

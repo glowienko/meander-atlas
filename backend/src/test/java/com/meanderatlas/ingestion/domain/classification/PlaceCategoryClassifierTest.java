@@ -139,6 +139,12 @@ class PlaceCategoryClassifierTest {
                 .isEqualTo(PlaceCategory.UNCATEGORIZED);
         assertThat(PlaceCategoryClassifier.classify("Galeria Krakowska", null, null).category())
                 .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(
+                        PlaceCategoryClassifier.classify("Q-Park Markt Hilversum", null, null)
+                                .category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertThat(PlaceCategoryClassifier.classify("Central Car Park", null, null).category())
+                .isEqualTo(PlaceCategory.UNCATEGORIZED);
     }
 
     @Test

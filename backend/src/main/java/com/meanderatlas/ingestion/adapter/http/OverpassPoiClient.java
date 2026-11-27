@@ -27,7 +27,8 @@ import tools.jackson.databind.json.JsonMapper;
 class OverpassPoiClient {
 
     private static final int EXACT_RADIUS_METERS = 600;
-    private static final int APPROX_RADIUS_METERS = 2500;
+    private static final int APPROX_RADIUS_METERS = 1000;
+    private static final int MAX_OVERPASS_CLAUSES_PER_BATCH = 10;
     private static final double SPATIAL_CELL_DEGREES = 2.0;
     private static final String POI_KEY_REGEX =
             "^(tourism|amenity|natural|historic|leisure|shop|craft|man_made|waterway|boundary|railway|aeroway)$";
@@ -46,7 +47,8 @@ class OverpassPoiClient {
         if (targets.isEmpty()) {
             return List.of();
         }
-        int batchSize = Math.max(1, properties.batchSize());
+        int batchSize =
+                Math.min(Math.max(1, properties.batchSize()), MAX_OVERPASS_CLAUSES_PER_BATCH);
         Map<SpatialCell, List<AnchoredEnrichmentTarget>> byCell =
                 targets.stream().collect(Collectors.groupingBy(OverpassPoiClient::spatialCellOf));
         return byCell.entrySet().stream()
@@ -78,7 +80,7 @@ class OverpassPoiClient {
                 batch.stream()
                         .map(OverpassPoiClient::buildTargetClause)
                         .collect(Collectors.joining());
-        return "[out:json][timeout:25];(" + clauses + ");out center tags;";
+        return "[out:json][timeout:15];(" + clauses + ");out center tags;";
     }
 
     static List<OpenPoiCandidate> parseResponse(@Nullable String rawResponse) {

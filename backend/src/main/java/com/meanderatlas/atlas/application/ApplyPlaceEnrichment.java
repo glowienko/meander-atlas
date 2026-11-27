@@ -5,6 +5,7 @@ import com.meanderatlas.atlas.PlaceEnrichmentResultView;
 import com.meanderatlas.atlas.domain.DerivedRoleResolver;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
+import com.meanderatlas.atlas.domain.places.PlaceNameGuard;
 import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.CurrentUserProvider;
@@ -62,12 +63,20 @@ public class ApplyPlaceEnrichment {
         String cityName = trimToNull(command.cityName());
         String photoUrl = trimToNull(command.photoUrl());
         String openingHoursJson = trimToNull(command.openingHoursJson());
+        String candidateName = trimToNull(command.resolvedCanonicalName());
+        String upgradedCanonicalName =
+                candidateName != null
+                                && PlaceNameGuard.isCoordinateOnlyName(current.canonicalName())
+                                && !PlaceNameGuard.isCoordinateOnlyName(candidateName)
+                        ? candidateName
+                        : null;
         boolean photoAdded =
                 photoUrl != null && (current.photoUrl() == null || current.photoUrl().isBlank());
 
         placeRepository.applyPlaceEnrichment(
                 userId,
                 command.placeId(),
+                upgradedCanonicalName,
                 upgradeCoords,
                 upgradeCoords ? command.refinedCoordinates() : null,
                 osmId,
