@@ -1,5 +1,7 @@
 package com.meanderatlas.atlas.application;
 
+import com.meanderatlas.atlas.AttachCsvMembershipCommand;
+import com.meanderatlas.atlas.ImportedPlaceUpsertCommand;
 import com.meanderatlas.atlas.domain.DerivedRoleResolver;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
@@ -114,12 +116,49 @@ class ImportedPlaceMerger {
             @Nullable String note,
             @Nullable String tags,
             @Nullable String sourceUrl,
-            @Nullable Instant savedAt) {}
+            @Nullable Instant savedAt) {
+
+        static MembershipDetails from(ImportedPlaceUpsertCommand command) {
+            return new MembershipDetails(
+                    command.accountLabel(),
+                    command.listName(),
+                    command.listKind(),
+                    command.note(),
+                    command.tags(),
+                    command.sourceUrl(),
+                    command.savedAt());
+        }
+
+        static MembershipDetails from(AttachCsvMembershipCommand command) {
+            return new MembershipDetails(
+                    command.accountLabel(),
+                    command.listName(),
+                    command.listKind(),
+                    command.note(),
+                    command.tags(),
+                    command.sourceUrl(),
+                    command.savedAt());
+        }
+    }
 
     record InitialVisitDetails(
             VisitStatus status, VisitSource source, @Nullable Instant observedAt) {
 
-        static @Nullable InitialVisitDetails ofNullable(
+        static @Nullable InitialVisitDetails from(ImportedPlaceUpsertCommand command) {
+            return ofNullable(
+                    command.initialVisitStatus(),
+                    command.initialVisitSource(),
+                    command.observedAt());
+        }
+
+        static @Nullable InitialVisitDetails from(AttachCsvMembershipCommand command) {
+            return ofNullable(
+                    command.initialVisitStatus(),
+                    command.initialVisitSource(),
+                    command.observedAt());
+        }
+
+        private static @Nullable InitialVisitDetails ofNullable(
                 @Nullable VisitStatus status,
                 @Nullable VisitSource source,
                 @Nullable Instant observedAt) {
@@ -141,5 +180,54 @@ class ImportedPlaceMerger {
             @Nullable String googlePlaceIdToBackfill,
             @Nullable Long googleCidToBackfill,
             @Nullable String fallbackCountryCode,
-            @Nullable InitialVisitDetails initialVisit) {}
+            @Nullable InitialVisitDetails initialVisit) {
+
+        static ExistingPlaceMerge forUpsert(
+                MatchedPlace matched,
+                ImportedPlaceUpsertCommand command,
+                MembershipDetails membership,
+                @Nullable String fallbackCountryCode,
+                @Nullable InitialVisitDetails initialVisit) {
+            String backfillPlaceId =
+                    matched.googlePlaceId() == null ? command.googlePlaceId() : null;
+            Long backfillCid = matched.googleCid() == null ? command.googleCid() : null;
+            boolean upgradeApproxCoordinates =
+                    matched.coordSource() == CoordSource.TAKEOUT_S2_APPROX
+                            && command.coordSource() == CoordSource.TAKEOUT;
+            return new ExistingPlaceMerge(
+                    matched,
+                    upgradeApproxCoordinates ? command.coordinates() : null,
+                    upgradeApproxCoordinates ? command.coordSource() : null,
+                    command.category(),
+                    command.subcategory(),
+                    command.categorySource(),
+                    membership,
+                    backfillPlaceId,
+                    backfillCid,
+                    fallbackCountryCode,
+                    initialVisit);
+        }
+
+        static ExistingPlaceMerge forCsvAttach(
+                MatchedPlace matched,
+                AttachCsvMembershipCommand command,
+                MembershipDetails membership,
+                @Nullable InitialVisitDetails initialVisit) {
+            boolean upgradeApproxCoordinates =
+                    command.exactCoordinates() != null
+                            && matched.coordSource() == CoordSource.TAKEOUT_S2_APPROX;
+            return new ExistingPlaceMerge(
+                    matched,
+                    upgradeApproxCoordinates ? command.exactCoordinates() : null,
+                    upgradeApproxCoordinates ? CoordSource.TAKEOUT : null,
+                    command.category(),
+                    command.subcategory(),
+                    command.categorySource(),
+                    membership,
+                    null,
+                    null,
+                    null,
+                    initialVisit);
+        }
+    }
 }

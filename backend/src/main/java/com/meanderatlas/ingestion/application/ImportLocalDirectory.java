@@ -11,7 +11,6 @@ import com.meanderatlas.ingestion.domain.TextNormalizer;
 import com.meanderatlas.ingestion.domain.source.AccountImportSource;
 import com.meanderatlas.ingestion.domain.source.DiscoveredImportFile;
 import com.meanderatlas.ingestion.domain.source.EnrichmentJobRepository;
-import com.meanderatlas.ingestion.domain.source.ImportRecordKind;
 import com.meanderatlas.ingestion.domain.source.ImportRepository;
 import com.meanderatlas.ingestion.domain.source.NewImportRecord;
 import com.meanderatlas.ingestion.domain.source.NewResolutionJob;
@@ -40,7 +39,6 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -100,37 +98,16 @@ public class ImportLocalDirectory {
                 prepared.stream()
                         .map(item ->
                                 item.skipped()
-                                        ? skippedSummary(item.source())
+                                        ? AccountImportSummaryView.skipped(
+                                                item.source().accountLabel(),
+                                                item.source().contentSha256(),
+                                                item.source().files().size())
                                         : Objects.requireNonNull(
                                                 importedByAccount.get(
                                                         item.source().accountLabel())))
                         .toList();
 
-        LocalImportSummaryView summary =
-                new LocalImportSummaryView(
-                        accountSummaries,
-                        sumInt(
-                                accountSummaries.stream()
-                                        .mapToInt(AccountImportSummaryView::placesCreated)),
-                        sumInt(
-                                accountSummaries.stream()
-                                        .mapToInt(AccountImportSummaryView::placesMerged)),
-                        sumInt(
-                                accountSummaries.stream()
-                                        .mapToInt(AccountImportSummaryView::csvCidMatched)),
-                        sumInt(
-                                accountSummaries.stream()
-                                        .mapToInt(AccountImportSummaryView::queuedResolutionJobs)),
-                        sumInt(
-                                accountSummaries.stream()
-                                        .mapToInt(
-                                                AccountImportSummaryView::timelineMatchedVisited)),
-                        sumInt(
-                                accountSummaries.stream()
-                                        .mapToInt(AccountImportSummaryView::timelineMarkedTriage)),
-                        sumInt(
-                                accountSummaries.stream()
-                                        .mapToInt(AccountImportSummaryView::timelineUnmatched)));
+        LocalImportSummaryView summary = LocalImportSummaryView.fromAccounts(accountSummaries);
         LOG.info(
                 "Local import finished (accounts={}, created={}, merged={}, csvCidMatched={}, queuedLookup={}, timelineMatched={}, timelineTriage={}, timelineUnmatched={})",
                 summary.accounts().size(),
@@ -430,13 +407,10 @@ public class ImportLocalDirectory {
     }
 
     private static NewImportRecord toSavedPlaceRecord(String sourceFile, ParsedSavedPlace place) {
-        return new NewImportRecord(
-                UUID.randomUUID(),
-                ImportRecordKind.STARRED_GEOJSON,
+        return NewImportRecord.starredGeoJson(
                 sourceFile,
                 place.name(),
                 place.googleMapsUrl(),
-                null,
                 ImportedPlaceDraft.cidBits(place.googleCid()),
                 place.coordinates(),
                 place.savedAt(),
@@ -444,13 +418,10 @@ public class ImportLocalDirectory {
     }
 
     private static NewImportRecord toReviewRecord(String sourceFile, ParsedReview review) {
-        return new NewImportRecord(
-                UUID.randomUUID(),
-                ImportRecordKind.REVIEW_GEOJSON,
+        return NewImportRecord.reviewGeoJson(
                 sourceFile,
                 review.name(),
                 review.googleMapsUrl(),
-                null,
                 ImportedPlaceDraft.cidBits(review.googleCid()),
                 review.coordinates(),
                 review.reviewedAt(),
@@ -458,28 +429,18 @@ public class ImportLocalDirectory {
     }
 
     private static NewImportRecord toCsvRecord(String sourceFile, ParsedSavedCsvRow row) {
-        return new NewImportRecord(
-                UUID.randomUUID(),
-                ImportRecordKind.SAVED_CSV,
+        return NewImportRecord.savedCsv(
                 sourceFile,
                 row.title(),
                 row.url(),
-                null,
                 ImportedPlaceDraft.cidBits(row.googleCid()),
-                null,
-                null,
                 toJson(row));
     }
 
     private static NewImportRecord toTimelineRecord(String sourceFile, ParsedTimelineVisit visit) {
-        return new NewImportRecord(
-                UUID.randomUUID(),
-                ImportRecordKind.TIMELINE_VISIT,
+        return NewImportRecord.timelineVisit(
                 sourceFile,
-                null,
-                null,
                 visit.googlePlaceId(),
-                null,
                 visit.coordinates(),
                 visit.startTime(),
                 toJson(visit));
@@ -503,29 +464,9 @@ public class ImportLocalDirectory {
         return normalized != null ? normalized : ImportedPlaceDraft.LIST_NAME_SAVED_DEFAULT;
     }
 
-    private static AccountImportSummaryView skippedSummary(AccountImportSource account) {
-        return new AccountImportSummaryView(
-                account.accountLabel(),
-                account.contentSha256(),
-                true,
-                account.files().size(),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0);
-    }
-
     private static int countOutcome(
             List<TimelineReconciliationOutcome> outcomes, TimelineReconciliationOutcome target) {
         return (int) outcomes.stream().filter(outcome -> outcome == target).count();
-    }
-
-    private static int sumInt(IntStream stream) {
-        return stream.sum();
     }
 
     private record PreparedAccount(

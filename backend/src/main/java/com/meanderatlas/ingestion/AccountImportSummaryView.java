@@ -15,4 +15,11 @@ public record AccountImportSummaryView(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int queuedResolutionJobs,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int timelineMatchedVisited,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int timelineMarkedTriage,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int timelineUnmatched) {}
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int timelineUnmatched) {
+
+    public static AccountImportSummaryView skipped(
+            String accountLabel, String contentSha256, int discoveredFiles) {
+        return new AccountImportSummaryView(
+                accountLabel, contentSha256, true, discoveredFiles, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+}

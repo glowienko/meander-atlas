@@ -245,9 +245,8 @@ public class RunEnrichmentBatch {
                 .map(job ->
                         job.enrichmentPlaceId()
                                 .map(placeId ->
-                                        new JobOutcomeEntry(
+                                        JobOutcomeEntry.anchored(
                                                 job,
-                                                null,
                                                 resolveAnchored(
                                                         placeId,
                                                         batch.targetsById(),
@@ -270,17 +269,11 @@ public class RunEnrichmentBatch {
     private JobOutcomeEntry resolveCoordinateJob(ClaimedResolutionJob job) {
         PendingCoordinateJob coordinateJob = job.coordinateJob();
         if (coordinateJob == null) {
-            return new JobOutcomeEntry(
-                    job,
-                    null,
-                    new EnrichmentLookupOutcome.NoMatch("Missing coordinate lookup record"));
+            return JobOutcomeEntry.noMatch(job, null, "Missing coordinate lookup record");
         }
         ImportedPlaceDraft draft = PendingJobMetadataExtractor.extract(coordinateJob);
         if (OpenPoiMatcher.isGenericPlaceholder(draft.canonicalTitle())) {
-            return new JobOutcomeEntry(
-                    job,
-                    draft,
-                    new EnrichmentLookupOutcome.NoMatch("Placeholder title cannot be geocoded"));
+            return JobOutcomeEntry.noMatch(job, draft, "Placeholder title cannot be geocoded");
         }
         EnrichmentLookupOutcome outcome =
                 openPoiCatalogPort.resolveUnanchored(
@@ -351,13 +344,10 @@ public class RunEnrichmentBatch {
                                 match.candidate().name()));
         enrichmentJobRepository.markJobCompleted(job.jobId(), placeId);
         boolean created = upserted.map(UpsertedPlaceView::created).orElse(false);
-        return new BatchStats(
-                1,
-                created || enriched.coordsUpgraded() ? 1 : 0,
-                (created && hasCatalogCategory) || enriched.categoryUpgraded() ? 1 : 0,
-                enriched.photoAdded() ? 1 : 0,
-                0,
-                0);
+        return BatchStats.matched(
+                created || enriched.coordsUpgraded(),
+                (created && hasCatalogCategory) || enriched.categoryUpgraded(),
+                enriched.photoAdded());
     }
 
     private int countRemaining(UserId userId) {
@@ -393,7 +383,17 @@ public class RunEnrichmentBatch {
     private record JobOutcomeEntry(
             ClaimedResolutionJob job,
             @Nullable ImportedPlaceDraft draft,
-            EnrichmentLookupOutcome outcome) {}
+            EnrichmentLookupOutcome outcome) {
+
+        static JobOutcomeEntry anchored(ClaimedResolutionJob job, EnrichmentLookupOutcome outcome) {
+            return new JobOutcomeEntry(job, null, outcome);
+        }
+
+        static JobOutcomeEntry noMatch(
+                ClaimedResolutionJob job, @Nullable ImportedPlaceDraft draft, String reason) {
+            return new JobOutcomeEntry(job, draft, new EnrichmentLookupOutcome.NoMatch(reason));
+        }
+    }
 
     private record BatchStats(
             int matched,
@@ -406,6 +406,12 @@ public class RunEnrichmentBatch {
         private static final BatchStats ZERO = new BatchStats(0, 0, 0, 0, 0, 0);
         private static final BatchStats FAILED = new BatchStats(0, 0, 0, 0, 1, 0);
         private static final BatchStats SKIPPED = new BatchStats(0, 0, 0, 0, 0, 1);
+
+        static BatchStats matched(
+                boolean upgradedCoords, boolean upgradedCategory, boolean photoAdded) {
+            return new BatchStats(
+                    1, upgradedCoords ? 1 : 0, upgradedCategory ? 1 : 0, photoAdded ? 1 : 0, 0, 0);
+        }
 
         BatchStats add(BatchStats other) {
             return new BatchStats(
