@@ -9,6 +9,7 @@ interface RegionDossierDrawerProps {
   isMutating: boolean;
   activeFilterCount?: number;
   onClearFilters?: () => void;
+  onResetView?: () => void;
   onClose: () => void;
   onSelectRegion: (level: RegionLevel, code: string) => void;
   onSelectPlace: (place: AtlasPlaceView) => void;
@@ -26,6 +27,7 @@ export function RegionDossierDrawer({
   isMutating,
   activeFilterCount,
   onClearFilters,
+  onResetView,
   onClose,
   onSelectRegion,
   onSelectPlace,
@@ -57,7 +59,11 @@ export function RegionDossierDrawer({
             className="flex items-center gap-1 text-[13px] font-medium"
             style={{ color: "var(--atlas-muted)" }}
           >
-            <button type="button" onClick={onClose} className="cursor-pointer hover:underline">
+            <button
+              type="button"
+              onClick={onResetView ?? onClose}
+              className="cursor-pointer hover:underline"
+            >
               World
             </button>
             {region && region.level === "ADMIN1" && (

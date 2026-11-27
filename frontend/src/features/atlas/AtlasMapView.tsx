@@ -55,6 +55,7 @@ interface AtlasMapViewProps {
   highlightedPlaceIds?: readonly string[];
   fitBoundsTarget: FitBoundsTarget | null;
   focusPlaceTarget: FocusPlaceTarget | null;
+  resetViewSeq?: number;
   mapPadding: MapPadding;
   areaSelectMode: boolean;
   onSelectPlace: (placeId: string) => void;
@@ -76,6 +77,8 @@ const COUNTRIES_SOURCE_ID = "atlas-countries";
 const ADMIN1_SOURCE_ID = "atlas-admin1";
 const PLACES_SOURCE_ID = "atlas-places";
 const SOURCE_LAYER_REGIONS = "regions";
+const DEFAULT_MAP_CENTER: [number, number] = [12, 34];
+const DEFAULT_MAP_ZOOM = 1.4;
 const MIN_DRAG_BOX_PX = 6;
 const MIN_FOCUS_ZOOM = 14;
 const MIN_FIT_BOUNDS_PADDING = 48;
@@ -551,6 +554,7 @@ export function AtlasMapView({
   highlightedPlaceIds = [],
   fitBoundsTarget,
   focusPlaceTarget,
+  resetViewSeq = 0,
   mapPadding,
   areaSelectMode,
   onSelectPlace,
@@ -580,6 +584,7 @@ export function AtlasMapView({
   const onSelectAreaPlacesRef = useRef(onSelectAreaPlaces);
   const lastFitKeyRef = useRef<string | null>(null);
   const lastFocusKeyRef = useRef<string | null>(null);
+  const lastResetSeqRef = useRef(0);
 
   projectionRef.current = projection;
   basemapRef.current = basemap;
@@ -610,8 +615,8 @@ export function AtlasMapView({
     const map = new MapLibreMap({
       container,
       style: resolveStyle(initialBasemap),
-      center: [12, 34],
-      zoom: 1.7,
+      center: DEFAULT_MAP_CENTER,
+      zoom: DEFAULT_MAP_ZOOM,
       boxZoom: false,
       attributionControl: { compact: true },
     });
@@ -1021,6 +1026,28 @@ export function AtlasMapView({
       );
     }
   }, [fitBoundsTarget, styleRevision]);
+
+  useEffect(() => {
+    if (resetViewSeq <= 0 || lastResetSeqRef.current === resetViewSeq) {
+      return;
+    }
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current || styleRevision === 0) {
+      return;
+    }
+    lastResetSeqRef.current = resetViewSeq;
+    lastFitKeyRef.current = null;
+    lastFocusKeyRef.current = null;
+    map.stop();
+    map.easeTo({
+      center: DEFAULT_MAP_CENTER,
+      zoom: DEFAULT_MAP_ZOOM,
+      bearing: 0,
+      pitch: 0,
+      padding: { top: 0, right: 0, bottom: 0, left: 0 },
+      duration: prefersReducedMotion() ? 0 : 700,
+    });
+  }, [resetViewSeq, styleRevision]);
 
   const selectionRect = dragBox
     ? {

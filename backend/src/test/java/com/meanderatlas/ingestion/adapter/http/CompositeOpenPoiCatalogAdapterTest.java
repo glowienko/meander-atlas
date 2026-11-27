@@ -205,6 +205,7 @@ class CompositeOpenPoiCatalogAdapterTest {
                         _ -> {});
 
         PlaceId failId = PlaceId.random();
+        PlaceId secondCellId = PlaceId.random();
         AnchoredEnrichmentTarget target =
                 new AnchoredEnrichmentTarget(
                         failId,
@@ -216,6 +217,17 @@ class CompositeOpenPoiCatalogAdapterTest {
                         null,
                         null,
                         null);
+        AnchoredEnrichmentTarget secondCellTarget =
+                new AnchoredEnrichmentTarget(
+                        secondCellId,
+                        "Eiffel Tower",
+                        new GeoPoint(48.8584, 2.2945),
+                        CoordSource.TAKEOUT,
+                        CategorySource.HEURISTIC,
+                        null,
+                        null,
+                        "FR",
+                        null);
 
         overpassServer
                 .expect(requestTo("https://overpass.example/api/interpreter"))
@@ -226,13 +238,42 @@ class CompositeOpenPoiCatalogAdapterTest {
         photonServer
                 .expect(
                         requestTo(
+                                "https://photon.example/api?q=Eiffel%20Tower&lat=48.858400&lon=2.294500&limit=5"))
+                .andRespond(
+                        withSuccess(
+                                """
+                                {
+                                  "features": [
+                                    {
+                                      "geometry": { "coordinates": [2.2945, 48.8584] },
+                                      "properties": {
+                                        "osm_type": "W",
+                                        "osm_id": 5013364,
+                                        "osm_key": "tourism",
+                                        "osm_value": "attraction",
+                                        "name": "Eiffel Tower",
+                                        "city": "Paris",
+                                        "countrycode": "fr"
+                                      }
+                                    }
+                                  ]
+                                }
+                                """,
+                                MediaType.APPLICATION_JSON));
+        photonServer
+                .expect(
+                        requestTo(
                                 "https://photon.example/api?q=Wawel&lat=50.054000&lon=19.935400&limit=5"))
                 .andRespond(withSuccess("{\"features\":[]}", MediaType.APPLICATION_JSON));
 
         Map<PlaceId, EnrichmentLookupOutcome> failedOutcomes =
-                adapter.enrichAnchoredBatch(List.of(target));
+                adapter.enrichAnchoredBatch(List.of(target, secondCellTarget));
         assertThat(failedOutcomes.get(failId))
                 .isInstanceOf(EnrichmentLookupOutcome.TransientFailure.class);
+        assertThat(failedOutcomes.get(secondCellId))
+                .isInstanceOfSatisfying(
+                        EnrichmentLookupOutcome.Matched.class,
+                        matched -> assertThat(matched.match().cityName()).isEqualTo("Paris"));
         overpassServer.verify();
         photonServer.verify();
         overpassServer.reset();

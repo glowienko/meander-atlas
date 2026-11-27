@@ -82,6 +82,24 @@ describe("AtlasHealthPill", () => {
     fireEvent.click(streetBtn);
     expect(onBasemapChange).toHaveBeenCalledWith("street");
   });
+
+  it("renders Reset view button when onResetView is provided", () => {
+    const onResetView = vi.fn();
+
+    render(
+      <AtlasHealthPill
+        health={{ status: "UP", database: "postgresql", postgisVersion: "3.5.3" }}
+        isLoading={false}
+        isError={false}
+        projection="globe"
+        onProjectionChange={vi.fn()}
+        onResetView={onResetView}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("reset-view-button"));
+    expect(onResetView).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("viewState URL serialization", () => {

@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -28,6 +29,7 @@ import org.springframework.web.client.RestClientException;
 public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
 
     private static final Logger LOG = LoggerFactory.getLogger(CompositeOpenPoiCatalogAdapter.class);
+    private static final int MAX_OVERPASS_ATTEMPTS = 2;
     private static final long MAX_RETRY_AFTER_MS = 60_000L;
     private static final Set<String> PHOTO_TAG_KEYS =
             Set.of("wikimedia_commons", "wikipedia", "wikidata", "image");
@@ -77,13 +79,17 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
                                 TitleCoordinateParser.parse(target.canonicalName()).isEmpty())
                         .toList();
 
+        AtomicReference<@Nullable String> overpassCircuitError = new AtomicReference<>();
         Stream<Map.Entry<PlaceId, EnrichmentLookupOutcome>> reverseEntries =
                 coordOnlyTargets.stream()
                         .map(target ->
                                 Map.entry(target.placeId(), resolveCoordinateOnlyTarget(target)));
         Stream<Map.Entry<PlaceId, EnrichmentLookupOutcome>> namedEntries =
                 overpassPoiClient.partitionIntoBatches(namedTargets).stream()
-                        .flatMap(batch -> enrichSingleSpatialBatch(batch).entrySet().stream());
+                        .flatMap(batch ->
+                                enrichSingleSpatialBatch(batch, overpassCircuitError)
+                                        .entrySet()
+                                        .stream());
 
         return Stream.concat(reverseEntries, namedEntries)
                 .collect(
@@ -110,13 +116,28 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
     }
 
     private Map<PlaceId, EnrichmentLookupOutcome> enrichSingleSpatialBatch(
-            List<AnchoredEnrichmentTarget> batch) {
+            List<AnchoredEnrichmentTarget> batch,
+            AtomicReference<@Nullable String> overpassCircuitError) {
+        String existingCircuitError = overpassCircuitError.get();
+        if (existingCircuitError != null) {
+            return batch.stream()
+                    .collect(
+                            Collectors.toUnmodifiableMap(
+                                    AnchoredEnrichmentTarget::placeId,
+                                    target ->
+                                            resolveViaPhotonFallback(target, existingCircuitError),
+                                    (a, _) -> a));
+        }
         RetryableResult<List<OpenPoiCandidate>> overpassResult =
-                executeWithRetry(() -> overpassPoiClient.fetchBatch(batch), "overpass");
+                executeWithRetry(
+                        () -> overpassPoiClient.fetchBatch(batch),
+                        "overpass",
+                        Math.min(Math.max(1, properties.maxRetries() + 1), MAX_OVERPASS_ATTEMPTS));
         String overpassError = overpassResult.error();
         if (overpassError != null) {
+            overpassCircuitError.compareAndSet(null, overpassError);
             LOG.warn(
-                    "Overpass batch failed for {} targets ({}); falling back to Photon",
+                    "Overpass batch failed for {} targets ({}); falling back to Photon for remainder of batch",
                     batch.size(),
                     overpassError);
             return batch.stream()
@@ -226,7 +247,11 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
     }
 
     private <T> RetryableResult<T> executeWithRetry(Supplier<T> action, String sourceName) {
-        int maxAttempts = Math.max(1, properties.maxRetries() + 1);
+        return executeWithRetry(action, sourceName, Math.max(1, properties.maxRetries() + 1));
+    }
+
+    private <T> RetryableResult<T> executeWithRetry(
+            Supplier<T> action, String sourceName, int maxAttempts) {
         String lastError = sourceName + " failed";
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             pausePolitely();
@@ -254,8 +279,7 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
                         retryDelayMs);
                 sleepQuietly(retryDelayMs);
             } catch (ResourceAccessException | OverpassTransientException ex) {
-                lastError =
-                        Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
+                lastError = describeException(ex);
                 if (attempt + 1 >= maxAttempts) {
                     LOG.warn(
                             "Enrichment {} I/O failure on attempt {}/{}: {}",
@@ -275,13 +299,27 @@ public class CompositeOpenPoiCatalogAdapter implements OpenPoiCatalogPort {
                         retryDelayMs);
                 sleepQuietly(retryDelayMs);
             } catch (RestClientException ex) {
-                lastError =
-                        Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
+                lastError = describeException(ex);
                 LOG.warn("Enrichment {} client error: {}", sourceName, lastError);
                 return new RetryableResult<>(null, lastError);
             }
         }
         return new RetryableResult<>(null, lastError);
+    }
+
+    private static String describeException(Throwable ex) {
+        Throwable root = ex;
+        int depth = 0;
+        while (depth < 10 && root.getCause() != null && !root.getCause().equals(root)) {
+            root = root.getCause();
+            depth++;
+        }
+        String baseMessage =
+                Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName());
+        if (root.equals(ex)) {
+            return baseMessage;
+        }
+        return baseMessage + " [" + root.getClass().getSimpleName() + "]";
     }
 
     private static boolean isRetryableStatus(HttpStatusCode status) {

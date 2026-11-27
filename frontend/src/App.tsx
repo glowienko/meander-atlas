@@ -68,6 +68,7 @@ function AtlasShell() {
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [selectedPlaceFallback, setSelectedPlaceFallback] = useState<AtlasPlaceView | null>(null);
   const [focusPlaceTarget, setFocusPlaceTarget] = useState<FocusPlaceTarget | null>(null);
+  const [resetViewSeq, setResetViewSeq] = useState(0);
   const [viewport, setViewport] = useState<MapViewport | null>(null);
   const [areaSelectMode, setAreaSelectMode] = useState(false);
   const [bulkDialog, setBulkDialog] = useState<BulkDialogState | null>(null);
@@ -242,6 +243,19 @@ function AtlasShell() {
   const handleBasemapChange = (basemap: AtlasBasemap) => {
     setViewState((prev) => ({ ...prev, basemap }));
   };
+
+  const handleResetView = useCallback(() => {
+    setSelectedPlaceId(null);
+    setSelectedPlaceFallback(null);
+    setFocusPlaceTarget(null);
+    setAreaSelectMode(false);
+    setViewState((prev) => ({
+      ...prev,
+      regionLevel: "",
+      regionCode: "",
+    }));
+    setResetViewSeq((seq) => seq + 1);
+  }, []);
 
   const handleSelectRegion = useCallback((level: RegionLevel, code: string) => {
     setSelectedPlaceId(null);
@@ -426,6 +440,7 @@ function AtlasShell() {
         highlightedPlaceIds={highlightedPlaceIds}
         fitBoundsTarget={fitBoundsTarget}
         focusPlaceTarget={focusPlaceTarget}
+        resetViewSeq={resetViewSeq}
         mapPadding={mapPadding}
         areaSelectMode={areaSelectMode}
         onSelectPlace={handleSelectPlaceFromMap}
@@ -452,6 +467,7 @@ function AtlasShell() {
           onBasemapChange={handleBasemapChange}
           statsOpen={viewState.statsOpen}
           onToggleStats={() => setViewState((prev) => ({ ...prev, statsOpen: !prev.statsOpen }))}
+          onResetView={handleResetView}
           extraActions={
             <>
               <button
@@ -516,6 +532,7 @@ function AtlasShell() {
           onClearFilters={
             hasActiveFilters ? () => setViewState((prev) => clearAtlasFilters(prev)) : undefined
           }
+          onResetView={handleResetView}
           onClose={() => setViewState((prev) => ({ ...prev, regionLevel: "", regionCode: "" }))}
           onSelectRegion={handleSelectRegion}
           onSelectPlace={(place) => {

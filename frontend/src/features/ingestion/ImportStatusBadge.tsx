@@ -10,7 +10,8 @@ interface ImportStatusBadgeProps {
   onRunEnrichment?: (options: { limit: number; background: boolean }) => void;
 }
 
-const DEFAULT_ENRICH_BATCH_SIZE = 25;
+const DEFAULT_ENRICH_BATCH_SIZE = 10;
+const BACKGROUND_ENRICH_BATCH_SIZE = 25;
 
 export function ImportStatusBadge({
   mappedCount,
@@ -132,7 +133,7 @@ export function ImportStatusBadge({
                 data-testid="enrich-all-button"
                 disabled={enrichDisabled}
                 onClick={() =>
-                  onRunEnrichment({ limit: DEFAULT_ENRICH_BATCH_SIZE, background: true })
+                  onRunEnrichment({ limit: BACKGROUND_ENRICH_BATCH_SIZE, background: true })
                 }
                 className="inline-flex cursor-pointer items-center gap-1 rounded-full border bg-white/90 px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50"
                 style={{

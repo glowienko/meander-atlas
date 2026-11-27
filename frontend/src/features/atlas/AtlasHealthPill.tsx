@@ -1,4 +1,4 @@
-import { BarChart3, Globe, Map as MapIcon } from "lucide-react";
+import { BarChart3, Globe, Home, Map as MapIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AtlasHealthView } from "../../api/client";
 import type { AtlasBasemap, AtlasProjection } from "./viewState";
@@ -13,6 +13,7 @@ interface AtlasHealthPillProps {
   onBasemapChange?: (basemap: AtlasBasemap) => void;
   statsOpen?: boolean;
   onToggleStats?: () => void;
+  onResetView?: () => void;
   extraActions?: ReactNode;
 }
 
@@ -26,6 +27,7 @@ export function AtlasHealthPill({
   onBasemapChange,
   statsOpen = false,
   onToggleStats,
+  onResetView,
   extraActions,
 }: AtlasHealthPillProps) {
   const isHealthy = !isLoading && !isError && health?.status === "UP";
@@ -134,6 +136,22 @@ export function AtlasHealthPill({
             Street
           </button>
         </fieldset>
+      )}
+
+      {onResetView && (
+        <button
+          type="button"
+          data-testid="reset-view-button"
+          onClick={onResetView}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-medium transition-colors hover:bg-black/5"
+          style={{
+            borderColor: "var(--atlas-border)",
+            color: "var(--atlas-ink)",
+          }}
+        >
+          <Home className="h-3.5 w-3.5" aria-hidden="true" />
+          Reset view
+        </button>
       )}
 
       {onToggleStats && (

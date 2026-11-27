@@ -54,7 +54,7 @@ describe("Ingestion components", () => {
     expect(onMaterializeOffline).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId("enrich-batch-button"));
-    expect(onRunEnrichment).toHaveBeenCalledWith({ limit: 25, background: false });
+    expect(onRunEnrichment).toHaveBeenCalledWith({ limit: 10, background: false });
 
     fireEvent.click(screen.getByTestId("enrich-all-button"));
     expect(onRunEnrichment).toHaveBeenCalledWith({ limit: 25, background: true });

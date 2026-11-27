@@ -24,39 +24,6 @@ import org.springframework.stereotype.Repository;
 class JdbcAtlasStatsRepository implements AtlasStatsRepository {
 
     private static final int TOP_SUBCATEGORIES_LIMIT = 15;
-    private static final double MAINLAND_CLUSTER_METERS = 500_000.0;
-    private static final String FOCUSED_BBOX_LATERAL_SQL =
-            """
-            LEFT JOIN LATERAL (
-                WITH parts AS (
-                    SELECT (ST_Dump(rb.simplified_geom)).geom AS part_geom
-                ),
-                ranked AS (
-                    SELECT
-                        part_geom,
-                        ROW_NUMBER() OVER (ORDER BY ST_Area(part_geom::geography) DESC) AS rn
-                    FROM parts
-                ),
-                primary_part AS (
-                    SELECT part_geom AS main_geom FROM ranked WHERE rn = 1
-                ),
-                clustered AS (
-                    SELECT ST_Collect(r.part_geom) AS focused_geom
-                    FROM ranked r
-                    CROSS JOIN primary_part pp
-                    WHERE r.rn = 1
-                       OR ST_DWithin(
-                           r.part_geom::geography, pp.main_geom::geography, :mainlandClusterMeters
-                       )
-                )
-                SELECT
-                    ST_XMin(focused_geom) AS min_lng,
-                    ST_YMin(focused_geom) AS min_lat,
-                    ST_XMax(focused_geom) AS max_lng,
-                    ST_YMax(focused_geom) AS max_lat
-                FROM clustered
-            ) bbox ON TRUE
-            """;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -113,7 +80,6 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
                                     "CITY level is not supported for region summaries");
                 };
 
-        params.addValue("mainlandClusterMeters", MAINLAND_CLUSTER_METERS);
         String sql =
                 """
                 WITH region_counts AS (
@@ -140,14 +106,13 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
                     rc.visited_places,
                     rc.unvisited_places,
                     rc.needs_triage_places,
-                    COALESCE(bbox.min_lng, ST_XMin(rb.simplified_geom)) AS min_lng,
-                    COALESCE(bbox.min_lat, ST_YMin(rb.simplified_geom)) AS min_lat,
-                    COALESCE(bbox.max_lng, ST_XMax(rb.simplified_geom)) AS max_lng,
-                    COALESCE(bbox.max_lat, ST_YMax(rb.simplified_geom)) AS max_lat
+                    COALESCE(rb.focus_min_lng, ST_XMin(rb.simplified_geom)) AS min_lng,
+                    COALESCE(rb.focus_min_lat, ST_YMin(rb.simplified_geom)) AS min_lat,
+                    COALESCE(rb.focus_max_lng, ST_XMax(rb.simplified_geom)) AS max_lng,
+                    COALESCE(rb.focus_max_lat, ST_YMax(rb.simplified_geom)) AS max_lat
                 FROM region_counts rc
                 JOIN region_boundaries rb
                   ON %s
-                %s
                 %s
                 ORDER BY rc.visited_places DESC, rc.total_places DESC, rb.name ASC
                 """
@@ -156,7 +121,6 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
                                 placePredicates.build().collect(Collectors.joining("\n  AND ")),
                                 grouping.keyColumn(),
                                 grouping.joinClause(),
-                                FOCUSED_BBOX_LATERAL_SQL,
                                 grouping.outerWhereClause());
         return jdbcTemplate.query(sql, params, JdbcAtlasStatsRepository::mapRegionSummary);
     }
@@ -188,12 +152,11 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
                     COUNT(p.id) FILTER (
                         WHERE pvs.status = 'NEEDS_TRIAGE'
                     )::int AS needs_triage_places,
-                    COALESCE(bbox.min_lng, ST_XMin(rb.simplified_geom)) AS min_lng,
-                    COALESCE(bbox.min_lat, ST_YMin(rb.simplified_geom)) AS min_lat,
-                    COALESCE(bbox.max_lng, ST_XMax(rb.simplified_geom)) AS max_lng,
-                    COALESCE(bbox.max_lat, ST_YMax(rb.simplified_geom)) AS max_lat
+                    COALESCE(rb.focus_min_lng, ST_XMin(rb.simplified_geom)) AS min_lng,
+                    COALESCE(rb.focus_min_lat, ST_YMin(rb.simplified_geom)) AS min_lat,
+                    COALESCE(rb.focus_max_lng, ST_XMax(rb.simplified_geom)) AS max_lng,
+                    COALESCE(rb.focus_max_lat, ST_YMax(rb.simplified_geom)) AS max_lat
                 FROM region_boundaries rb
-                %s
                 LEFT JOIN places p
                   ON p.user_id = :userId
                  AND p.geom IS NOT NULL
@@ -201,21 +164,16 @@ class JdbcAtlasStatsRepository implements AtlasStatsRepository {
                 LEFT JOIN place_visit_state pvs ON pvs.place_id = p.id
                 WHERE rb.region_level = :regionLevel
                   AND rb.code = :code
-                GROUP BY rb.id, bbox.min_lng, bbox.min_lat, bbox.max_lng, bbox.max_lat
+                GROUP BY rb.id
                 """
-                        .formatted(FOCUSED_BBOX_LATERAL_SQL, joinPredicate);
+                        .formatted(joinPredicate);
         return jdbcTemplate
                 .query(
                         sql,
                         Map.of(
-                                "userId",
-                                userId.value(),
-                                "regionLevel",
-                                level.name(),
-                                "code",
-                                code,
-                                "mainlandClusterMeters",
-                                MAINLAND_CLUSTER_METERS),
+                                "userId", userId.value(),
+                                "regionLevel", level.name(),
+                                "code", code),
                         JdbcAtlasStatsRepository::mapRegionSummary)
                 .stream()
                 .findFirst();
