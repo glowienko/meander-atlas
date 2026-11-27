@@ -58,6 +58,30 @@ describe("AtlasHealthPill", () => {
     expect(screen.getByTestId("atlas-health-status")).toHaveTextContent("DEGRADED · PostGIS 3.5.3");
     expect(screen.getByTestId("atlas-health-dot")).toHaveClass("bg-[var(--atlas-danger)]");
   });
+
+  it("renders basemap toggle when onBasemapChange is provided and emits selections", () => {
+    const onBasemapChange = vi.fn();
+
+    render(
+      <AtlasHealthPill
+        health={{ status: "UP", database: "postgresql", postgisVersion: "3.5.3" }}
+        isLoading={false}
+        isError={false}
+        projection="globe"
+        onProjectionChange={vi.fn()}
+        basemap="atlas"
+        onBasemapChange={onBasemapChange}
+      />,
+    );
+
+    const atlasBtn = screen.getByRole("button", { name: "Atlas" });
+    const streetBtn = screen.getByRole("button", { name: "Street" });
+    expect(atlasBtn).toHaveAttribute("aria-pressed", "true");
+    expect(streetBtn).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(streetBtn);
+    expect(onBasemapChange).toHaveBeenCalledWith("street");
+  });
 });
 
 describe("viewState URL serialization", () => {
@@ -99,6 +123,20 @@ describe("viewState URL serialization", () => {
     const fallbackCountry = readAtlasViewState("?region=PL");
     expect(fallbackCountry.regionLevel).toBe("COUNTRY");
     expect(fallbackCountry.regionCode).toBe("PL");
+  });
+
+  it("serializes basemap=street and preserves basemap=offline override", () => {
+    const defaults = defaultAtlasViewState();
+    const streetState = { ...defaults, basemap: "street" as const };
+
+    const streetUrl = writeAtlasViewState(streetState, "");
+    expect(streetUrl).toBe("?basemap=street");
+    expect(readAtlasViewState(streetUrl)).toEqual(streetState);
+    expect(writeAtlasViewState(defaults, streetUrl)).toBe("");
+
+    const offlinePreserved = writeAtlasViewState(streetState, "?basemap=offline");
+    expect(offlinePreserved).toBe("?basemap=offline");
+    expect(readAtlasViewState("?basemap=offline").basemap).toBe("atlas");
   });
 
   it("handles standard, antimeridian, unwrapped, and full-world viewports", () => {

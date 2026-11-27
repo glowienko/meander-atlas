@@ -1,6 +1,7 @@
 import { CATEGORY_OPTIONS, DERIVED_ROLE_OPTIONS, VISIT_STATUS_OPTIONS } from "./atlasLabels";
 
 export type AtlasProjection = "globe" | "mercator";
+export type AtlasBasemap = "atlas" | "street";
 export type RegionScope = "COUNTRY" | "ADMIN1";
 export type VisitStatusFilter = "UNVISITED" | "VISITED" | "NEEDS_TRIAGE" | "";
 export type DerivedRoleFilter = "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG" | "";
@@ -20,6 +21,7 @@ export type PlaceCategoryFilter =
 
 export interface AtlasViewState {
   projection: AtlasProjection;
+  basemap: AtlasBasemap;
   q: string;
   visitStatus: VisitStatusFilter;
   derivedRole: DerivedRoleFilter;
@@ -39,6 +41,7 @@ const VALID_REGION_LEVELS = new Set<string>(["COUNTRY", "ADMIN1"]);
 export function defaultAtlasViewState(): AtlasViewState {
   return {
     projection: "globe",
+    basemap: "atlas",
     q: "",
     visitStatus: "",
     derivedRole: "",
@@ -54,6 +57,7 @@ export function defaultAtlasViewState(): AtlasViewState {
 export function readAtlasViewState(search: string): AtlasViewState {
   const params = new URLSearchParams(search);
   const projectionParam = params.get("view");
+  const basemapParam = params.get("basemap");
   const statusParam = params.get("status") ?? "";
   const roleParam = params.get("role") ?? "";
   const categoryParam = params.get("category") ?? "";
@@ -68,6 +72,7 @@ export function readAtlasViewState(search: string): AtlasViewState {
 
   return {
     projection: projectionParam === "map" ? "mercator" : "globe",
+    basemap: basemapParam === "street" ? "street" : "atlas",
     q: params.get("q") ?? "",
     visitStatus: VALID_VISIT_STATUSES.has(statusParam) ? (statusParam as VisitStatusFilter) : "",
     derivedRole: VALID_DERIVED_ROLES.has(roleParam) ? (roleParam as DerivedRoleFilter) : "",
@@ -84,6 +89,9 @@ export function writeAtlasViewState(state: AtlasViewState, currentSearch: string
   const params = new URLSearchParams(currentSearch);
 
   setOrDelete(params, "view", state.projection === "mercator" ? "map" : "");
+  if (params.get("basemap") !== "offline") {
+    setOrDelete(params, "basemap", state.basemap === "street" ? "street" : "");
+  }
   setOrDelete(params, "q", state.q.trim());
   setOrDelete(params, "status", state.visitStatus);
   setOrDelete(params, "role", state.derivedRole);

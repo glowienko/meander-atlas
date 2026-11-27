@@ -1,7 +1,7 @@
 import { BarChart3, Globe, Map as MapIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AtlasHealthView } from "../../api/client";
-import type { AtlasProjection } from "./viewState";
+import type { AtlasBasemap, AtlasProjection } from "./viewState";
 
 interface AtlasHealthPillProps {
   health: AtlasHealthView | undefined;
@@ -9,6 +9,8 @@ interface AtlasHealthPillProps {
   isError: boolean;
   projection: AtlasProjection;
   onProjectionChange: (projection: AtlasProjection) => void;
+  basemap?: AtlasBasemap;
+  onBasemapChange?: (basemap: AtlasBasemap) => void;
   statsOpen?: boolean;
   onToggleStats?: () => void;
   extraActions?: ReactNode;
@@ -20,6 +22,8 @@ export function AtlasHealthPill({
   isError,
   projection,
   onProjectionChange,
+  basemap = "atlas",
+  onBasemapChange,
   statsOpen = false,
   onToggleStats,
   extraActions,
@@ -98,6 +102,39 @@ export function AtlasHealthPill({
           2D Map
         </button>
       </fieldset>
+
+      {onBasemapChange && (
+        <fieldset
+          className="m-0 flex items-center rounded-full border p-0.5 text-[13px]"
+          style={{ borderColor: "var(--atlas-border)" }}
+          aria-label="Map basemap"
+        >
+          <button
+            type="button"
+            onClick={() => onBasemapChange("atlas")}
+            aria-pressed={basemap === "atlas"}
+            className="inline-flex cursor-pointer items-center rounded-full px-2.5 py-1 font-medium transition-colors"
+            style={{
+              backgroundColor: basemap === "atlas" ? "var(--atlas-accent-soft)" : "transparent",
+              color: basemap === "atlas" ? "var(--atlas-accent)" : "var(--atlas-muted)",
+            }}
+          >
+            Atlas
+          </button>
+          <button
+            type="button"
+            onClick={() => onBasemapChange("street")}
+            aria-pressed={basemap === "street"}
+            className="inline-flex cursor-pointer items-center rounded-full px-2.5 py-1 font-medium transition-colors"
+            style={{
+              backgroundColor: basemap === "street" ? "var(--atlas-accent-soft)" : "transparent",
+              color: basemap === "street" ? "var(--atlas-accent)" : "var(--atlas-muted)",
+            }}
+          >
+            Street
+          </button>
+        </fieldset>
+      )}
 
       {onToggleStats && (
         <button

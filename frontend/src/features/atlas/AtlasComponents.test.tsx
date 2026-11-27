@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { AtlasPlaceView, AtlasStatsView, RegionDossierView } from "../../api/client";
 import { AtlasFilterBar } from "./AtlasFilterBar";
 import { BulkVisitDialog } from "./BulkVisitDialog";
-import { PlaceDetailCard } from "./PlaceDetailCard";
+import { MapLegend } from "./MapLegend";
+import { formatVisitDates, PlaceDetailCard } from "./PlaceDetailCard";
+import { PlaceSelectionDialog } from "./PlaceSelectionDialog";
 import { RegionDossierDrawer } from "./RegionDossierDrawer";
 import { TravelStatsPanel } from "./TravelStatsPanel";
 import { UndoToast } from "./UndoToast";
@@ -218,5 +220,147 @@ describe("Living Atlas components", () => {
 
     fireEvent.click(screen.getByTestId("atlas-undo-button"));
     expect(onUndo).toHaveBeenCalledTimes(1);
+  });
+
+  it("formats and renders visit dates in PlaceDetailCard when valid", () => {
+    expect(formatVisitDates(undefined, undefined)).toBeNull();
+    expect(formatVisitDates("not-a-date", "")).toBeNull();
+    expect(formatVisitDates("2025-10-12T10:00:00Z", undefined)).toBe("Visited Oct 2025");
+    expect(formatVisitDates("2025-10-01T00:00:00Z", "2025-10-20T00:00:00Z")).toBe(
+      "Visited Oct 2025",
+    );
+    expect(formatVisitDates("2024-10-05T00:00:00Z", "2026-03-14T00:00:00Z")).toBe(
+      "First Oct 2024 · Last Mar 2026",
+    );
+
+    const visitedPlace: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      visitStatus: "VISITED",
+      visitCount: 2,
+      firstVisitedAt: "2024-10-05T00:00:00Z",
+      lastVisitedAt: "2026-03-14T00:00:00Z",
+    };
+
+    const { rerender } = render(
+      <PlaceDetailCard
+        place={visitedPlace}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("place-visit-dates")).toHaveTextContent(
+      "First Oct 2024 · Last Mar 2026",
+    );
+
+    rerender(
+      <PlaceDetailCard
+        place={SAMPLE_PLACE}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("place-visit-dates")).not.toBeInTheDocument();
+  });
+
+  it("toggles MapLegend popover and shifts left when dossierOpen is true", () => {
+    const { container, rerender } = render(<MapLegend dossierOpen={false} />);
+
+    expect(screen.queryByTestId("map-legend-popover")).not.toBeInTheDocument();
+    const toggle = screen.getByTestId("map-legend-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.firstElementChild).toHaveClass("right-4");
+    expect(container.firstElementChild).not.toHaveClass("md:right-[25rem]");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const popover = screen.getByTestId("map-legend-popover");
+    expect(popover).toHaveTextContent("Visited (darker = higher %)");
+    expect(popover).toHaveTextContent("Must-See / Preferred Hotel");
+
+    rerender(<MapLegend dossierOpen={true} />);
+    expect(container.firstElementChild).toHaveClass("md:right-[25rem]");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close map legend" }));
+    expect(screen.queryByTestId("map-legend-popover")).not.toBeInTheDocument();
+  });
+
+  it("supports visited and unvisited actions, filter toggling, disable guards, and secondaryActions in PlaceSelectionDialog", () => {
+    const visitedPlace: AtlasPlaceView = {
+      ...SECOND_PLACE,
+      visitStatus: "VISITED",
+      visitCount: 1,
+    };
+    const triagePlace: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      id: "44444444-4444-4444-4444-444444444444",
+      canonicalName: "Kazimierz Cafe",
+      visitStatus: "NEEDS_TRIAGE",
+    };
+
+    const onMarkVisited = vi.fn();
+    const onMarkUnvisited = vi.fn();
+
+    render(
+      <PlaceSelectionDialog
+        title="Selected area (3 places)"
+        places={[SAMPLE_PLACE, visitedPlace, triagePlace]}
+        isSubmitting={false}
+        onClose={vi.fn()}
+        onMarkVisited={onMarkVisited}
+        onMarkUnvisited={onMarkUnvisited}
+        secondaryActions={<button type="button">Add to Trip</button>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Add to Trip" })).toBeInTheDocument();
+    const visitBtn = screen.getByTestId("confirm-bulk-visit-button");
+    const unvisitBtn = screen.getByTestId("confirm-bulk-unvisited-button");
+    expect(visitBtn).toHaveTextContent("Mark 2 as visited");
+    expect(unvisitBtn).toHaveTextContent("Mark 1 unvisited");
+
+    fireEvent.click(visitBtn);
+    expect(onMarkVisited).toHaveBeenCalledWith([SAMPLE_PLACE.id, triagePlace.id]);
+
+    fireEvent.click(unvisitBtn);
+    expect(onMarkUnvisited).toHaveBeenCalledWith([visitedPlace.id]);
+
+    fireEvent.change(screen.getByPlaceholderText("Filter checklist..."), {
+      target: { value: "Hala" },
+    });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Uncheck all" }));
+    expect(unvisitBtn).toBeDisabled();
+    expect(visitBtn).toBeEnabled();
+
+    fireEvent.change(screen.getByPlaceholderText("Filter checklist..."), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Uncheck all" }));
+    expect(visitBtn).toBeDisabled();
+    expect(unvisitBtn).toBeDisabled();
+  });
+
+  it("displays batch note in PlaceSelectionDialog when more than 500 places are selected", () => {
+    const manyPlaces: AtlasPlaceView[] = Array.from({ length: 501 }, (_, index) => ({
+      ...SAMPLE_PLACE,
+      id: `00000000-0000-0000-0000-${String(index).padStart(12, "0")}`,
+      canonicalName: `Place ${index}`,
+    }));
+
+    render(
+      <PlaceSelectionDialog
+        title="Large selection"
+        places={manyPlaces}
+        isSubmitting={false}
+        onClose={vi.fn()}
+        onMarkVisited={vi.fn()}
+        onMarkUnvisited={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("bulk-visit-dialog")).toHaveTextContent("Sent in batches of 500");
   });
 });

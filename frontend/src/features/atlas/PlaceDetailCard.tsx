@@ -10,6 +10,38 @@ interface PlaceDetailCardProps {
   onUpdateVisitStatus: (place: AtlasPlaceView, nextStatus: VisitStatus) => void;
 }
 
+const VISIT_DATE_FORMATTER = new Intl.DateTimeFormat("en", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+function formatIsoMonthYear(raw: string | undefined): string | null {
+  if (!raw || raw.trim().length === 0) {
+    return null;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return VISIT_DATE_FORMATTER.format(parsed);
+}
+
+export function formatVisitDates(
+  firstVisitedAt: string | undefined,
+  lastVisitedAt: string | undefined,
+): string | null {
+  const firstLabel = formatIsoMonthYear(firstVisitedAt);
+  const lastLabel = formatIsoMonthYear(lastVisitedAt);
+  if (!firstLabel && !lastLabel) {
+    return null;
+  }
+  if (firstLabel && lastLabel && firstLabel !== lastLabel) {
+    return `First ${firstLabel} · Last ${lastLabel}`;
+  }
+  return `Visited ${firstLabel ?? lastLabel}`;
+}
+
 export function PlaceDetailCard({
   place,
   isMutating,
@@ -25,6 +57,7 @@ export function PlaceDetailCard({
     [place.cityName, place.admin1Name, place.countryCode].filter(Boolean).join(" · ") ||
     `${place.lat.toFixed(4)}, ${place.lng.toFixed(4)}`;
   const categorySummary = `${categoryLabel(place.category)}${place.subcategory ? ` · ${place.subcategory}` : ""}`;
+  const visitDates = formatVisitDates(place.firstVisitedAt, place.lastVisitedAt);
 
   return (
     <article
@@ -75,6 +108,16 @@ export function PlaceDetailCard({
           </span>
         )}
       </p>
+
+      {visitDates && (
+        <p
+          data-testid="place-visit-dates"
+          className="mt-1 text-[12px] tabular-nums"
+          style={{ color: "var(--atlas-muted)" }}
+        >
+          {visitDates}
+        </p>
+      )}
 
       {place.memberships.length > 0 && (
         <ul className="mt-3 divide-y border-t" style={{ borderColor: "var(--atlas-border)" }}>

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { CheckCircle2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, SquareDashed } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AtlasPlaceView,
   RegionLevel,
@@ -14,8 +14,10 @@ import {
   type FitBoundsTarget,
   type MapViewport,
 } from "./features/atlas/AtlasMapView";
-import { BulkVisitDialog } from "./features/atlas/BulkVisitDialog";
+import { MapLegend } from "./features/atlas/MapLegend";
+import { computeMapPadding, type FocusPlaceTarget } from "./features/atlas/mapGeometry";
 import { PlaceDetailCard } from "./features/atlas/PlaceDetailCard";
+import { PlaceSelectionDialog } from "./features/atlas/PlaceSelectionDialog";
 import { RegionDossierDrawer } from "./features/atlas/RegionDossierDrawer";
 import { TravelStatsPanel } from "./features/atlas/TravelStatsPanel";
 import { UndoToast } from "./features/atlas/UndoToast";
@@ -31,6 +33,7 @@ import {
   useUpdatePlaceVisitStatus,
 } from "./features/atlas/useAtlasQueries";
 import {
+  type AtlasBasemap,
   type AtlasProjection,
   clearAtlasFilters,
   isPlaceInViewport,
@@ -48,6 +51,7 @@ interface UndoToastState {
 
 interface BulkDialogState {
   title: string;
+  subtitle?: string;
   places: AtlasPlaceView[];
 }
 
@@ -58,9 +62,26 @@ function AtlasShell() {
   const [viewState, setViewState] = useState(() => readAtlasViewState(window.location.search));
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [selectedPlaceFallback, setSelectedPlaceFallback] = useState<AtlasPlaceView | null>(null);
+  const [focusPlaceTarget, setFocusPlaceTarget] = useState<FocusPlaceTarget | null>(null);
   const [viewport, setViewport] = useState<MapViewport | null>(null);
+  const [areaSelectMode, setAreaSelectMode] = useState(false);
   const [bulkDialog, setBulkDialog] = useState<BulkDialogState | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToastState | null>(null);
+  const [windowSize, setWindowSize] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+  const focusSeqRef = useRef(0);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   const filterParams = useMemo(() => toFilterParams(viewState), [viewState]);
 
@@ -140,13 +161,46 @@ function AtlasShell() {
     );
   }, [places, viewport]);
 
+  const dossierOpen = viewState.regionLevel !== "" && viewState.regionCode.length > 0;
+
+  const mapPadding = useMemo(
+    () =>
+      computeMapPadding({
+        statsOpen: viewState.statsOpen,
+        dossierOpen,
+        placeDetailOpen: selectedPlace !== null,
+        viewportWidth: windowSize.width,
+        viewportHeight: windowSize.height,
+      }),
+    [viewState.statsOpen, dossierOpen, selectedPlace, windowSize.width, windowSize.height],
+  );
+
+  const highlightedPlaceIds = useMemo(
+    () => bulkDialog?.places.map((p) => p.id) ?? [],
+    [bulkDialog],
+  );
+
+  const focusPlace = useCallback((place: { id: string; lng: number; lat: number }) => {
+    focusSeqRef.current += 1;
+    setFocusPlaceTarget({
+      key: `${place.id}:${focusSeqRef.current}`,
+      lng: place.lng,
+      lat: place.lat,
+    });
+  }, []);
+
   const handleProjectionChange = (projection: AtlasProjection) => {
     setViewState((prev) => ({ ...prev, projection }));
+  };
+
+  const handleBasemapChange = (basemap: AtlasBasemap) => {
+    setViewState((prev) => ({ ...prev, basemap }));
   };
 
   const handleSelectRegion = useCallback((level: RegionLevel, code: string) => {
     setSelectedPlaceId(null);
     setSelectedPlaceFallback(null);
+    setFocusPlaceTarget(null);
     setViewState((prev) => ({
       ...prev,
       regionLevel: level,
@@ -160,8 +214,11 @@ function AtlasShell() {
       const found =
         places.find((p) => p.id === placeId) ?? dossierPlaces.find((p) => p.id === placeId) ?? null;
       setSelectedPlaceFallback(found);
+      if (found) {
+        focusPlace(found);
+      }
     },
-    [places, dossierPlaces],
+    [places, dossierPlaces, focusPlace],
   );
 
   const handleToggleSingleVisit = (place: AtlasPlaceView, nextStatus: VisitStatus) => {
@@ -196,14 +253,14 @@ function AtlasShell() {
     );
   };
 
-  const handleConfirmBulkVisit = (selectedIds: string[]) => {
+  const handleBulkStatusUpdate = (selectedIds: string[], targetStatus: "VISITED" | "UNVISITED") => {
     bulkVisitMutation.mutate(
-      { placeIds: selectedIds, targetStatus: "VISITED" },
+      { placeIds: selectedIds, targetStatus },
       {
         onSuccess: (result) => {
           setBulkDialog(null);
           setUndoToast({
-            message: `Marked ${result.updatedCount} place${result.updatedCount === 1 ? "" : "s"} as visited`,
+            message: `Marked ${result.updatedCount} place${result.updatedCount === 1 ? "" : "s"} as ${targetStatus === "VISITED" ? "visited" : "unvisited"}`,
             snapshots: result.previousStates,
           });
         },
@@ -263,6 +320,7 @@ function AtlasShell() {
     <main className="relative h-full w-full">
       <AtlasMapView
         projection={viewState.projection}
+        basemap={viewState.basemap}
         places={places}
         countrySummaries={countrySummariesQuery.data ?? []}
         admin1Summaries={admin1SummariesQuery.data ?? []}
@@ -270,10 +328,22 @@ function AtlasShell() {
         selectedRegionLevel={viewState.regionLevel}
         selectedRegionCode={viewState.regionCode}
         selectedPlaceId={selectedPlaceId}
+        highlightedPlaceIds={highlightedPlaceIds}
         fitBoundsTarget={fitBoundsTarget}
+        focusPlaceTarget={focusPlaceTarget}
+        mapPadding={mapPadding}
+        areaSelectMode={areaSelectMode}
         onSelectPlace={handleSelectPlaceFromMap}
         onSelectRegion={handleSelectRegion}
         onViewportChange={setViewport}
+        onSelectAreaPlaces={(matched) => {
+          setAreaSelectMode(false);
+          setBulkDialog({
+            title: `Selected area (${matched.length} place${matched.length === 1 ? "" : "s"})`,
+            subtitle: "Review places inside the drawn area.",
+            places: matched,
+          });
+        }}
       />
 
       <header className="pointer-events-none fixed inset-x-0 top-3 z-10 flex flex-col items-center gap-2 px-4">
@@ -283,13 +353,32 @@ function AtlasShell() {
           isError={healthQuery.isError}
           projection={viewState.projection}
           onProjectionChange={handleProjectionChange}
+          basemap={viewState.basemap}
+          onBasemapChange={handleBasemapChange}
           statsOpen={viewState.statsOpen}
           onToggleStats={() => setViewState((prev) => ({ ...prev, statsOpen: !prev.statsOpen }))}
           extraActions={
-            <SyncImportsButton
-              isPending={localImportMutation.isPending}
-              onClick={handleSyncLocalFolder}
-            />
+            <>
+              <button
+                type="button"
+                data-testid="select-area-button"
+                aria-pressed={areaSelectMode}
+                onClick={() => setAreaSelectMode((prev) => !prev)}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-medium transition-colors"
+                style={{
+                  borderColor: "var(--atlas-border)",
+                  backgroundColor: areaSelectMode ? "var(--atlas-accent-soft)" : "transparent",
+                  color: areaSelectMode ? "var(--atlas-accent)" : "var(--atlas-ink)",
+                }}
+              >
+                <SquareDashed className="h-3.5 w-3.5" aria-hidden="true" />
+                Select area
+              </button>
+              <SyncImportsButton
+                isPending={localImportMutation.isPending}
+                onClick={handleSyncLocalFolder}
+              />
+            </>
           }
         />
 
@@ -318,7 +407,7 @@ function AtlasShell() {
         />
       )}
 
-      {viewState.regionLevel !== "" && viewState.regionCode.length > 0 && (
+      {dossierOpen && (
         <RegionDossierDrawer
           dossier={dossierQuery.data}
           isLoading={dossierQuery.isLoading}
@@ -329,6 +418,7 @@ function AtlasShell() {
           onSelectPlace={(place) => {
             setSelectedPlaceId(place.id);
             setSelectedPlaceFallback(place);
+            focusPlace(place);
           }}
           onToggleVisitStatus={handleToggleSingleVisit}
           onOpenBulkVisit={(targetPlaces, title) => setBulkDialog({ title, places: targetPlaces })}
@@ -347,6 +437,8 @@ function AtlasShell() {
           onUpdateVisitStatus={handleToggleSingleVisit}
         />
       )}
+
+      <MapLegend dossierOpen={dossierOpen} />
 
       {visibleUnvisitedPlaces.length > 0 &&
         visibleUnvisitedPlaces.length <= VIEWPORT_BULK_MAX_PLACES && (
@@ -374,12 +466,15 @@ function AtlasShell() {
         )}
 
       {bulkDialog && (
-        <BulkVisitDialog
+        <PlaceSelectionDialog
+          key={`${bulkDialog.title}:${bulkDialog.places.length}`}
           title={bulkDialog.title}
+          subtitle={bulkDialog.subtitle}
           places={bulkDialog.places}
           isSubmitting={bulkVisitMutation.isPending}
           onClose={() => setBulkDialog(null)}
-          onConfirm={handleConfirmBulkVisit}
+          onMarkVisited={(ids) => handleBulkStatusUpdate(ids, "VISITED")}
+          onMarkUnvisited={(ids) => handleBulkStatusUpdate(ids, "UNVISITED")}
         />
       )}
 

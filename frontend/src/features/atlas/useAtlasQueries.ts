@@ -81,7 +81,7 @@ export function useBulkUpdateVisitStatus() {
   return useMutation({
     mutationFn: ({ placeIds, targetStatus }: { placeIds: string[]; targetStatus: VisitStatus }) =>
       patchBulkVisitStatus(placeIds, targetStatus),
-    onSuccess: async () => {
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["atlas"] });
     },
   });
@@ -91,7 +91,7 @@ export function useRestoreVisitStates() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (snapshots: VisitStateSnapshotView[]) => postRestoreVisitStates(snapshots),
-    onSuccess: async () => {
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["atlas"] });
     },
   });

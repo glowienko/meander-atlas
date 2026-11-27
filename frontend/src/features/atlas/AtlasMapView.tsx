@@ -8,7 +8,21 @@ import {
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useEffect, useRef, useState } from "react";
 import type { AtlasPlaceView, RegionLevel, RegionSummaryView } from "../../api/client";
-import type { AtlasProjection, RegionScope } from "./viewState";
+import {
+  clampMapPadding,
+  type FocusPlaceTarget,
+  filterPlacesInScreenRect,
+  isSameGlobePoint,
+  type MapPadding,
+  normalizeLngNear,
+} from "./mapGeometry";
+import {
+  PIN_ICON_CATEGORY_LIST,
+  PIN_ICON_IDS,
+  registerCategoryPinIcon,
+  registerCategoryPinIcons,
+} from "./pinIcons";
+import type { AtlasBasemap, AtlasProjection, RegionScope } from "./viewState";
 
 setWorkerUrl(maplibreWorkerUrl);
 
@@ -30,6 +44,7 @@ export interface FitBoundsTarget {
 
 interface AtlasMapViewProps {
   projection: AtlasProjection;
+  basemap: AtlasBasemap;
   places: AtlasPlaceView[];
   countrySummaries: RegionSummaryView[];
   admin1Summaries: RegionSummaryView[];
@@ -37,17 +52,33 @@ interface AtlasMapViewProps {
   selectedRegionLevel: RegionScope | "";
   selectedRegionCode: string;
   selectedPlaceId: string | null;
+  highlightedPlaceIds?: readonly string[];
   fitBoundsTarget: FitBoundsTarget | null;
+  focusPlaceTarget: FocusPlaceTarget | null;
+  mapPadding: MapPadding;
+  areaSelectMode: boolean;
   onSelectPlace: (placeId: string) => void;
   onSelectRegion: (level: RegionLevel, code: string) => void;
   onViewportChange: (viewport: MapViewport) => void;
+  onSelectAreaPlaces: (places: AtlasPlaceView[]) => void;
+}
+
+interface DragBoxState {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
 }
 
 const POSITRON_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
+const LIBERTY_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const COUNTRIES_SOURCE_ID = "atlas-countries";
 const ADMIN1_SOURCE_ID = "atlas-admin1";
 const PLACES_SOURCE_ID = "atlas-places";
 const SOURCE_LAYER_REGIONS = "regions";
+const MIN_DRAG_BOX_PX = 6;
+const MIN_FOCUS_ZOOM = 14;
+const MIN_FIT_BOUNDS_PADDING = 48;
 
 function createFallbackStyle(): StyleSpecification {
   return {
@@ -65,12 +96,16 @@ function createFallbackStyle(): StyleSpecification {
   };
 }
 
-function resolveStyle(): string | StyleSpecification {
+function isOfflineBasemap(): boolean {
   const params = new URLSearchParams(window.location.search);
-  if (params.get("basemap") === "offline") {
+  return params.get("basemap") === "offline";
+}
+
+function resolveStyle(basemap: AtlasBasemap): string | StyleSpecification {
+  if (isOfflineBasemap()) {
     return createFallbackStyle();
   }
-  return POSITRON_STYLE_URL;
+  return basemap === "street" ? LIBERTY_STYLE_URL : POSITRON_STYLE_URL;
 }
 
 function countryTileUrl(): string {
@@ -96,6 +131,8 @@ function buildPlacesGeoJson(places: AtlasPlaceView[]): GeoJsonData {
         id: place.id,
         visitStatus: place.visitStatus,
         derivedRole: place.derivedRole,
+        category: place.category,
+        canonicalName: place.canonicalName,
       },
     })),
   };
@@ -122,6 +159,7 @@ function emitViewport(map: MapLibreMap, callback: (viewport: MapViewport) => voi
 
 function interactiveLayerIds(map: MapLibreMap, selectedCountryCode: string): string[] {
   return [
+    "atlas-places-icons",
     "atlas-places-pins",
     "atlas-places-clusters",
     ...(selectedCountryCode.length > 0 ? ["atlas-admin1-fill"] : []),
@@ -180,6 +218,7 @@ function syncSourcesAndLayers(
   map: MapLibreMap,
   initialCountryCode: string,
   initialPlaces: AtlasPlaceView[],
+  initialHighlightedPlaceIds: readonly string[],
 ): void {
   const firstSymbolId = map.getStyle()?.layers?.find((layer) => layer.type === "symbol")?.id;
   const hasGlyphs = Boolean(map.getStyle()?.glyphs);
@@ -208,11 +247,19 @@ function syncSourcesAndLayers(
             "transparent",
           ],
           "fill-opacity": [
-            "case",
-            [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
-            ["+", 0.16, ["*", ["coalesce", ["feature-state", "completionRatio"], 0], 0.28]],
-            [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
-            0.12,
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            9,
+            [
+              "case",
+              [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
+              ["+", 0.16, ["*", ["coalesce", ["feature-state", "completionRatio"], 0], 0.28]],
+              [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
+              0.12,
+              0,
+            ],
+            12,
             0,
           ],
         },
@@ -270,11 +317,19 @@ function syncSourcesAndLayers(
             "transparent",
           ],
           "fill-opacity": [
-            "case",
-            [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
-            ["+", 0.18, ["*", ["coalesce", ["feature-state", "completionRatio"], 0], 0.3]],
-            [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
-            0.14,
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            9,
+            [
+              "case",
+              [">", ["coalesce", ["feature-state", "visitedPlaces"], 0], 0],
+              ["+", 0.18, ["*", ["coalesce", ["feature-state", "completionRatio"], 0], 0.3]],
+              [">", ["coalesce", ["feature-state", "totalPlaces"], 0], 0],
+              0.14,
+              0,
+            ],
+            12,
             0,
           ],
         },
@@ -351,6 +406,22 @@ function syncSourcesAndLayers(
       },
     });
     map.addLayer({
+      id: "atlas-places-area-selected",
+      type: "circle",
+      source: PLACES_SOURCE_ID,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["in", ["get", "id"], ["literal", [...initialHighlightedPlaceIds]]],
+      ],
+      paint: {
+        "circle-radius": 12,
+        "circle-color": "rgba(29, 91, 76, 0.22)",
+        "circle-stroke-color": "#1d5b4c",
+        "circle-stroke-width": 2,
+      },
+    });
+    map.addLayer({
       id: "atlas-places-pins",
       type: "circle",
       source: PLACES_SOURCE_ID,
@@ -394,11 +465,82 @@ function syncSourcesAndLayers(
         ],
       },
     });
+    map.addLayer({
+      id: "atlas-places-icons",
+      type: "symbol",
+      source: PLACES_SOURCE_ID,
+      filter: [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["in", ["get", "category"], ["literal", [...PIN_ICON_CATEGORY_LIST]]],
+      ],
+      layout: {
+        "icon-image": [
+          "match",
+          ["get", "category"],
+          "RESTAURANT",
+          PIN_ICON_IDS.RESTAURANT,
+          "CAFE_BAR",
+          PIN_ICON_IDS.CAFE_BAR,
+          "HOTEL",
+          PIN_ICON_IDS.HOTEL,
+          "MUSEUM",
+          PIN_ICON_IDS.MUSEUM,
+          "LANDMARK",
+          PIN_ICON_IDS.LANDMARK,
+          "SACRAL",
+          PIN_ICON_IDS.SACRAL,
+          "MOUNTAIN",
+          PIN_ICON_IDS.MOUNTAIN,
+          "WATER",
+          PIN_ICON_IDS.WATER,
+          "NATURE_PARK",
+          PIN_ICON_IDS.NATURE_PARK,
+          "VIEWPOINT",
+          PIN_ICON_IDS.VIEWPOINT,
+          PIN_ICON_IDS.LANDMARK,
+        ],
+        "icon-size": [
+          "match",
+          ["get", "derivedRole"],
+          ["PREFERRED_HOTEL", "MUST_SEE"],
+          0.85,
+          "FAVORITE",
+          0.75,
+          0.65,
+        ],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    });
+    if (hasGlyphs) {
+      map.addLayer({
+        id: "atlas-places-labels",
+        type: "symbol",
+        source: PLACES_SOURCE_ID,
+        minzoom: 12,
+        filter: ["!", ["has", "point_count"]],
+        layout: {
+          "text-field": ["get", "canonicalName"],
+          "text-font": ["Noto Sans Regular"],
+          "text-size": 11.5,
+          "text-offset": [0, 1.35],
+          "text-anchor": "top",
+          "text-allow-overlap": false,
+        },
+        paint: {
+          "text-color": "#16181d",
+          "text-halo-color": "#faf9f6",
+          "text-halo-width": 1.5,
+        },
+      });
+    }
   }
 }
 
 export function AtlasMapView({
   projection,
+  basemap,
   places,
   countrySummaries,
   admin1Summaries,
@@ -406,30 +548,50 @@ export function AtlasMapView({
   selectedRegionLevel,
   selectedRegionCode,
   selectedPlaceId,
+  highlightedPlaceIds = [],
   fitBoundsTarget,
+  focusPlaceTarget,
+  mapPadding,
+  areaSelectMode,
   onSelectPlace,
   onSelectRegion,
   onViewportChange,
+  onSelectAreaPlaces,
 }: AtlasMapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleLoadedRef = useRef(false);
   const [styleRevision, setStyleRevision] = useState(0);
+  const [dragBox, setDragBox] = useState<DragBoxState | null>(null);
 
   const projectionRef = useRef(projection);
+  const basemapRef = useRef(basemap);
+  const appliedBasemapRef = useRef<AtlasBasemap | null>(null);
   const placesRef = useRef(places);
   const selectedCountryCodeRef = useRef(selectedCountryCode);
+  const highlightedPlaceIdsRef = useRef(highlightedPlaceIds);
+  const mapPaddingRef = useRef(mapPadding);
+  const areaSelectModeRef = useRef(areaSelectMode);
+  const suppressNextMapClickRef = useRef(false);
+  const activeDragCleanupRef = useRef<(() => void) | null>(null);
   const onSelectPlaceRef = useRef(onSelectPlace);
   const onSelectRegionRef = useRef(onSelectRegion);
   const onViewportChangeRef = useRef(onViewportChange);
+  const onSelectAreaPlacesRef = useRef(onSelectAreaPlaces);
   const lastFitKeyRef = useRef<string | null>(null);
+  const lastFocusKeyRef = useRef<string | null>(null);
 
   projectionRef.current = projection;
+  basemapRef.current = basemap;
   placesRef.current = places;
   selectedCountryCodeRef.current = selectedCountryCode;
+  highlightedPlaceIdsRef.current = highlightedPlaceIds;
+  mapPaddingRef.current = mapPadding;
+  areaSelectModeRef.current = areaSelectMode;
   onSelectPlaceRef.current = onSelectPlace;
   onSelectRegionRef.current = onSelectRegion;
   onViewportChangeRef.current = onViewportChange;
+  onSelectAreaPlacesRef.current = onSelectAreaPlaces;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -442,18 +604,32 @@ export function AtlasMapView({
     delete container.dataset.styleLoaded;
     delete container.dataset.projection;
 
+    const initialBasemap = basemapRef.current;
+    appliedBasemapRef.current = initialBasemap;
+
     const map = new MapLibreMap({
       container,
-      style: resolveStyle(),
+      style: resolveStyle(initialBasemap),
       center: [12, 34],
       zoom: 1.7,
+      boxZoom: false,
       attributionControl: { compact: true },
+    });
+
+    map.on("styleimagemissing", (event) => {
+      registerCategoryPinIcon(map, event.id);
     });
 
     map.on("style.load", () => {
       styleLoadedRef.current = true;
       map.setProjection({ type: projectionRef.current });
-      syncSourcesAndLayers(map, selectedCountryCodeRef.current, placesRef.current);
+      registerCategoryPinIcons(map);
+      syncSourcesAndLayers(
+        map,
+        selectedCountryCodeRef.current,
+        placesRef.current,
+        highlightedPlaceIdsRef.current,
+      );
       container.dataset.styleLoaded = "true";
       container.dataset.projection = projectionRef.current;
       emitViewport(map, onViewportChangeRef.current);
@@ -469,6 +645,11 @@ export function AtlasMapView({
     });
 
     map.on("click", (event) => {
+      if (suppressNextMapClickRef.current) {
+        suppressNextMapClickRef.current = false;
+        return;
+      }
+
       const candidateLayers = interactiveLayerIds(map, selectedCountryCodeRef.current);
       if (candidateLayers.length === 0) {
         return;
@@ -482,7 +663,10 @@ export function AtlasMapView({
 
       const layerId = top.layer.id;
       const props = top.properties ?? {};
-      if (layerId === "atlas-places-pins" && typeof props.id === "string") {
+      if (
+        (layerId === "atlas-places-pins" || layerId === "atlas-places-icons") &&
+        typeof props.id === "string"
+      ) {
         onSelectPlaceRef.current(props.id);
         return;
       }
@@ -516,6 +700,10 @@ export function AtlasMapView({
     });
 
     map.on("mousemove", (event) => {
+      if (areaSelectModeRef.current) {
+        map.getCanvas().style.cursor = "crosshair";
+        return;
+      }
       const hoverLayers = interactiveLayerIds(map, selectedCountryCodeRef.current);
       if (hoverLayers.length === 0) {
         return;
@@ -528,11 +716,143 @@ export function AtlasMapView({
 
     return () => {
       styleLoadedRef.current = false;
+      appliedBasemapRef.current = null;
       map.remove();
       mapRef.current = null;
       delete container.dataset.mapLoaded;
       delete container.dataset.styleLoaded;
       delete container.dataset.projection;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = containerRef.current;
+    if (!map || isOfflineBasemap() || appliedBasemapRef.current === basemap) {
+      return;
+    }
+    appliedBasemapRef.current = basemap;
+    styleLoadedRef.current = false;
+    if (container) {
+      delete container.dataset.styleLoaded;
+    }
+    map.setStyle(resolveStyle(basemap), { diff: false });
+  }, [basemap]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    if (areaSelectMode) {
+      map.dragPan.disable();
+      map.getCanvas().style.cursor = "crosshair";
+    } else {
+      map.dragPan.enable();
+      map.getCanvas().style.cursor = "";
+    }
+  }, [areaSelectMode]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const map = mapRef.current;
+      if (
+        event.button !== 0 ||
+        (!areaSelectModeRef.current && !event.shiftKey) ||
+        !map ||
+        !styleLoadedRef.current
+      ) {
+        return;
+      }
+
+      activeDragCleanupRef.current?.();
+
+      event.preventDefault();
+      event.stopPropagation();
+      map.dragPan.disable();
+
+      const rect = container.getBoundingClientRect();
+      const clampX = (clientX: number) => Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const clampY = (clientY: number) => Math.max(0, Math.min(rect.height, clientY - rect.top));
+
+      const startX = clampX(event.clientX);
+      const startY = clampY(event.clientY);
+      let latestX = startX;
+      let latestY = startY;
+
+      setDragBox({ startX, startY, currentX: startX, currentY: startY });
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        latestX = clampX(moveEvent.clientX);
+        latestY = clampY(moveEvent.clientY);
+        setDragBox({ startX, startY, currentX: latestX, currentY: latestY });
+      };
+
+      const removeDragListeners = () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+        activeDragCleanupRef.current = null;
+      };
+
+      const abortActiveDrag = () => {
+        removeDragListeners();
+        setDragBox(null);
+        if (!areaSelectModeRef.current) {
+          mapRef.current?.dragPan.enable();
+        }
+      };
+
+      const handleMouseUp = () => {
+        removeDragListeners();
+        setDragBox(null);
+
+        if (!areaSelectModeRef.current) {
+          map.dragPan.enable();
+        }
+
+        if (
+          Math.abs(latestX - startX) >= MIN_DRAG_BOX_PX &&
+          Math.abs(latestY - startY) >= MIN_DRAG_BOX_PX
+        ) {
+          suppressNextMapClickRef.current = true;
+          window.setTimeout(() => {
+            suppressNextMapClickRef.current = false;
+          }, 0);
+
+          const centerLng = map.getCenter().lng;
+          const matched = filterPlacesInScreenRect(
+            placesRef.current,
+            {
+              minX: Math.min(startX, latestX),
+              minY: Math.min(startY, latestY),
+              maxX: Math.max(startX, latestX),
+              maxY: Math.max(startY, latestY),
+            },
+            ([lng, lat]) => map.project([normalizeLngNear(lng, centerLng), lat]),
+            projectionRef.current === "globe"
+              ? (place, point) => isSameGlobePoint(place, map.unproject([point.x, point.y]))
+              : undefined,
+          );
+          if (matched.length > 0) {
+            onSelectAreaPlacesRef.current(matched);
+          }
+        }
+      };
+
+      activeDragCleanupRef.current = abortActiveDrag;
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    };
+
+    container.addEventListener("mousedown", handleMouseDown, true);
+    return () => {
+      container.removeEventListener("mousedown", handleMouseDown, true);
+      activeDragCleanupRef.current?.();
     };
   }, []);
 
@@ -570,6 +890,20 @@ export function AtlasMapView({
       ]);
     }
   }, [selectedPlaceId, styleRevision]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current || styleRevision === 0) {
+      return;
+    }
+    if (map.getLayer("atlas-places-area-selected")) {
+      map.setFilter("atlas-places-area-selected", [
+        "all",
+        ["!", ["has", "point_count"]],
+        ["in", ["get", "id"], ["literal", [...highlightedPlaceIds]]],
+      ]);
+    }
+  }, [highlightedPlaceIds, styleRevision]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -625,6 +959,33 @@ export function AtlasMapView({
   ]);
 
   useEffect(() => {
+    if (!focusPlaceTarget) {
+      lastFocusKeyRef.current = null;
+      return;
+    }
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current || styleRevision === 0) {
+      return;
+    }
+    if (lastFocusKeyRef.current === focusPlaceTarget.key) {
+      return;
+    }
+    lastFocusKeyRef.current = focusPlaceTarget.key;
+
+    const padding = clampMapPadding(
+      mapPaddingRef.current,
+      containerRef.current?.clientWidth ?? 0,
+      containerRef.current?.clientHeight ?? 0,
+    );
+    map.easeTo({
+      center: [focusPlaceTarget.lng, focusPlaceTarget.lat],
+      zoom: Math.max(map.getZoom(), MIN_FOCUS_ZOOM),
+      padding,
+      duration: prefersReducedMotion() ? 0 : 650,
+    });
+  }, [focusPlaceTarget, styleRevision]);
+
+  useEffect(() => {
     if (!fitBoundsTarget) {
       lastFitKeyRef.current = null;
       return;
@@ -641,19 +1002,52 @@ export function AtlasMapView({
     const lngSpan = fitBoundsTarget.maxLng - fitBoundsTarget.minLng;
     const latSpan = fitBoundsTarget.maxLat - fitBoundsTarget.minLat;
     if (lngSpan > 0 && latSpan > 0 && lngSpan <= 170 && latSpan <= 120) {
+      const padding = clampMapPadding(
+        {
+          top: Math.max(mapPaddingRef.current.top, MIN_FIT_BOUNDS_PADDING),
+          right: Math.max(mapPaddingRef.current.right, MIN_FIT_BOUNDS_PADDING),
+          bottom: Math.max(mapPaddingRef.current.bottom, MIN_FIT_BOUNDS_PADDING),
+          left: Math.max(mapPaddingRef.current.left, MIN_FIT_BOUNDS_PADDING),
+        },
+        containerRef.current?.clientWidth ?? 0,
+        containerRef.current?.clientHeight ?? 0,
+      );
       map.fitBounds(
         [
           [fitBoundsTarget.minLng, fitBoundsTarget.minLat],
           [fitBoundsTarget.maxLng, fitBoundsTarget.maxLat],
         ],
-        { padding: 72, maxZoom: 9, duration: prefersReducedMotion() ? 0 : 750 },
+        { padding, maxZoom: 9, duration: prefersReducedMotion() ? 0 : 750 },
       );
     }
   }, [fitBoundsTarget, styleRevision]);
 
+  const selectionRect = dragBox
+    ? {
+        left: Math.min(dragBox.startX, dragBox.currentX),
+        top: Math.min(dragBox.startY, dragBox.currentY),
+        width: Math.abs(dragBox.currentX - dragBox.startX),
+        height: Math.abs(dragBox.currentY - dragBox.startY),
+      }
+    : null;
+
   return (
-    <section className="h-full w-full" aria-label="MeanderAtlas world globe">
+    <section className="relative h-full w-full" aria-label="MeanderAtlas world globe">
       <div ref={containerRef} data-testid="atlas-map-canvas" className="h-full w-full" />
+      {selectionRect && selectionRect.width > 0 && selectionRect.height > 0 && (
+        <div
+          data-testid="area-selection-box"
+          className="pointer-events-none absolute z-10 rounded border-2 border-dashed"
+          style={{
+            left: `${selectionRect.left}px`,
+            top: `${selectionRect.top}px`,
+            width: `${selectionRect.width}px`,
+            height: `${selectionRect.height}px`,
+            borderColor: "#1d5b4c",
+            backgroundColor: "rgba(29, 91, 76, 0.14)",
+          }}
+        />
+      )}
     </section>
   );
 }

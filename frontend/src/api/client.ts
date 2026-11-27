@@ -121,27 +121,56 @@ export async function patchPlaceVisitStatus(
   );
 }
 
+export const BULK_BATCH_SIZE = 500;
+
+export function chunkItems<T>(items: readonly T[], size = BULK_BATCH_SIZE): T[][] {
+  const safeSize = Math.max(1, Math.floor(size));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += safeSize) {
+    chunks.push(items.slice(i, i + safeSize));
+  }
+  return chunks;
+}
+
 export async function patchBulkVisitStatus(
   placeIds: string[],
   targetStatus: VisitStatus,
 ): Promise<BulkVisitStatusResultView> {
-  return unwrapResponse(
-    await apiClient.PATCH("/api/v1/atlas/places/bulk-visit-status", {
-      body: { placeIds, targetStatus },
-    }),
-    "Bulk update visit status",
-  );
+  if (placeIds.length === 0) {
+    return { updatedCount: 0, previousStates: [] };
+  }
+  let updatedCount = 0;
+  const previousStates: VisitStateSnapshotView[] = [];
+  for (const batch of chunkItems(placeIds, BULK_BATCH_SIZE)) {
+    const result = unwrapResponse(
+      await apiClient.PATCH("/api/v1/atlas/places/bulk-visit-status", {
+        body: { placeIds: batch, targetStatus },
+      }),
+      "Bulk update visit status",
+    );
+    updatedCount += result.updatedCount;
+    previousStates.push(...result.previousStates);
+  }
+  return { updatedCount, previousStates };
 }
 
 export async function postRestoreVisitStates(
   snapshots: VisitStateSnapshotView[],
 ): Promise<RestoreVisitStatesResultView> {
-  return unwrapResponse(
-    await apiClient.POST("/api/v1/atlas/places/bulk-visit-status/restore", {
-      body: { snapshots },
-    }),
-    "Restore visit states",
-  );
+  if (snapshots.length === 0) {
+    return { restoredCount: 0 };
+  }
+  let restoredCount = 0;
+  for (const batch of chunkItems(snapshots, BULK_BATCH_SIZE)) {
+    const result = unwrapResponse(
+      await apiClient.POST("/api/v1/atlas/places/bulk-visit-status/restore", {
+        body: { snapshots: batch },
+      }),
+      "Restore visit states",
+    );
+    restoredCount += result.restoredCount;
+  }
+  return { restoredCount };
 }
 
 export async function fetchImportStatus(): Promise<ImportStatusView> {
