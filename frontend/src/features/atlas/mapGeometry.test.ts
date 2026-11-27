@@ -15,6 +15,7 @@ const BASE_PLACE: AtlasPlaceView = {
   lng: 19.935,
   category: "LANDMARK",
   categorySource: "HEURISTIC",
+  coordSource: "TAKEOUT",
   derivedRole: "MUST_SEE",
   visitStatus: "UNVISITED",
   visitCount: 0,

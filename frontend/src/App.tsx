@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, SquareDashed } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -42,7 +42,12 @@ import {
 } from "./features/atlas/viewState";
 import { ImportStatusBadge } from "./features/ingestion/ImportStatusBadge";
 import { SyncImportsButton } from "./features/ingestion/SyncImportsButton";
-import { useImportStatus, useTriggerLocalImport } from "./features/ingestion/useLocalImport";
+import {
+  useImportStatus,
+  useMaterializeOffline,
+  useRunEnrichment,
+  useTriggerLocalImport,
+} from "./features/ingestion/useLocalImport";
 
 interface UndoToastState {
   message: string;
@@ -108,11 +113,36 @@ function AtlasShell() {
     selectedCountryCode.length > 0,
   );
 
+  const queryClient = useQueryClient();
   const updateVisitMutation = useUpdatePlaceVisitStatus();
   const bulkVisitMutation = useBulkUpdateVisitStatus();
   const restoreVisitMutation = useRestoreVisitStates();
   const importStatusQuery = useImportStatus();
   const localImportMutation = useTriggerLocalImport();
+  const materializeOfflineMutation = useMaterializeOffline();
+  const runEnrichmentMutation = useRunEnrichment();
+  const prevEnrichmentRef = useRef<{ running: boolean; enriched: number }>({
+    running: false,
+    enriched: 0,
+  });
+
+  useEffect(() => {
+    const status = importStatusQuery.data;
+    if (!status) {
+      return;
+    }
+    const prev = prevEnrichmentRef.current;
+    const finishedRun = prev.running && !status.enrichmentRunning;
+    const progressedDuringRun =
+      status.enrichmentRunning && status.enrichedPlaceCount > prev.enriched;
+    prevEnrichmentRef.current = {
+      running: status.enrichmentRunning,
+      enriched: status.enrichedPlaceCount,
+    };
+    if (finishedRun || progressedDuringRun) {
+      void queryClient.invalidateQueries({ queryKey: ["atlas"] });
+    }
+  }, [importStatusQuery.data, queryClient]);
 
   useEffect(() => {
     const nextSearch = writeAtlasViewState(viewState, window.location.search);
@@ -313,6 +343,55 @@ function AtlasShell() {
     });
   };
 
+  const handleMaterializeOffline = () => {
+    materializeOfflineMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        setUndoToast({
+          message: `Materialized ${result.materializedCount} places (${result.exactFromTitleCount} exact, ${result.approxFromS2Count} approx, ${result.mergedByCidCount} merged)`,
+          snapshots: [],
+        });
+      },
+      onError: () => {
+        setUndoToast({ message: "Offline materialization failed", snapshots: [] });
+      },
+    });
+  };
+
+  const handleRunEnrichment = (options: { limit: number; background: boolean }) => {
+    runEnrichmentMutation.mutate(options, {
+      onSuccess: (result) => {
+        if (!result.enabled) {
+          setUndoToast({
+            message: "Open-catalog enrichment is disabled on the server",
+            snapshots: [],
+          });
+          return;
+        }
+        if (result.alreadyRunning) {
+          setUndoToast({
+            message: "Enrichment is already running in the background",
+            snapshots: [],
+          });
+          return;
+        }
+        if (result.startedInBackground) {
+          setUndoToast({
+            message: `Background enrichment started (${result.remainingPendingCount} remaining)`,
+            snapshots: [],
+          });
+          return;
+        }
+        setUndoToast({
+          message: `Enriched ${result.matchedCount}/${result.claimedCount} (${result.upgradedCoordsCount} coords, ${result.upgradedCategoryCount} categories, ${result.photosAddedCount} photos)`,
+          snapshots: [],
+        });
+      },
+      onError: () => {
+        setUndoToast({ message: "Enrichment request failed", snapshots: [] });
+      },
+    });
+  };
+
   const isMutating =
     updateVisitMutation.isPending || bulkVisitMutation.isPending || restoreVisitMutation.isPending;
 
@@ -402,6 +481,10 @@ function AtlasShell() {
             <ImportStatusBadge
               mappedCount={statsQuery.data?.totalMappedPlaces ?? 0}
               status={importStatusQuery.data}
+              isMaterializing={materializeOfflineMutation.isPending}
+              isEnriching={runEnrichmentMutation.isPending}
+              onMaterializeOffline={handleMaterializeOffline}
+              onRunEnrichment={handleRunEnrichment}
             />
           }
         />

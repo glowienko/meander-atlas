@@ -19,6 +19,7 @@ const SAMPLE_PLACE: AtlasPlaceView = {
   category: "LANDMARK",
   subcategory: "castle",
   categorySource: "HEURISTIC",
+  coordSource: "TAKEOUT",
   derivedRole: "MUST_SEE",
   visitStatus: "UNVISITED",
   visitCount: 0,
@@ -262,6 +263,54 @@ describe("Living Atlas components", () => {
       />,
     );
     expect(screen.queryByTestId("place-visit-dates")).not.toBeInTheDocument();
+  });
+
+  it("renders photoUrl banner, Wikimedia attribution, image fallback, and approximate location badge in PlaceDetailCard", () => {
+    const approxWithPhoto: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      coordSource: "TAKEOUT_S2_APPROX",
+      photoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/wawel.jpg",
+    };
+
+    const { rerender } = render(
+      <PlaceDetailCard
+        place={approxWithPhoto}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+
+    const banner = screen.getByTestId("place-photo-banner");
+    expect(banner).toHaveTextContent("Wikimedia");
+    const img = screen.getByRole("img", { name: "Wawel Royal Castle" });
+    expect(img).toHaveAttribute(
+      "src",
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/wawel.jpg",
+    );
+    expect(screen.getByTestId("place-approx-location-badge")).toHaveTextContent(
+      "Approximate location",
+    );
+
+    fireEvent.error(img);
+    expect(screen.queryByTestId("place-photo-banner")).not.toBeInTheDocument();
+
+    const upgradedOpenCatalog: AtlasPlaceView = {
+      ...SAMPLE_PLACE,
+      coordSource: "OPEN_CATALOG",
+      photoUrl: "javascript:alert(1)",
+    };
+    rerender(
+      <PlaceDetailCard
+        place={upgradedOpenCatalog}
+        isMutating={false}
+        onClose={vi.fn()}
+        onUpdateVisitStatus={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("place-approx-location-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("place-photo-banner")).not.toBeInTheDocument();
   });
 
   it("toggles MapLegend popover and shifts left when dossierOpen is true", () => {
