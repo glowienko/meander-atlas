@@ -11,6 +11,12 @@ export const CATEGORY_OPTIONS: readonly { value: PlaceCategory; label: string }[
   { value: "WATER", label: "Water & Coasts" },
   { value: "NATURE_PARK", label: "Nature & Parks" },
   { value: "VIEWPOINT", label: "Viewpoints" },
+  { value: "GROCERIES", label: "Groceries & Markets" },
+  { value: "PHARMACY", label: "Pharmacy & Health" },
+  { value: "RESTROOM", label: "Restrooms" },
+  { value: "TRANSPORT", label: "Transport" },
+  { value: "PARKING", label: "Parking" },
+  { value: "SHOPPING", label: "Shopping" },
   { value: "UNCATEGORIZED", label: "Uncategorized" },
 ];
 

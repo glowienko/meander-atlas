@@ -2,13 +2,14 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AtlasPlaceView, AtlasStatsView, RegionDossierView } from "../../api/client";
 import { AtlasFilterBar } from "./AtlasFilterBar";
+import { ListAssignActionBar } from "./ListAssignActionBar";
 import { MapLegend } from "./MapLegend";
 import { formatVisitDates, PlaceDetailCard } from "./PlaceDetailCard";
 import { PlaceSelectionDialog } from "./PlaceSelectionDialog";
 import { RegionDossierDrawer } from "./RegionDossierDrawer";
 import { TravelStatsPanel } from "./TravelStatsPanel";
 import { UndoToast } from "./UndoToast";
-import { withVisitState } from "./useAtlasQueries";
+import { withCategoryState, withListsState, withVisitState } from "./useAtlasQueries";
 import { defaultAtlasViewState } from "./viewState";
 
 const SAMPLE_PLACE: AtlasPlaceView = {
@@ -46,6 +47,24 @@ const SECOND_PLACE: AtlasPlaceView = {
   subcategory: "market",
   derivedRole: "FAVORITE",
 };
+
+function detailCardElement(
+  place: AtlasPlaceView,
+  overrides: Partial<Parameters<typeof PlaceDetailCard>[0]> = {},
+) {
+  return (
+    <PlaceDetailCard
+      place={place}
+      accountLists={[]}
+      isMutating={false}
+      onClose={vi.fn()}
+      onUpdateVisitStatus={vi.fn()}
+      onUpdateCategory={vi.fn()}
+      onUpdateLists={vi.fn()}
+      {...overrides}
+    />
+  );
+}
 
 describe("Living Atlas components", () => {
   it("renders RegionDossierDrawer completion ring and triggers bulk visit", () => {
@@ -100,21 +119,52 @@ describe("Living Atlas components", () => {
     expect(onOpenBulkVisit).toHaveBeenCalledWith([SAMPLE_PLACE], "Mark Poland places visited");
   });
 
-  it("sanitizes external URLs in PlaceDetailCard and triggers status update", () => {
+  it("sanitizes external URLs in PlaceDetailCard and triggers status, category, and list updates", () => {
     const onUpdateVisitStatus = vi.fn();
+    const onUpdateCategory = vi.fn();
+    const onUpdateLists = vi.fn();
+    const accountLists = [
+      {
+        accountLabel: "personal",
+        listName: "Starred",
+        listKind: "STARRED" as const,
+        placeCount: 1,
+      },
+      { accountLabel: "personal", listName: "Food", listKind: "CUSTOM" as const, placeCount: 2 },
+    ];
     const { rerender } = render(
       <PlaceDetailCard
         place={SAMPLE_PLACE}
+        accountLists={accountLists}
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={onUpdateVisitStatus}
+        onUpdateCategory={onUpdateCategory}
+        onUpdateLists={onUpdateLists}
       />,
     );
 
     const card = screen.getByTestId("place-detail-card");
     expect(card).toHaveTextContent("Wawel Royal Castle");
     expect(card).toHaveTextContent("Bucket list");
-    expect(card).toHaveTextContent("Landmarks · castle");
+    expect(card).toHaveTextContent("castle");
+    const categorySelect = screen.getByTestId("place-category-select");
+    expect(categorySelect).toHaveValue("LANDMARK");
+    fireEvent.change(categorySelect, { target: { value: "GROCERIES" } });
+    expect(onUpdateCategory).toHaveBeenCalledWith(SAMPLE_PLACE, "GROCERIES");
+
+    fireEvent.change(screen.getByTestId("place-list-new-name"), {
+      target: { value: "Weekend Krakow" },
+    });
+    fireEvent.click(screen.getByTestId("place-list-add-button"));
+    expect(onUpdateLists).toHaveBeenCalledWith(SAMPLE_PLACE, [
+      { listName: "Starred", listKind: "STARRED", accountLabel: "personal" },
+      { listName: "Weekend Krakow", listKind: "CUSTOM" },
+    ]);
+
+    fireEvent.click(screen.getByTestId("remove-place-list-button"));
+    expect(onUpdateLists).toHaveBeenCalledWith(SAMPLE_PLACE, []);
+
     const link = screen.getByRole("link", { name: /Google Maps/i });
     expect(link).toHaveAttribute("href", "https://maps.google.com/?cid=123");
 
@@ -125,6 +175,8 @@ describe("Living Atlas components", () => {
       ...SAMPLE_PLACE,
       visitStatus: "VISITED",
       visitCount: 2,
+      category: "GROCERIES",
+      categorySource: "MANUAL",
       memberships: [
         {
           accountLabel: "personal",
@@ -137,14 +189,64 @@ describe("Living Atlas components", () => {
     rerender(
       <PlaceDetailCard
         place={unsafePlace}
+        accountLists={accountLists}
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={onUpdateVisitStatus}
+        onUpdateCategory={onUpdateCategory}
+        onUpdateLists={onUpdateLists}
       />,
     );
 
     expect(screen.queryByRole("link", { name: /Google Maps/i })).not.toBeInTheDocument();
     expect(screen.getByTestId("place-detail-card")).toHaveTextContent("2 visits");
+    expect(screen.getByTestId("place-category-manual-badge")).toHaveTextContent("Manual");
+  });
+
+  it("wires ListAssignActionBar in PlaceSelectionDialog secondaryActions for create and move", () => {
+    const onAssign = vi.fn();
+    const accountLists = [
+      {
+        accountLabel: "personal",
+        listName: "Want to go",
+        listKind: "WANT_TO_GO" as const,
+        placeCount: 2,
+      },
+    ];
+    render(
+      <PlaceSelectionDialog
+        title="Selected area (2 places)"
+        places={[SAMPLE_PLACE, SECOND_PLACE]}
+        isSubmitting={false}
+        onClose={vi.fn()}
+        onMarkVisited={vi.fn()}
+        onMarkUnvisited={vi.fn()}
+        secondaryActions={(selectedPlaceIds) => (
+          <ListAssignActionBar
+            selectedPlaceIds={selectedPlaceIds}
+            accountLists={accountLists}
+            defaultSourceList="Want to go"
+            isSubmitting={false}
+            onAssign={onAssign}
+          />
+        )}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("bulk-list-mode-move"));
+    fireEvent.change(screen.getByTestId("bulk-list-new-name"), {
+      target: { value: "Summer Trip" },
+    });
+    fireEvent.click(screen.getByTestId("bulk-list-apply-button"));
+
+    expect(onAssign).toHaveBeenCalledWith({
+      placeIds: [SAMPLE_PLACE.id, SECOND_PLACE.id],
+      targetListName: "Summer Trip",
+      listKind: "CUSTOM",
+      mode: "MOVE",
+      sourceListName: "Want to go",
+      accountLabel: undefined,
+    });
   });
 
   it("allows unchecking single places in PlaceSelectionDialog and submits remaining IDs", () => {
@@ -252,26 +354,12 @@ describe("Living Atlas components", () => {
       lastVisitedAt: "2026-03-14T00:00:00Z",
     };
 
-    const { rerender } = render(
-      <PlaceDetailCard
-        place={visitedPlace}
-        isMutating={false}
-        onClose={vi.fn()}
-        onUpdateVisitStatus={vi.fn()}
-      />,
-    );
+    const { rerender } = render(detailCardElement(visitedPlace));
     expect(screen.getByTestId("place-visit-dates")).toHaveTextContent(
       "First Oct 2024 · Last Mar 2026",
     );
 
-    rerender(
-      <PlaceDetailCard
-        place={SAMPLE_PLACE}
-        isMutating={false}
-        onClose={vi.fn()}
-        onUpdateVisitStatus={vi.fn()}
-      />,
-    );
+    rerender(detailCardElement(SAMPLE_PLACE));
     expect(screen.queryByTestId("place-visit-dates")).not.toBeInTheDocument();
   });
 
@@ -282,14 +370,7 @@ describe("Living Atlas components", () => {
       photoUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/wawel.jpg",
     };
 
-    const { rerender } = render(
-      <PlaceDetailCard
-        place={approxWithPhoto}
-        isMutating={false}
-        onClose={vi.fn()}
-        onUpdateVisitStatus={vi.fn()}
-      />,
-    );
+    const { rerender } = render(detailCardElement(approxWithPhoto));
 
     const banner = screen.getByTestId("place-photo-banner");
     expect(banner).toHaveTextContent("Wikimedia");
@@ -310,14 +391,7 @@ describe("Living Atlas components", () => {
       coordSource: "OPEN_CATALOG",
       photoUrl: "javascript:alert(1)",
     };
-    rerender(
-      <PlaceDetailCard
-        place={upgradedOpenCatalog}
-        isMutating={false}
-        onClose={vi.fn()}
-        onUpdateVisitStatus={vi.fn()}
-      />,
-    );
+    rerender(detailCardElement(upgradedOpenCatalog));
 
     expect(screen.queryByTestId("place-approx-location-badge")).not.toBeInTheDocument();
     expect(screen.queryByTestId("place-photo-banner")).not.toBeInTheDocument();
@@ -441,5 +515,39 @@ describe("withVisitState", () => {
       lastVisitedAt: "2026-11-27T10:00:00Z",
     });
     expect(withVisitState(SECOND_PLACE, result)).toBe(SECOND_PLACE);
+  });
+
+  it("applies a category result to the matching selected place only", () => {
+    const result = {
+      placeId: SAMPLE_PLACE.id,
+      category: "GROCERIES" as const,
+      subcategory: "supermarket",
+      categorySource: "MANUAL" as const,
+    };
+
+    expect(withCategoryState(SAMPLE_PLACE, result)).toMatchObject({
+      id: SAMPLE_PLACE.id,
+      category: "GROCERIES",
+      subcategory: "supermarket",
+      categorySource: "MANUAL",
+    });
+    expect(withCategoryState(SECOND_PLACE, result)).toBe(SECOND_PLACE);
+  });
+
+  it("applies a lists result to the matching selected place only", () => {
+    const result = {
+      placeId: SAMPLE_PLACE.id,
+      derivedRole: "FAVORITE" as const,
+      memberships: [
+        { accountLabel: "personal", listName: "Summer", listKind: "FAVORITE" as const },
+      ],
+    };
+
+    expect(withListsState(SAMPLE_PLACE, result)).toMatchObject({
+      id: SAMPLE_PLACE.id,
+      derivedRole: "FAVORITE",
+      memberships: result.memberships,
+    });
+    expect(withListsState(SECOND_PLACE, result)).toBe(SECOND_PLACE);
   });
 });

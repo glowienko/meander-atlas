@@ -12,6 +12,7 @@ public record ImportStatusView(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int pendingEnrichmentCount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int enrichedPlaceCount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int approximatePlaceCount,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int failedOrUnresolvableCount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean enrichmentRunning,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) int completedBatches,
         @NotNull List<String> accounts,

@@ -4,9 +4,8 @@ import {
   BULK_BATCH_SIZE,
   chunkItems,
   patchBulkVisitStatus,
-  postMaterializeOffline,
+  postBulkAssignList,
   postRestoreVisitStates,
-  postRunEnrichment,
   type VisitStateSnapshotView,
 } from "./client";
 
@@ -132,48 +131,36 @@ describe("api client bulk chunking", () => {
     expect(result).toEqual({ restoredCount: 601 });
   });
 
-  it("posts offline materialization and enrichment batch options", async () => {
-    const postSpy = vi.spyOn(apiClient, "POST").mockImplementation((async (url: string) => {
-      if (url === "/api/v1/imports/materialize-offline") {
-        return {
-          data: {
-            materializedCount: 12,
-            exactFromTitleCount: 2,
-            approxFromS2Count: 10,
-            mergedByCidCount: 1,
-            remainingLookupCount: 0,
-            enqueuedEnrichmentCount: 12,
-          },
-          response: new Response(null, { status: 200 }),
-        };
-      }
+  it("chunks postBulkAssignList in batches of 500 and aggregates counts", async () => {
+    const batchLengths: number[] = [];
+    const postSpy = vi.spyOn(apiClient, "POST").mockImplementation((async (
+      _url: string,
+      options?: { body?: { placeIds: string[]; targetListName: string } },
+    ) => {
+      const placeIds = options?.body?.placeIds ?? [];
+      batchLengths.push(placeIds.length);
       return {
         data: {
-          enabled: true,
-          dryRun: false,
-          startedInBackground: true,
-          alreadyRunning: false,
-          claimedCount: 0,
-          matchedCount: 0,
-          upgradedCoordsCount: 0,
-          upgradedCategoryCount: 0,
-          photosAddedCount: 0,
-          failedCount: 0,
-          skippedCount: 0,
-          remainingPendingCount: 12,
+          assignedCount: placeIds.length,
+          removedCount: placeIds.length,
+          accountLabel: "personal",
+          targetListName: options?.body?.targetListName ?? "Trip",
+          listKind: "CUSTOM",
         },
         response: new Response(null, { status: 200 }),
       };
     }) as typeof apiClient.POST);
 
-    const materialized = await postMaterializeOffline();
-    expect(materialized.materializedCount).toBe(12);
-    expect(postSpy).toHaveBeenCalledWith("/api/v1/imports/materialize-offline");
-
-    const enriched = await postRunEnrichment({ limit: 25, dryRun: false, background: true });
-    expect(enriched.startedInBackground).toBe(true);
-    expect(postSpy).toHaveBeenCalledWith("/api/v1/imports/enrich", {
-      params: { query: { limit: 25, dryRun: false, background: true } },
+    const ids = Array.from({ length: 502 }, (_, i) => `id-${i}`);
+    const result = await postBulkAssignList({
+      placeIds: ids,
+      targetListName: "Trip",
+      listKind: "CUSTOM",
+      mode: "MOVE",
     });
+    expect(postSpy).toHaveBeenCalledTimes(2);
+    expect(batchLengths).toEqual([500, 2]);
+    expect(result.assignedCount).toBe(502);
+    expect(result.removedCount).toBe(502);
   });
 });

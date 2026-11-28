@@ -14,7 +14,9 @@ import com.meanderatlas.atlas.domain.stats.RegionSummary;
 import com.meanderatlas.atlas.domain.stats.RegionSummaryFilter;
 import com.meanderatlas.ingestion.AccountImportSummaryView;
 import com.meanderatlas.ingestion.LocalImportSummaryView;
+import com.meanderatlas.ingestion.OpenCatalogTestData;
 import com.meanderatlas.ingestion.domain.TakeoutTestData;
+import com.meanderatlas.ingestion.domain.enrichment.OpenPoiCatalogPort;
 import com.meanderatlas.ingestion.domain.source.AccountImportSource;
 import com.meanderatlas.ingestion.domain.source.DiscoveredImportFile;
 import com.meanderatlas.ingestion.domain.source.ImportFileKind;
@@ -34,15 +36,20 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.transaction.support.TransactionOperations;
 
 class ImportLocalDirectoryTest {
@@ -236,12 +243,70 @@ class ImportLocalDirectoryTest {
                 .containsExactlyInAnyOrder(dmsPlaceId, s2PlaceId);
     }
 
+    @Test
+    void triggersBackgroundEnrichmentAfterImportOnlyWhenEnabled(@TempDir Path tempDir)
+            throws IOException {
+        Path savedCsv = tempDir.resolve("personal/Want to go.csv");
+        Files.createDirectories(savedCsv.getParent());
+        Files.writeString(
+                savedCsv,
+                TakeoutTestData.savedCsv(
+                        "Wawel Auto Enrich,Castle,"
+                                + "https://www.google.com/maps/place/Wawel/data=!4m2!3m1!1s0x47165b120455da67:0x999003,castle,"),
+                StandardCharsets.UTF_8);
+        List<AccountImportSource> sources =
+                List.of(
+                        new AccountImportSource(
+                                "personal",
+                                "sha-auto",
+                                List.of(
+                                        new DiscoveredImportFile(
+                                                "Want to go.csv",
+                                                ImportFileKind.SAVED_CSV,
+                                                savedCsv))));
+
+        AtomicInteger launchedTasks = new AtomicInteger();
+        FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
+        FakeImportRepository importRepo = new FakeImportRepository();
+        FakeEnrichmentJobRepository enrichmentJobRepo = new FakeEnrichmentJobRepository();
+        ImportLocalDirectory enabledUseCase =
+                createUseCase(
+                        tempDir,
+                        sources,
+                        placeRepo,
+                        importRepo,
+                        enrichmentJobRepo,
+                        true,
+                        task -> {
+                            launchedTasks.incrementAndGet();
+                            task.run();
+                        });
+
+        enabledUseCase.execute(null, false);
+        assertThat(launchedTasks.get()).isEqualTo(1);
+
+        enabledUseCase.execute(null, false);
+        assertThat(launchedTasks.get()).isEqualTo(1);
+    }
+
     private static ImportLocalDirectory createUseCase(
             Path tempDir,
             List<AccountImportSource> sources,
             FakeAtlasPlaceRepository placeRepo,
             FakeImportRepository importRepo,
             FakeEnrichmentJobRepository enrichmentJobRepo) {
+        return createUseCase(
+                tempDir, sources, placeRepo, importRepo, enrichmentJobRepo, false, Runnable::run);
+    }
+
+    private static ImportLocalDirectory createUseCase(
+            Path tempDir,
+            List<AccountImportSource> sources,
+            FakeAtlasPlaceRepository placeRepo,
+            FakeImportRepository importRepo,
+            FakeEnrichmentJobRepository enrichmentJobRepo,
+            boolean enrichmentEnabled,
+            TaskExecutor taskExecutor) {
         CurrentUserProvider userProvider = () -> USER_ID;
         TripImportSourcePort sourcePort =
                 filter ->
@@ -255,13 +320,37 @@ class ImportLocalDirectoryTest {
         AtlasFacade atlasFacade =
                 AtlasFacadeTestSupport.create(
                         placeRepo, boundaryRepo, statsRepo, tempDir, userProvider);
+        RunEnrichmentBatch runEnrichmentBatch =
+                new RunEnrichmentBatch(
+                        OpenCatalogTestData.properties(enrichmentEnabled, 10, 2),
+                        enrichmentJobRepo,
+                        new NoOpOpenPoiCatalogPort(),
+                        atlasFacade,
+                        userProvider,
+                        TransactionOperations.withoutTransaction(),
+                        taskExecutor,
+                        Clock.fixed(Instant.parse("2026-11-27T12:00:00Z"), ZoneOffset.UTC));
         return new ImportLocalDirectory(
                 sourcePort,
                 importRepo,
                 enrichmentJobRepo,
                 atlasFacade,
                 userProvider,
-                TransactionOperations.withoutTransaction());
+                TransactionOperations.withoutTransaction(),
+                runEnrichmentBatch);
+    }
+
+    private static final class NoOpOpenPoiCatalogPort implements OpenPoiCatalogPort {
+        @Override
+        public Map<PlaceId, EnrichmentLookupOutcome> enrichAnchoredBatch(
+                List<AnchoredEnrichmentTarget> targets) {
+            return Map.of();
+        }
+
+        @Override
+        public EnrichmentLookupOutcome resolveUnanchored(UnanchoredLookupTarget target) {
+            return new EnrichmentLookupOutcome.NoMatch("noop");
+        }
     }
 
     private static final class FakeImportRepository implements ImportRepository {
@@ -297,7 +386,7 @@ class ImportLocalDirectoryTest {
         @Override
         public ImportStatusSummary fetchStatus(UserId userId) {
             return new ImportStatusSummary(
-                    jobs.size(), jobs.size(), 0, 0, 0, completedBatches.size(), List.of(), null);
+                    jobs.size(), jobs.size(), 0, 0, 0, 0, completedBatches.size(), List.of(), null);
         }
     }
 

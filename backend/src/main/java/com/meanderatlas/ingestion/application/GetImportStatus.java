@@ -33,6 +33,7 @@ public class GetImportStatus {
                 summary.pendingEnrichmentCount(),
                 summary.enrichedPlaceCount(),
                 summary.approximatePlaceCount(),
+                summary.failedOrUnresolvableCount(),
                 runEnrichmentBatch.isRunning(),
                 summary.completedBatches(),
                 summary.accounts(),

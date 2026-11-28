@@ -53,6 +53,34 @@
         "tags" : [ "atlas-health-controller" ]
       }
     },
+    "/api/v1/atlas/lists/bulk-assign" : {
+      "post" : {
+        "operationId" : "bulkAssign",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BulkAssignListRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BulkAssignListResultView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-lists-controller" ]
+      }
+    },
     "/api/v1/atlas/places" : {
       "get" : {
         "operationId" : "places",
@@ -85,7 +113,7 @@
           "required" : false,
           "schema" : {
             "type" : [ "string", "null" ],
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           }
         }, {
           "in" : "query",
@@ -220,6 +248,80 @@
         "tags" : [ "atlas-places-controller" ]
       }
     },
+    "/api/v1/atlas/places/{id}/category" : {
+      "patch" : {
+        "operationId" : "updateCategory",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpdatePlaceCategoryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PlaceCategoryStateView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
+    "/api/v1/atlas/places/{id}/lists" : {
+      "put" : {
+        "operationId" : "updateLists",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpdatePlaceListsRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PlaceListsStateView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
     "/api/v1/atlas/places/{id}/visit-status" : {
       "patch" : {
         "operationId" : "updateVisitStatus",
@@ -297,7 +399,7 @@
           "required" : false,
           "schema" : {
             "type" : [ "string", "null" ],
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           }
         }, {
           "in" : "query",
@@ -679,7 +781,7 @@
           },
           "category" : {
             "type" : "string",
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           },
           "categorySource" : {
             "type" : "string",
@@ -839,6 +941,68 @@
         },
         "required" : [ "admin1Upserted", "countriesUpserted", "placesTagged", "skipped" ]
       },
+      "BulkAssignListRequest" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 0
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "mode" : {
+            "type" : "string",
+            "enum" : [ "ADD", "MOVE" ]
+          },
+          "placeIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "format" : "uuid"
+            },
+            "maxItems" : 500,
+            "minItems" : 0
+          },
+          "sourceListName" : {
+            "type" : "string",
+            "maxLength" : 160,
+            "minLength" : 0
+          },
+          "targetListName" : {
+            "type" : "string",
+            "maxLength" : 160,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "mode", "placeIds", "targetListName" ]
+      },
+      "BulkAssignListResultView" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string"
+          },
+          "assignedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "removedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "targetListName" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "accountLabel", "assignedCount", "listKind", "removedCount", "targetListName" ]
+      },
       "BulkVisitStatusRequest" : {
         "type" : "object",
         "properties" : {
@@ -879,7 +1043,7 @@
         "properties" : {
           "category" : {
             "type" : "string",
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           },
           "totalCount" : {
             "type" : "integer",
@@ -966,6 +1130,10 @@
           "enrichmentRunning" : {
             "type" : "boolean"
           },
+          "failedOrUnresolvableCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
           "lastImportedAt" : {
             "type" : "string",
             "format" : "date-time"
@@ -983,7 +1151,7 @@
             "format" : "int32"
           }
         },
-        "required" : [ "accounts", "approximatePlaceCount", "completedBatches", "enrichedPlaceCount", "enrichmentRunning", "pendingCoordinateLookupCount", "pendingEnrichmentCount", "pendingResolutionCount" ]
+        "required" : [ "accounts", "approximatePlaceCount", "completedBatches", "enrichedPlaceCount", "enrichmentRunning", "failedOrUnresolvableCount", "pendingCoordinateLookupCount", "pendingEnrichmentCount", "pendingResolutionCount" ]
       },
       "LocalImportSummaryView" : {
         "type" : "object",
@@ -1054,6 +1222,67 @@
           }
         },
         "required" : [ "approxFromS2Count", "enqueuedEnrichmentCount", "exactFromTitleCount", "materializedCount", "mergedByCidCount", "remainingLookupCount" ]
+      },
+      "PlaceCategoryStateView" : {
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
+          },
+          "categorySource" : {
+            "type" : "string",
+            "enum" : [ "HEURISTIC", "OPEN_CATALOG", "MANUAL" ]
+          },
+          "placeId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "subcategory" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "category", "categorySource", "placeId" ]
+      },
+      "PlaceListEntryRequest" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 0
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "listName" : {
+            "type" : "string",
+            "maxLength" : 160,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "listName" ]
+      },
+      "PlaceListsStateView" : {
+        "type" : "object",
+        "properties" : {
+          "derivedRole" : {
+            "type" : "string",
+            "enum" : [ "PREFERRED_HOTEL", "MUST_SEE", "FAVORITE", "BACKLOG" ]
+          },
+          "memberships" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PlaceMembershipView"
+            }
+          },
+          "placeId" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        },
+        "required" : [ "derivedRole", "memberships", "placeId" ]
       },
       "PlaceMembershipView" : {
         "type" : "object",
@@ -1253,7 +1482,7 @@
         "properties" : {
           "category" : {
             "type" : "string",
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           },
           "subcategory" : {
             "type" : "string"
@@ -1268,6 +1497,35 @@
           }
         },
         "required" : [ "category", "subcategory", "totalCount", "visitedCount" ]
+      },
+      "UpdatePlaceCategoryRequest" : {
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
+          },
+          "subcategory" : {
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "category" ]
+      },
+      "UpdatePlaceListsRequest" : {
+        "type" : "object",
+        "properties" : {
+          "lists" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PlaceListEntryRequest"
+            },
+            "maxItems" : 50,
+            "minItems" : 0
+          }
+        },
+        "required" : [ "lists" ]
       },
       "UpdatePlaceVisitStatusRequest" : {
         "type" : "object",

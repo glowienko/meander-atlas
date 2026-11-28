@@ -28,6 +28,12 @@ public final class OsmTagCategoryMapper {
             Set.of("cafe", "bar", "pub", "ice_cream", "coffee_shop", "biergarten", "nightclub");
     private static final Set<String> LANDMARK_AMENITY =
             Set.of("theatre", "arts_centre", "cinema", "opera_house", "marketplace", "fountain");
+    private static final Set<String> PHARMACY_AMENITY =
+            Set.of("pharmacy", "clinic", "hospital", "doctors");
+    private static final Set<String> PARKING_AMENITY =
+            Set.of("parking", "parking_entrance", "bicycle_parking", "parking_space");
+    private static final Set<String> TRANSPORT_AMENITY =
+            Set.of("bus_station", "ferry_terminal", "taxi");
     private static final Set<String> SACRAL_HISTORIC =
             Set.of(
                     "church",
@@ -105,11 +111,33 @@ public final class OsmTagCategoryMapper {
                     "chocolate",
                     "deli");
     private static final Set<String> RESTAURANT_SHOP = Set.of("seafood", "cheese");
-    private static final Set<String> LANDMARK_SHOP = Set.of("mall", "books", "antiques", "gift");
+    private static final Set<String> GROCERIES_SHOP =
+            Set.of("supermarket", "convenience", "greengrocer", "grocery", "butcher", "farm");
+    private static final Set<String> SHOPPING_SHOP =
+            Set.of(
+                    "mall",
+                    "department_store",
+                    "clothes",
+                    "outdoor",
+                    "sports",
+                    "books",
+                    "antiques",
+                    "gift",
+                    "souvenir",
+                    "electronics",
+                    "shoes",
+                    "hardware",
+                    "variety_store",
+                    "general");
+    private static final Set<String> TRANSPORT_RAILWAY =
+            Set.of("station", "halt", "tram_stop", "subway_entrance");
+    private static final Set<String> TRANSPORT_PUBLIC =
+            Set.of("station", "stop_position", "platform");
+    private static final Set<String> TRANSPORT_AEROWAY = Set.of("aerodrome", "terminal");
     private static final Set<String> LANDMARK_MAN_MADE =
             Set.of("lighthouse", "tower", "observation_tower", "bridge", "pier", "windmill");
     private static final Set<String> LANDMARK_BUILDING =
-            Set.of("castle", "palace", "civic", "townhall", "train_station");
+            Set.of("castle", "palace", "civic", "townhall");
 
     private OsmTagCategoryMapper() {}
 
@@ -173,6 +201,22 @@ public final class OsmTagCategoryMapper {
         }
         if ("planetarium".equals(amenity)) {
             return Optional.of(new OsmCategoryMapping(PlaceCategory.MUSEUM, amenity));
+        }
+        return mapPracticalAmenity(amenity);
+    }
+
+    private static Optional<OsmCategoryMapping> mapPracticalAmenity(String amenity) {
+        if (PHARMACY_AMENITY.contains(amenity)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.PHARMACY, amenity));
+        }
+        if ("toilets".equals(amenity)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.RESTROOM, amenity));
+        }
+        if (PARKING_AMENITY.contains(amenity)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.PARKING, amenity));
+        }
+        if (TRANSPORT_AMENITY.contains(amenity)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.TRANSPORT, amenity));
         }
         return Optional.empty();
     }
@@ -258,14 +302,17 @@ public final class OsmTagCategoryMapper {
         if (shop == null) {
             return Optional.empty();
         }
+        if (GROCERIES_SHOP.contains(shop)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.GROCERIES, shop));
+        }
         if (CAFE_BAR_SHOP.contains(shop)) {
             return Optional.of(new OsmCategoryMapping(PlaceCategory.CAFE_BAR, shop));
         }
         if (RESTAURANT_SHOP.contains(shop)) {
             return Optional.of(new OsmCategoryMapping(PlaceCategory.RESTAURANT, shop));
         }
-        if (LANDMARK_SHOP.contains(shop)) {
-            return Optional.of(new OsmCategoryMapping(PlaceCategory.LANDMARK, shop));
+        if (SHOPPING_SHOP.contains(shop)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.SHOPPING, shop));
         }
         return Optional.empty();
     }
@@ -275,13 +322,25 @@ public final class OsmTagCategoryMapper {
         if (manMade != null && LANDMARK_MAN_MADE.contains(manMade)) {
             return Optional.of(new OsmCategoryMapping(PlaceCategory.LANDMARK, manMade));
         }
+        return mapTransit(tags);
+    }
+
+    private static Optional<OsmCategoryMapping> mapTransit(Map<String, String> tags) {
         String railway = normalizeValue(tags.get("railway"));
-        if ("station".equals(railway)) {
-            return Optional.of(new OsmCategoryMapping(PlaceCategory.LANDMARK, railway));
+        if (railway != null && TRANSPORT_RAILWAY.contains(railway)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.TRANSPORT, railway));
+        }
+        String publicTransport = normalizeValue(tags.get("public_transport"));
+        if (publicTransport != null && TRANSPORT_PUBLIC.contains(publicTransport)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.TRANSPORT, publicTransport));
         }
         String aeroway = normalizeValue(tags.get("aeroway"));
-        if ("aerodrome".equals(aeroway)) {
-            return Optional.of(new OsmCategoryMapping(PlaceCategory.LANDMARK, aeroway));
+        if (aeroway != null && TRANSPORT_AEROWAY.contains(aeroway)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.TRANSPORT, aeroway));
+        }
+        String aerialway = normalizeValue(tags.get("aerialway"));
+        if ("station".equals(aerialway)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.TRANSPORT, "cable_car"));
         }
         return Optional.empty();
     }
@@ -302,6 +361,9 @@ public final class OsmTagCategoryMapper {
         }
         if ("hotel".equals(building)) {
             return Optional.of(new OsmCategoryMapping(PlaceCategory.HOTEL, building));
+        }
+        if ("train_station".equals(building)) {
+            return Optional.of(new OsmCategoryMapping(PlaceCategory.TRANSPORT, building));
         }
         return Optional.empty();
     }

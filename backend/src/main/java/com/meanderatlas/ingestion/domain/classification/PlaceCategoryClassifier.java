@@ -14,14 +14,113 @@ import org.jspecify.annotations.Nullable;
 public final class PlaceCategoryClassifier {
 
     private static final String WORD_END = ")(?:$|[^a-z0-9])";
-    private static final Pattern PARKING_EXCLUSION =
-            Pattern.compile(
-                    "(?:^|[^a-z0-9])(?:q-park|qpark|parking|car park|parkhaus|parkplatz|parkeergarage|garaz)(?:$|[^a-z0-9])");
     private static final PlaceClassification UNCATEGORIZED =
             PlaceClassification.heuristic(PlaceCategory.UNCATEGORIZED, null);
 
     private static final List<KeywordRule> RULES =
             List.of(
+                    words(
+                            PlaceCategory.PARKING,
+                            "parking",
+                            "q-park",
+                            "qpark",
+                            "parking",
+                            "car park",
+                            "parkhaus",
+                            "parkplatz",
+                            "parkeergarage",
+                            "park and ride",
+                            "aparcamiento",
+                            "estacionamiento",
+                            "parcheggio",
+                            "garaz"),
+                    words(
+                            PlaceCategory.PHARMACY,
+                            "pharmacy",
+                            "apteka",
+                            "pharmacy",
+                            "farmacia",
+                            "apotheek",
+                            "apotheke",
+                            "pharmacie",
+                            "drogeria",
+                            "drugstore",
+                            "chemist"),
+                    words(
+                            PlaceCategory.PHARMACY,
+                            "clinic",
+                            "klinika",
+                            "clinic",
+                            "clinica",
+                            "przychodnia"),
+                    words(
+                            PlaceCategory.PHARMACY,
+                            "hospital",
+                            "szpital",
+                            "hospital",
+                            "krankenhaus",
+                            "ziekenhuis",
+                            "hopital",
+                            "ospedale"),
+                    words(
+                            PlaceCategory.RESTROOM,
+                            "restroom",
+                            "toaleta",
+                            "toilet",
+                            "toilets",
+                            "restroom",
+                            "restrooms",
+                            "public toilet",
+                            "wc",
+                            "sanitariat",
+                            "lavabo",
+                            "bano publico",
+                            "toiletten",
+                            "bagno pubblico"),
+                    words(
+                            PlaceCategory.GROCERIES,
+                            "supermarket",
+                            "supermercado",
+                            "supermarket",
+                            "supermarche",
+                            "supermarkt",
+                            "supermercato",
+                            "hipermercado",
+                            "hypermarket",
+                            "biedronka",
+                            "lidl",
+                            "aldi",
+                            "albert heijn",
+                            "carrefour",
+                            "mercadona",
+                            "spar",
+                            "zabka",
+                            "auchan",
+                            "leclerc",
+                            "rewe",
+                            "edeka",
+                            "jumbo",
+                            "esselunga",
+                            "conad",
+                            "intermarche",
+                            "monoprix",
+                            "tesco",
+                            "sainsbury",
+                            "waitrose",
+                            "migros",
+                            "kaufland",
+                            "netto"),
+                    words(
+                            PlaceCategory.GROCERIES,
+                            "grocery",
+                            "grocery",
+                            "groceries",
+                            "sklep spozywczy",
+                            "spozywczy",
+                            "delikatesy",
+                            "minimarket",
+                            "mini market",
+                            "convenience store"),
                     suffixes(PlaceCategory.HOTEL, "mountain_hut", "hutte"),
                     words(
                             PlaceCategory.HOTEL,
@@ -518,6 +617,74 @@ public final class PlaceCategoryClassifier {
                             "markt",
                             "bazar",
                             "bazaar"),
+                    words(
+                            PlaceCategory.TRANSPORT,
+                            "airport",
+                            "lotnisko",
+                            "airport",
+                            "aeropuerto",
+                            "aeroport",
+                            "aeroporto",
+                            "flughafen",
+                            "luchthaven"),
+                    words(
+                            PlaceCategory.TRANSPORT,
+                            "ferry",
+                            "ferry terminal",
+                            "port promowy",
+                            "ferry",
+                            "prom"),
+                    words(
+                            PlaceCategory.TRANSPORT,
+                            "cable_car",
+                            "kolejka linowa",
+                            "cable car",
+                            "teleferico",
+                            "funicular",
+                            "seilbahn",
+                            "gondola"),
+                    words(
+                            PlaceCategory.TRANSPORT,
+                            "station",
+                            "dworzec",
+                            "train station",
+                            "railway station",
+                            "bus station",
+                            "metro station",
+                            "tram stop",
+                            "estacion",
+                            "gare",
+                            "stazione",
+                            "bahnhof",
+                            "hauptbahnhof",
+                            "centraal",
+                            "station"),
+                    words(
+                            PlaceCategory.SHOPPING,
+                            "mall",
+                            "centrum handlowe",
+                            "galeria handlowa",
+                            "shopping mall",
+                            "shopping center",
+                            "shopping centre",
+                            "outlet"),
+                    words(
+                            PlaceCategory.SHOPPING,
+                            "outdoor_gear",
+                            "decathlon",
+                            "outdoor shop",
+                            "gear shop"),
+                    words(PlaceCategory.SHOPPING, "souvenir", "souvenir", "pamiatki", "gift shop"),
+                    words(PlaceCategory.SHOPPING, "bookstore", "ksiegarnia", "bookstore"),
+                    words(
+                            PlaceCategory.SHOPPING,
+                            "shop",
+                            "sklep",
+                            "boutique",
+                            "tienda",
+                            "magasin",
+                            "negozio",
+                            "winkel"),
                     words(PlaceCategory.LANDMARK, "landmark", "landmark", "zabytek"));
 
     private PlaceCategoryClassifier() {}
@@ -544,9 +711,6 @@ public final class PlaceCategoryClassifier {
         }
         String loweredRaw = trimmed.toLowerCase(Locale.ROOT);
         String folded = TextNormalizer.normalizeFolded(trimmed);
-        if (PARKING_EXCLUSION.matcher(folded).find()) {
-            return UNCATEGORIZED;
-        }
         return RULES.stream()
                 .filter(rule -> rule.matches(folded, loweredRaw))
                 .findFirst()

@@ -152,7 +152,7 @@ final class AtlasViewMapper {
                 state.lastVisitedAt());
     }
 
-    private static PlaceMembershipView toMembershipView(StoredMembership membership) {
+    static PlaceMembershipView toMembershipView(StoredMembership membership) {
         return new PlaceMembershipView(
                 membership.accountLabel(),
                 membership.listName(),

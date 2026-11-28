@@ -6,6 +6,7 @@ import com.meanderatlas.atlas.domain.places.BoundingBox;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
+import com.meanderatlas.atlas.domain.places.PlaceListMembershipTarget;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -27,6 +28,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -693,6 +695,209 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
                         userId.value(),
                         "googlePlaceId",
                         googlePlaceId));
+    }
+
+    @Override
+    public void updateManualCategory(
+            UserId userId, PlaceId placeId, PlaceCategory category, @Nullable String subcategory) {
+        jdbcTemplate.update(
+                """
+                UPDATE places
+                SET category = :category,
+                    subcategory = :subcategory,
+                    category_source = 'MANUAL',
+                    updated_at = now()
+                WHERE id = :placeId
+                  AND user_id = :userId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("placeId", placeId.value())
+                        .addValue("userId", userId.value())
+                        .addValue("category", category.name())
+                        .addValue("subcategory", subcategory, Types.VARCHAR));
+    }
+
+    @Override
+    public int deleteNonReviewMemberships(
+            UserId userId,
+            List<PlaceId> placeIds,
+            @Nullable String sourceListName,
+            String excludedAccountLabel,
+            String excludedListName) {
+        if (placeIds.isEmpty()) {
+            return 0;
+        }
+        return jdbcTemplate.update(
+                """
+                DELETE FROM place_memberships
+                WHERE user_id = :userId
+                  AND place_id = ANY(:placeIds)
+                  AND list_kind <> 'REVIEW'
+                  AND NOT (account_label = :excludedAccountLabel AND list_name = :excludedListName)
+                  AND (CAST(:sourceListName AS TEXT) IS NULL OR list_name = CAST(:sourceListName AS TEXT))
+                """,
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue(
+                                "placeIds",
+                                JdbcRowReaders.uuidArray(
+                                        placeIds.stream().map(PlaceId::value).toList()))
+                        .addValue("sourceListName", sourceListName, Types.VARCHAR)
+                        .addValue("excludedAccountLabel", excludedAccountLabel)
+                        .addValue("excludedListName", excludedListName));
+    }
+
+    @Override
+    public void bulkUpsertMemberships(
+            UserId userId,
+            List<PlaceId> placeIds,
+            String accountLabel,
+            String listName,
+            ListKind listKind) {
+        if (placeIds.isEmpty()) {
+            return;
+        }
+        SqlParameterSource[] batch =
+                placeIds.stream()
+                        .map(placeId ->
+                                new MapSqlParameterSource()
+                                        .addValue("id", UUID.randomUUID())
+                                        .addValue("placeId", placeId.value())
+                                        .addValue("userId", userId.value())
+                                        .addValue("accountLabel", accountLabel)
+                                        .addValue("listName", listName)
+                                        .addValue("listKind", listKind.name()))
+                        .toArray(SqlParameterSource[]::new);
+        jdbcTemplate.batchUpdate(
+                """
+                INSERT INTO place_memberships (
+                    id, place_id, user_id, account_label, list_name, list_kind
+                )
+                VALUES (
+                    CAST(:id AS uuid),
+                    CAST(:placeId AS uuid),
+                    CAST(:userId AS uuid),
+                    :accountLabel,
+                    :listName,
+                    :listKind
+                )
+                ON CONFLICT (place_id, account_label, list_name) DO UPDATE
+                SET list_kind = EXCLUDED.list_kind
+                WHERE place_memberships.user_id = EXCLUDED.user_id
+                """,
+                batch);
+    }
+
+    @Override
+    public void replaceNonReviewMemberships(
+            UserId userId, PlaceId placeId, List<PlaceListMembershipTarget> targets) {
+        if (targets.isEmpty()) {
+            jdbcTemplate.update(
+                    """
+                    DELETE FROM place_memberships
+                    WHERE user_id = :userId
+                      AND place_id = :placeId
+                      AND list_kind <> 'REVIEW'
+                    """,
+                    Map.of("userId", userId.value(), "placeId", placeId.value()));
+            return;
+        }
+        String[] keepAccounts =
+                targets.stream()
+                        .map(PlaceListMembershipTarget::accountLabel)
+                        .toArray(String[]::new);
+        String[] keepLists =
+                targets.stream().map(PlaceListMembershipTarget::listName).toArray(String[]::new);
+        jdbcTemplate.update(
+                """
+                DELETE FROM place_memberships pm
+                WHERE pm.user_id = :userId
+                  AND pm.place_id = :placeId
+                  AND pm.list_kind <> 'REVIEW'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM unnest(CAST(:keepAccounts AS text[]), CAST(:keepLists AS text[]))
+                           AS keep(account_label, list_name)
+                      WHERE keep.account_label = pm.account_label
+                        AND keep.list_name = pm.list_name
+                  )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue("placeId", placeId.value())
+                        .addValue("keepAccounts", keepAccounts)
+                        .addValue("keepLists", keepLists));
+        targets.forEach(target ->
+                upsertMembership(
+                        userId,
+                        placeId,
+                        target.accountLabel(),
+                        target.listName(),
+                        target.listKind(),
+                        null,
+                        null,
+                        null,
+                        null));
+    }
+
+    @Override
+    public List<StoredMembership> findMembershipsForPlace(UserId userId, PlaceId placeId) {
+        return loadMemberships(List.of(placeId.value())).getOrDefault(placeId, List.of());
+    }
+
+    @Override
+    public DerivedRole recomputeDerivedRole(UserId userId, PlaceId placeId) {
+        recomputeDerivedRoles(userId, List.of(placeId));
+        return Objects.requireNonNull(
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT derived_role
+                        FROM places
+                        WHERE id = :placeId
+                          AND user_id = :userId
+                        """,
+                        Map.of("placeId", placeId.value(), "userId", userId.value()),
+                        (rs, _) ->
+                                DerivedRole.valueOf(
+                                        JdbcRowReaders.requiredString(rs, "derived_role"))));
+    }
+
+    @Override
+    public void recomputeDerivedRoles(UserId userId, List<PlaceId> placeIds) {
+        if (placeIds.isEmpty()) {
+            return;
+        }
+        jdbcTemplate.update(
+                """
+                UPDATE places p
+                SET derived_role = CASE
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM place_memberships pm
+                            WHERE pm.place_id = p.id
+                              AND pm.list_kind = 'STARRED'
+                        ) THEN CASE
+                            WHEN p.category = 'HOTEL' THEN 'PREFERRED_HOTEL'
+                            ELSE 'MUST_SEE'
+                        END
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM place_memberships pm
+                            WHERE pm.place_id = p.id
+                              AND pm.list_kind = 'FAVORITE'
+                        ) THEN 'FAVORITE'
+                        ELSE 'BACKLOG'
+                    END,
+                    updated_at = now()
+                WHERE p.user_id = :userId
+                  AND p.id = ANY(:placeIds)
+                """,
+                new MapSqlParameterSource()
+                        .addValue("userId", userId.value())
+                        .addValue(
+                                "placeIds",
+                                JdbcRowReaders.uuidArray(
+                                        placeIds.stream().map(PlaceId::value).toList())));
     }
 
     @Override

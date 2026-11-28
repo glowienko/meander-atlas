@@ -113,4 +113,30 @@ public interface AtlasPlaceRepository {
     List<PlaceEnrichmentTarget> findEnrichmentTargets(UserId userId, List<PlaceId> placeIds);
 
     void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update);
+
+    void updateManualCategory(
+            UserId userId, PlaceId placeId, PlaceCategory category, @Nullable String subcategory);
+
+    int deleteNonReviewMemberships(
+            UserId userId,
+            List<PlaceId> placeIds,
+            @Nullable String sourceListName,
+            String excludedAccountLabel,
+            String excludedListName);
+
+    void bulkUpsertMemberships(
+            UserId userId,
+            List<PlaceId> placeIds,
+            String accountLabel,
+            String listName,
+            ListKind listKind);
+
+    void replaceNonReviewMemberships(
+            UserId userId, PlaceId placeId, List<PlaceListMembershipTarget> targets);
+
+    List<StoredMembership> findMembershipsForPlace(UserId userId, PlaceId placeId);
+
+    DerivedRole recomputeDerivedRole(UserId userId, PlaceId placeId);
+
+    void recomputeDerivedRoles(UserId userId, List<PlaceId> placeIds);
 }

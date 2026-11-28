@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { PlaceCategory } from "../../api/client";
 import { CATEGORY_OPTIONS, DERIVED_ROLE_OPTIONS, VISIT_STATUS_OPTIONS } from "./atlasLabels";
 
 export type AtlasProjection = "globe" | "mercator";
@@ -7,19 +8,7 @@ export type MapBasemap = AtlasBasemap | "offline";
 export type RegionScope = "COUNTRY" | "ADMIN1";
 export type VisitStatusFilter = "UNVISITED" | "VISITED" | "NEEDS_TRIAGE" | "";
 export type DerivedRoleFilter = "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG" | "";
-export type PlaceCategoryFilter =
-  | "RESTAURANT"
-  | "CAFE_BAR"
-  | "HOTEL"
-  | "MUSEUM"
-  | "LANDMARK"
-  | "SACRAL"
-  | "MOUNTAIN"
-  | "WATER"
-  | "NATURE_PARK"
-  | "VIEWPOINT"
-  | "UNCATEGORIZED"
-  | "";
+export type PlaceCategoryFilter = PlaceCategory | "";
 
 export interface AtlasViewState {
   projection: AtlasProjection;

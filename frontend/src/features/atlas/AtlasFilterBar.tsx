@@ -63,6 +63,8 @@ export function AtlasFilterBar({
   onChange,
   onClear,
 }: AtlasFilterBarProps) {
+  const distinctAccountCount = new Set(accountLists.map((facet) => facet.accountLabel)).size;
+  const showAccountPrefix = distinctAccountCount >= 2;
   const activeAccountListValue =
     viewState.account.length > 0 && viewState.list.length > 0
       ? `${viewState.account}${FACET_SEPARATOR}${viewState.list}`
@@ -139,7 +141,8 @@ export function AtlasFilterBar({
             key={`${facet.accountLabel}:${facet.listName}`}
             value={`${facet.accountLabel}${FACET_SEPARATOR}${facet.listName}`}
           >
-            {facet.accountLabel} · {facet.listName} ({facet.placeCount})
+            {showAccountPrefix ? `${facet.accountLabel} · ` : ""}
+            {facet.listName} ({facet.placeCount})
           </option>
         ))}
       </select>

@@ -65,6 +65,24 @@ class RunEnrichmentBatchTest {
         assertThat(result.enabled()).isFalse();
         assertThat(result.claimedCount()).isZero();
         assertThat(result.remainingPendingCount()).isEqualTo(1);
+        assertThat(disabledRunner.startBackgroundDrainIfEnabled()).isFalse();
+    }
+
+    @Test
+    void startBackgroundDrainIfEnabledSkipsEmptyQueueAndStartsWhenPending(@TempDir Path tempDir) {
+        FakeAtlasPlaceRepository placeRepo = new FakeAtlasPlaceRepository();
+        FakeEnrichmentJobRepository jobRepo = new FakeEnrichmentJobRepository();
+        FakeOpenPoiCatalogPort catalogPort = new FakeOpenPoiCatalogPort();
+        RunEnrichmentBatch enabledRunner =
+                createRunner(tempDir, properties(true, 2, 2), placeRepo, jobRepo, catalogPort);
+
+        assertThat(enabledRunner.startBackgroundDrainIfEnabled()).isFalse();
+
+        PlaceId placeId = insertApproxPlace(placeRepo, "Wawel Castle");
+        jobRepo.addPendingEnrichment(placeId);
+        catalogPort.anchoredOutcomes.put(placeId, wawelMatch());
+
+        assertThat(enabledRunner.startBackgroundDrainIfEnabled()).isTrue();
     }
 
     @Test

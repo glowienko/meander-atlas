@@ -58,8 +58,11 @@ cat > "$E2E_BOUNDARIES_DIR/ne_10m_admin_0_countries.geojson" <<'EOF'
       "type": "Feature",
       "properties": {"ISO_A2_EH": "FR", "ADMIN": "France"},
       "geometry": {
-        "type": "Polygon",
-        "coordinates": [[[-5.0, 42.0], [8.5, 42.0], [8.5, 51.2], [-5.0, 51.2], [-5.0, 42.0]]]
+        "type": "MultiPolygon",
+        "coordinates": [
+          [[[-5.0, 42.0], [8.5, 42.0], [8.5, 51.2], [-5.0, 51.2], [-5.0, 42.0]]],
+          [[[-54.6, 2.1], [-51.6, 2.1], [-51.6, 5.7], [-54.6, 5.7], [-54.6, 2.1]]]
+        ]
       }
     },
     {
@@ -76,6 +79,22 @@ cat > "$E2E_BOUNDARIES_DIR/ne_10m_admin_0_countries.geojson" <<'EOF'
       "geometry": {
         "type": "Polygon",
         "coordinates": [[[-9.5, 36.0], [3.5, 36.0], [3.5, 41.9], [-9.5, 41.9], [-9.5, 36.0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"ISO_A2_EH": "AU", "ADMIN": "Australia"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[114.0, -39.0], [154.0, -39.0], [154.0, -11.0], [114.0, -11.0], [114.0, -39.0]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"ISO_A2_EH": "AQ", "ADMIN": "Antarctica"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-180.0, -90.0], [180.0, -90.0], [180.0, -68.0], [-180.0, -68.0], [-180.0, -90.0]]]
       }
     }
   ]

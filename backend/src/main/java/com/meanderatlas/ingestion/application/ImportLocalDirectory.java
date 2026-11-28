@@ -61,6 +61,7 @@ public class ImportLocalDirectory {
     private final AtlasFacade atlasFacade;
     private final CurrentUserProvider currentUserProvider;
     private final TransactionOperations transactionOperations;
+    private final RunEnrichmentBatch runEnrichmentBatch;
     private final ImportedPlaceResolver resolver;
 
     public ImportLocalDirectory(
@@ -69,13 +70,15 @@ public class ImportLocalDirectory {
             EnrichmentJobRepository enrichmentJobRepository,
             AtlasFacade atlasFacade,
             CurrentUserProvider currentUserProvider,
-            TransactionOperations transactionOperations) {
+            TransactionOperations transactionOperations,
+            RunEnrichmentBatch runEnrichmentBatch) {
         this.importSourcePort = importSourcePort;
         this.importRepository = importRepository;
         this.enrichmentJobRepository = enrichmentJobRepository;
         this.atlasFacade = atlasFacade;
         this.currentUserProvider = currentUserProvider;
         this.transactionOperations = transactionOperations;
+        this.runEnrichmentBatch = runEnrichmentBatch;
         this.resolver = new ImportedPlaceResolver(atlasFacade);
     }
 
@@ -108,6 +111,9 @@ public class ImportLocalDirectory {
                         .toList();
 
         LocalImportSummaryView summary = LocalImportSummaryView.fromAccounts(accountSummaries);
+        if (!activeAccounts.isEmpty()) {
+            runEnrichmentBatch.startBackgroundDrainIfEnabled();
+        }
         LOG.info(
                 "Local import finished (accounts={}, created={}, merged={}, csvCidMatched={}, queuedLookup={}, timelineMatched={}, timelineTriage={}, timelineUnmatched={})",
                 summary.accounts().size(),
@@ -209,8 +215,7 @@ public class ImportLocalDirectory {
                         .map(entry ->
                                 new ReconciledRecord(
                                         entry.recordId(),
-                                        resolver.attachByCid(
-                                                        reviewDraft(accountLabel, entry.review()))
+                                        resolver.resolve(reviewDraft(accountLabel, entry.review()))
                                                 .orElse(null)))
                         .toList();
         List<ReconciledRecord> csvOutcomes =
@@ -242,12 +247,12 @@ public class ImportLocalDirectory {
                 count(coordlessReviewOutcomes, Resolution.CidMatched.class::isInstance),
                 count(csvOutcomes, Resolution.CidMatched.class::isInstance),
                 count(
-                        csvOutcomes,
+                        allOutcomes,
                         resolution ->
                                 resolution instanceof Resolution.Materialized materialized
                                         && materialized.place().created()),
                 count(
-                        csvOutcomes,
+                        allOutcomes,
                         resolution ->
                                 resolution instanceof Resolution.Materialized materialized
                                         && !materialized.place().created()),
