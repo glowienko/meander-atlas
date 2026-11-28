@@ -15,7 +15,9 @@ import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
+import com.meanderatlas.atlas.domain.places.PlaceListMembershipTarget;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
+import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
 import com.meanderatlas.atlas.domain.places.TimelineMatchCandidate;
 import com.meanderatlas.shared.CategorySource;
@@ -308,5 +310,40 @@ class BulkUpdateAndRestoreVisitStatesTest {
                 PlaceId placeId,
                 PlaceCategory category,
                 @Nullable String subcategory) {}
+
+        @Override
+        public int deleteNonReviewMemberships(
+                UserId userId,
+                List<PlaceId> placeIds,
+                @Nullable String sourceListName,
+                String excludedAccountLabel,
+                String excludedListName) {
+            return 0;
+        }
+
+        @Override
+        public void bulkUpsertMemberships(
+                UserId userId,
+                List<PlaceId> placeIds,
+                String accountLabel,
+                String listName,
+                ListKind listKind) {}
+
+        @Override
+        public void replaceNonReviewMemberships(
+                UserId userId, PlaceId placeId, List<PlaceListMembershipTarget> targets) {}
+
+        @Override
+        public List<StoredMembership> findMembershipsForPlace(UserId userId, PlaceId placeId) {
+            return List.of();
+        }
+
+        @Override
+        public DerivedRole recomputeDerivedRole(UserId userId, PlaceId placeId) {
+            return DerivedRole.BACKLOG;
+        }
+
+        @Override
+        public void recomputeDerivedRoles(UserId userId, List<PlaceId> placeIds) {}
     }
 }

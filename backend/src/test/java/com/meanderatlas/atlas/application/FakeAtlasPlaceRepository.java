@@ -1,10 +1,12 @@
 package com.meanderatlas.atlas.application;
 
+import com.meanderatlas.atlas.domain.DerivedRoleResolver;
 import com.meanderatlas.atlas.domain.PlaceVisitState;
 import com.meanderatlas.atlas.domain.places.AtlasPlaceRepository;
 import com.meanderatlas.atlas.domain.places.MatchedPlace;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentTarget;
 import com.meanderatlas.atlas.domain.places.PlaceEnrichmentUpdate;
+import com.meanderatlas.atlas.domain.places.PlaceListMembershipTarget;
 import com.meanderatlas.atlas.domain.places.PlaceQueryFilter;
 import com.meanderatlas.atlas.domain.places.StoredMembership;
 import com.meanderatlas.atlas.domain.places.StoredPlace;
@@ -408,6 +410,84 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
             record.subcategory = subcategory;
             record.categorySource = CategorySource.MANUAL;
         }
+    }
+
+    @Override
+    public int deleteNonReviewMemberships(
+            UserId userId,
+            List<PlaceId> placeIds,
+            @Nullable String sourceListName,
+            String excludedAccountLabel,
+            String excludedListName) {
+        int removed = 0;
+        for (PlaceId placeId : placeIds) {
+            List<StoredMembership> list = memberships.get(placeId);
+            if (list != null) {
+                int before = list.size();
+                list.removeIf(m ->
+                        m.listKind() != ListKind.REVIEW
+                                && !(m.accountLabel().equals(excludedAccountLabel)
+                                        && m.listName().equals(excludedListName))
+                                && (sourceListName == null || m.listName().equals(sourceListName)));
+                removed += before - list.size();
+            }
+        }
+        return removed;
+    }
+
+    @Override
+    public void bulkUpsertMemberships(
+            UserId userId,
+            List<PlaceId> placeIds,
+            String accountLabel,
+            String listName,
+            ListKind listKind) {
+        placeIds.forEach(placeId ->
+                upsertMembership(
+                        userId, placeId, accountLabel, listName, listKind, null, null, null, null));
+    }
+
+    @Override
+    public void replaceNonReviewMemberships(
+            UserId userId, PlaceId placeId, List<PlaceListMembershipTarget> targets) {
+        Set<String> keep =
+                targets.stream()
+                        .map(t -> t.accountLabel() + "\u0000" + t.listName())
+                        .collect(Collectors.toSet());
+        List<StoredMembership> current =
+                memberships.computeIfAbsent(placeId, _ -> new ArrayList<>());
+        current.removeIf(m ->
+                m.listKind() != ListKind.REVIEW
+                        && !keep.contains(m.accountLabel() + "\u0000" + m.listName()));
+        targets.forEach(t ->
+                upsertMembership(
+                        userId,
+                        placeId,
+                        t.accountLabel(),
+                        t.listName(),
+                        t.listKind(),
+                        null,
+                        null,
+                        null,
+                        null));
+    }
+
+    @Override
+    public List<StoredMembership> findMembershipsForPlace(UserId userId, PlaceId placeId) {
+        return List.copyOf(memberships.getOrDefault(placeId, List.of()));
+    }
+
+    @Override
+    public DerivedRole recomputeDerivedRole(UserId userId, PlaceId placeId) {
+        MutablePlaceRecord record = Objects.requireNonNull(places.get(placeId));
+        record.derivedRole =
+                DerivedRoleResolver.resolve(record.category, findMembershipListKinds(placeId));
+        return record.derivedRole;
+    }
+
+    @Override
+    public void recomputeDerivedRoles(UserId userId, List<PlaceId> placeIds) {
+        placeIds.forEach(placeId -> recomputeDerivedRole(userId, placeId));
     }
 
     public static final class MutablePlaceRecord {

@@ -1,5 +1,5 @@
 import { Check, RotateCcw, X } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type AtlasPlaceView, BULK_BATCH_SIZE } from "../../api/client";
 import { categoryLabel, visitStatusLabel } from "./atlasLabels";
 import { STATUS_TEXT_COLORS, withAlpha } from "./atlasPalette";
@@ -12,6 +12,7 @@ export interface PlaceSelectionDialogProps {
   onClose: () => void;
   onMarkVisited: (selectedPlaceIds: string[]) => void;
   onMarkUnvisited: (selectedPlaceIds: string[]) => void;
+  secondaryActions?: (selectedPlaceIds: string[]) => ReactNode;
 }
 
 function idsWhere(
@@ -29,6 +30,7 @@ export function PlaceSelectionDialog({
   onClose,
   onMarkVisited,
   onMarkUnvisited,
+  secondaryActions,
 }: PlaceSelectionDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set(places.map((place) => place.id)));
@@ -49,6 +51,7 @@ export function PlaceSelectionDialog({
     );
   }, [filterText, places]);
 
+  const checkedPlaceIds = idsWhere(places, (place) => selectedIds.has(place.id));
   const checkedUnvisitedIds = idsWhere(
     places,
     (place) => selectedIds.has(place.id) && place.visitStatus !== "VISITED",
@@ -156,6 +159,12 @@ export function PlaceSelectionDialog({
           );
         })}
       </ul>
+
+      {secondaryActions && (
+        <div className="border-t border-atlas-border bg-white/40 px-5 py-3">
+          {secondaryActions(checkedPlaceIds)}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-atlas-border px-5 py-3">
         <button type="button" onClick={onClose} className="atlas-pill px-4 py-1.5">

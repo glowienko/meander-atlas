@@ -11,6 +11,7 @@ import type {
 import { AtlasFilterBar } from "./features/atlas/AtlasFilterBar";
 import { AtlasHealthPill } from "./features/atlas/AtlasHealthPill";
 import { type AtlasMapHandle, AtlasMapView, type MapViewport } from "./features/atlas/AtlasMapView";
+import { ListAssignActionBar } from "./features/atlas/ListAssignActionBar";
 import { MapLegend } from "./features/atlas/MapLegend";
 import { OVERLAY_OFFSET_STYLE } from "./features/atlas/mapGeometry";
 import { STREET_ZOOM } from "./features/atlas/mapLayers";
@@ -25,10 +26,12 @@ import {
   toFilterParams,
   useAtlasPlaces,
   useAtlasStats,
+  useListActions,
   useRegionDossier,
   useRegionSummaries,
   useVisitActions,
   withCategoryState,
+  withListsState,
   withVisitState,
 } from "./features/atlas/useAtlasQueries";
 import {
@@ -90,6 +93,8 @@ function AtlasShell() {
   const importStatusQuery = useImportStatus();
   const imports = useImportActions(notify);
   const visits = useVisitActions(notify);
+  const lists = useListActions(notify);
+  const accountLists = statsQuery.data?.accountLists ?? NO_ACCOUNT_LISTS;
 
   const places = placesQuery.data?.places ?? NO_PLACES;
   const dossierPlaces = dossierQuery.data?.places ?? NO_PLACES;
@@ -122,6 +127,11 @@ function AtlasShell() {
 
   const openBulkDialog = (dialog: Omit<BulkDialogState, "id">) =>
     setBulkDialog((previous) => ({ ...dialog, id: (previous?.id ?? 0) + 1 }));
+
+  const updateSelectedPlace =
+    <T,>(updater: (place: AtlasPlaceView, result: T) => AtlasPlaceView) =>
+    (result: T) =>
+      setSelection((previous) => (previous ? updater(previous, result) : previous));
 
   const focusPlace = (place: AtlasPlaceView) => {
     setSelection(place);
@@ -244,7 +254,7 @@ function AtlasShell() {
 
         <AtlasFilterBar
           viewState={viewState}
-          accountLists={statsQuery.data?.accountLists ?? NO_ACCOUNT_LISTS}
+          accountLists={accountLists}
           totalCount={placesQuery.data?.totalCount}
           onChange={setViewState}
           onClear={clearFilters}
@@ -287,20 +297,18 @@ function AtlasShell() {
       {selectedPlace && (
         <PlaceDetailCard
           place={selectedPlace}
-          isMutating={visits.isMutating}
+          accountLists={accountLists}
+          isMutating={visits.isMutating || lists.isMutating}
           offsetForStats={viewState.statsOpen}
           onClose={() => setSelection(null)}
           onUpdateVisitStatus={(place, status) =>
-            visits.updatePlace(place, status, (result) =>
-              setSelection((previous) => (previous ? withVisitState(previous, result) : previous)),
-            )
+            visits.updatePlace(place, status, updateSelectedPlace(withVisitState))
           }
           onUpdateCategory={(place, nextCategory) =>
-            visits.updateCategory(place, nextCategory, (result) =>
-              setSelection((previous) =>
-                previous ? withCategoryState(previous, result) : previous,
-              ),
-            )
+            visits.updateCategory(place, nextCategory, updateSelectedPlace(withCategoryState))
+          }
+          onUpdateLists={(place, nextLists) =>
+            lists.updatePlaceLists(place, nextLists, updateSelectedPlace(withListsState))
           }
         />
       )}
@@ -334,10 +342,19 @@ function AtlasShell() {
           title={bulkDialog.title}
           subtitle={bulkDialog.subtitle}
           places={bulkDialog.places}
-          isSubmitting={visits.isBulkUpdating}
+          isSubmitting={visits.isBulkUpdating || lists.isBulkAssigning}
           onClose={closeBulkDialog}
           onMarkVisited={(ids) => visits.updatePlaces(ids, "VISITED", closeBulkDialog)}
           onMarkUnvisited={(ids) => visits.updatePlaces(ids, "UNVISITED", closeBulkDialog)}
+          secondaryActions={(selectedPlaceIds) => (
+            <ListAssignActionBar
+              selectedPlaceIds={selectedPlaceIds}
+              accountLists={accountLists}
+              defaultSourceList={viewState.list}
+              isSubmitting={visits.isBulkUpdating || lists.isBulkAssigning}
+              onAssign={(request) => lists.bulkAssign(request, closeBulkDialog)}
+            />
+          )}
         />
       )}
 

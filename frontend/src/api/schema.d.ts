@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/atlas/lists/bulk-assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["bulkAssign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/atlas/places": {
         parameters: {
             query?: never;
@@ -98,6 +114,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["updateCategory"];
+        trace?: never;
+    };
+    "/api/v1/atlas/places/{id}/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateLists"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/atlas/places/{id}/visit-status": {
@@ -355,6 +387,26 @@ export interface components {
             placesTagged: number;
             skipped: boolean;
         };
+        BulkAssignListRequest: {
+            accountLabel?: string;
+            /** @enum {string} */
+            listKind?: "STARRED" | "FAVORITE" | "WANT_TO_GO" | "CUSTOM" | "REVIEW";
+            /** @enum {string} */
+            mode: "ADD" | "MOVE";
+            placeIds: string[];
+            sourceListName?: string;
+            targetListName: string;
+        };
+        BulkAssignListResultView: {
+            accountLabel: string;
+            /** Format: int32 */
+            assignedCount: number;
+            /** @enum {string} */
+            listKind: "STARRED" | "FAVORITE" | "WANT_TO_GO" | "CUSTOM" | "REVIEW";
+            /** Format: int32 */
+            removedCount: number;
+            targetListName: string;
+        };
         BulkVisitStatusRequest: {
             placeIds: string[];
             /** @enum {string} */
@@ -455,6 +507,19 @@ export interface components {
             placeId: string;
             subcategory?: string;
         };
+        PlaceListEntryRequest: {
+            accountLabel?: string;
+            /** @enum {string} */
+            listKind?: "STARRED" | "FAVORITE" | "WANT_TO_GO" | "CUSTOM" | "REVIEW";
+            listName: string;
+        };
+        PlaceListsStateView: {
+            /** @enum {string} */
+            derivedRole: "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG";
+            memberships: components["schemas"]["PlaceMembershipView"][];
+            /** Format: uuid */
+            placeId: string;
+        };
         PlaceMembershipView: {
             accountLabel: string;
             /** @enum {string} */
@@ -547,6 +612,9 @@ export interface components {
             category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED";
             subcategory?: string;
         };
+        UpdatePlaceListsRequest: {
+            lists: components["schemas"]["PlaceListEntryRequest"][];
+        };
         UpdatePlaceVisitStatusRequest: {
             /** @enum {string} */
             status: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE";
@@ -612,6 +680,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AtlasHealthView"];
+                };
+            };
+        };
+    };
+    bulkAssign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkAssignListRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkAssignListResultView"];
                 };
             };
         };
@@ -719,6 +811,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlaceCategoryStateView"];
+                };
+            };
+        };
+    };
+    updateLists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlaceListsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceListsStateView"];
                 };
             };
         };

@@ -8,6 +8,7 @@ import com.meanderatlas.TestcontainersConfiguration;
 import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
+import com.meanderatlas.shared.ListKind;
 import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
@@ -619,6 +620,105 @@ class AtlasApiE2eTest {
                                 .retrieve()
                                 .toBodilessEntity())
                 .isInstanceOf(HttpClientErrorException.BadRequest.class);
+    }
+
+    @Test
+    void managesCustomListsViaBulkAssignAndSinglePlaceListsEndpoint() {
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        UUID placeA = UUID.randomUUID();
+        UUID placeB = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO places (
+                    id, user_id, canonical_name, geom, coord_source,
+                    category, category_source, derived_role, country_code
+                )
+                VALUES
+                    (:placeA, :userId, 'List Spot A', ST_SetSRID(ST_MakePoint(19.93, 50.05), 4326),
+                     'TAKEOUT', 'LANDMARK', 'HEURISTIC', 'BACKLOG', 'PL'),
+                    (:placeB, :userId, 'List Spot B', ST_SetSRID(ST_MakePoint(19.94, 50.06), 4326),
+                     'TAKEOUT', 'HOTEL', 'HEURISTIC', 'BACKLOG', 'PL')
+                """,
+                Map.of("placeA", placeA, "placeB", placeB, "userId", USER_ID));
+        jdbc.update(
+                """
+                INSERT INTO place_memberships
+                    (id, place_id, user_id, account_label, list_name, list_kind, note)
+                VALUES
+                    (:m1, :placeA, :userId, 'personal', 'Want to go', 'WANT_TO_GO', 'Keep note'),
+                    (:m2, :placeA, :userId, 'personal', 'Reviews', 'REVIEW', 'My review'),
+                    (:m3, :placeB, :userId, 'personal', 'Want to go', 'WANT_TO_GO', NULL)
+                """,
+                Map.of(
+                        "m1",
+                        UUID.randomUUID(),
+                        "m2",
+                        UUID.randomUUID(),
+                        "m3",
+                        UUID.randomUUID(),
+                        "placeA",
+                        placeA,
+                        "placeB",
+                        placeB,
+                        "userId",
+                        USER_ID));
+
+        BulkAssignListResultView bulkCreated =
+                client.post()
+                        .uri("/api/v1/atlas/lists/bulk-assign")
+                        .body(
+                                new BulkAssignListRequest(
+                                        List.of(placeA, placeB),
+                                        "Summer Krakow",
+                                        ListKind.CUSTOM,
+                                        ListAssignMode.MOVE,
+                                        null,
+                                        null))
+                        .retrieve()
+                        .body(BulkAssignListResultView.class);
+        assertThat(bulkCreated).isNotNull();
+        assertThat(bulkCreated.assignedCount()).isEqualTo(2);
+        assertThat(bulkCreated.removedCount()).isEqualTo(2);
+        assertThat(bulkCreated.targetListName()).isEqualTo("Summer Krakow");
+
+        AtlasPlacesResponse inCustomList =
+                client.get()
+                        .uri("/api/v1/atlas/places?list=Summer Krakow")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(inCustomList).isNotNull();
+        assertThat(inCustomList.places()).hasSize(2);
+
+        PlaceListsStateView updatedSingle =
+                client.put()
+                        .uri("/api/v1/atlas/places/{id}/lists", placeB)
+                        .body(
+                                new UpdatePlaceListsRequest(
+                                        List.of(
+                                                new PlaceListEntryRequest(
+                                                        "Starred Hotels",
+                                                        ListKind.STARRED,
+                                                        "personal"))))
+                        .retrieve()
+                        .body(PlaceListsStateView.class);
+        assertThat(updatedSingle).isNotNull();
+        assertThat(updatedSingle.derivedRole()).isEqualTo(DerivedRole.PREFERRED_HOTEL);
+        assertThat(updatedSingle.memberships())
+                .extracting(PlaceMembershipView::listName)
+                .containsExactly("Starred Hotels");
+
+        PlaceListsStateView clearedSingle =
+                client.put()
+                        .uri("/api/v1/atlas/places/{id}/lists", placeA)
+                        .body(new UpdatePlaceListsRequest(List.of()))
+                        .retrieve()
+                        .body(PlaceListsStateView.class);
+        assertThat(clearedSingle).isNotNull();
+        assertThat(clearedSingle.derivedRole()).isEqualTo(DerivedRole.BACKLOG);
+        assertThat(clearedSingle.memberships())
+                .extracting(PlaceMembershipView::listName)
+                .containsExactly("Reviews");
     }
 
     private static AtlasPlaceView findById(List<AtlasPlaceView> places, UUID id) {

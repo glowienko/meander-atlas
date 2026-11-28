@@ -53,6 +53,34 @@
         "tags" : [ "atlas-health-controller" ]
       }
     },
+    "/api/v1/atlas/lists/bulk-assign" : {
+      "post" : {
+        "operationId" : "bulkAssign",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/BulkAssignListRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BulkAssignListResultView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-lists-controller" ]
+      }
+    },
     "/api/v1/atlas/places" : {
       "get" : {
         "operationId" : "places",
@@ -248,6 +276,43 @@
               "application/json" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/PlaceCategoryStateView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
+    "/api/v1/atlas/places/{id}/lists" : {
+      "put" : {
+        "operationId" : "updateLists",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpdatePlaceListsRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PlaceListsStateView"
                 }
               }
             },
@@ -876,6 +941,68 @@
         },
         "required" : [ "admin1Upserted", "countriesUpserted", "placesTagged", "skipped" ]
       },
+      "BulkAssignListRequest" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 0
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "mode" : {
+            "type" : "string",
+            "enum" : [ "ADD", "MOVE" ]
+          },
+          "placeIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "format" : "uuid"
+            },
+            "maxItems" : 500,
+            "minItems" : 0
+          },
+          "sourceListName" : {
+            "type" : "string",
+            "maxLength" : 160,
+            "minLength" : 0
+          },
+          "targetListName" : {
+            "type" : "string",
+            "maxLength" : 160,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "mode", "placeIds", "targetListName" ]
+      },
+      "BulkAssignListResultView" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string"
+          },
+          "assignedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "removedCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "targetListName" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "accountLabel", "assignedCount", "listKind", "removedCount", "targetListName" ]
+      },
       "BulkVisitStatusRequest" : {
         "type" : "object",
         "properties" : {
@@ -1117,6 +1244,46 @@
         },
         "required" : [ "category", "categorySource", "placeId" ]
       },
+      "PlaceListEntryRequest" : {
+        "type" : "object",
+        "properties" : {
+          "accountLabel" : {
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 0
+          },
+          "listKind" : {
+            "type" : "string",
+            "enum" : [ "STARRED", "FAVORITE", "WANT_TO_GO", "CUSTOM", "REVIEW" ]
+          },
+          "listName" : {
+            "type" : "string",
+            "maxLength" : 160,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "listName" ]
+      },
+      "PlaceListsStateView" : {
+        "type" : "object",
+        "properties" : {
+          "derivedRole" : {
+            "type" : "string",
+            "enum" : [ "PREFERRED_HOTEL", "MUST_SEE", "FAVORITE", "BACKLOG" ]
+          },
+          "memberships" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PlaceMembershipView"
+            }
+          },
+          "placeId" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        },
+        "required" : [ "derivedRole", "memberships", "placeId" ]
+      },
       "PlaceMembershipView" : {
         "type" : "object",
         "properties" : {
@@ -1345,6 +1512,20 @@
           }
         },
         "required" : [ "category" ]
+      },
+      "UpdatePlaceListsRequest" : {
+        "type" : "object",
+        "properties" : {
+          "lists" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PlaceListEntryRequest"
+            },
+            "maxItems" : 50,
+            "minItems" : 0
+          }
+        },
+        "required" : [ "lists" ]
       },
       "UpdatePlaceVisitStatusRequest" : {
         "type" : "object",

@@ -6,10 +6,12 @@ import com.meanderatlas.atlas.AtlasPlacesResponse;
 import com.meanderatlas.atlas.BulkVisitStatusRequest;
 import com.meanderatlas.atlas.BulkVisitStatusResultView;
 import com.meanderatlas.atlas.PlaceCategoryStateView;
+import com.meanderatlas.atlas.PlaceListsStateView;
 import com.meanderatlas.atlas.PlaceVisitStateView;
 import com.meanderatlas.atlas.RestoreVisitStatesRequest;
 import com.meanderatlas.atlas.RestoreVisitStatesResultView;
 import com.meanderatlas.atlas.UpdatePlaceCategoryRequest;
+import com.meanderatlas.atlas.UpdatePlaceListsRequest;
 import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.PlaceCategory;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -83,6 +86,15 @@ class AtlasPlacesController {
     PlaceCategoryStateView updateCategory(
             @PathVariable UUID id, @Valid @RequestBody UpdatePlaceCategoryRequest request) {
         return atlasFacade.updatePlaceCategory(id, request);
+    }
+
+    @PutMapping(
+            value = "/{id}/lists",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    PlaceListsStateView updateLists(
+            @PathVariable UUID id, @Valid @RequestBody UpdatePlaceListsRequest request) {
+        return atlasFacade.updatePlaceLists(id, request);
     }
 
     @PatchMapping(

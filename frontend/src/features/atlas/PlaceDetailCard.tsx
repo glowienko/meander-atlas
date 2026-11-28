@@ -1,16 +1,25 @@
 import { CheckCircle2, Compass, ExternalLink, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
-import type { AtlasPlaceView, PlaceCategory, VisitStatus } from "../../api/client";
+import type {
+  AccountListFacetView,
+  AtlasPlaceView,
+  PlaceCategory,
+  PlaceListEntryRequest,
+  VisitStatus,
+} from "../../api/client";
 import { CATEGORY_OPTIONS, derivedRoleLabel, visitStatusLabel } from "./atlasLabels";
 import { STATUS_COLORS, withAlpha } from "./atlasPalette";
+import { PlaceListEditor } from "./PlaceListEditor";
 
 interface PlaceDetailCardProps {
   place: AtlasPlaceView;
+  accountLists: readonly AccountListFacetView[];
   isMutating: boolean;
   offsetForStats?: boolean;
   onClose: () => void;
   onUpdateVisitStatus: (place: AtlasPlaceView, nextStatus: VisitStatus) => void;
   onUpdateCategory: (place: AtlasPlaceView, nextCategory: PlaceCategory) => void;
+  onUpdateLists: (place: AtlasPlaceView, lists: PlaceListEntryRequest[]) => void;
 }
 
 const VISIT_DATE_FORMATTER = new Intl.DateTimeFormat("en", {
@@ -47,11 +56,13 @@ export function formatVisitDates(
 
 export function PlaceDetailCard({
   place,
+  accountLists,
   isMutating,
   offsetForStats = false,
   onClose,
   onUpdateVisitStatus,
   onUpdateCategory,
+  onUpdateLists,
 }: PlaceDetailCardProps) {
   const [failedPhotoUrl, setFailedPhotoUrl] = useState<string | null>(null);
   const safeExternalUrl = place.memberships.find(
@@ -183,20 +194,12 @@ export function PlaceDetailCard({
           </p>
         )}
 
-        {place.memberships.length > 0 && (
-          <ul className="mt-3 divide-y divide-atlas-border border-t border-atlas-border">
-            {place.memberships.map((m) => (
-              <li key={`${m.accountLabel}:${m.listName}`} className="py-2 text-sm">
-                <div className="font-medium">
-                  {m.accountLabel} · {m.listName}
-                </div>
-                {m.note && (
-                  <div className="mt-0.5 text-[13px] italic text-atlas-muted">{m.note}</div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        <PlaceListEditor
+          place={place}
+          accountLists={accountLists}
+          isMutating={isMutating}
+          onUpdateLists={onUpdateLists}
+        />
 
         <div className="mt-3 flex items-center justify-between gap-2">
           {place.visitStatus === "VISITED" ? (

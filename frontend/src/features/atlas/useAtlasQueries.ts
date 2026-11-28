@@ -2,17 +2,22 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import {
   type AtlasFilterParams,
   type AtlasPlaceView,
+  type BulkAssignListRequest,
   fetchAtlasPlaces,
   fetchAtlasStats,
   fetchRegionDossier,
   fetchRegionSummaries,
   type PlaceCategory,
   type PlaceCategoryStateView,
+  type PlaceListEntryRequest,
+  type PlaceListsStateView,
   type PlaceVisitStateView,
   patchBulkVisitStatus,
   patchPlaceCategory,
   patchPlaceVisitStatus,
+  postBulkAssignList,
   postRestoreVisitStates,
+  putPlaceLists,
   type RegionLevel,
   type VisitStateSnapshotView,
   type VisitStatus,
@@ -150,6 +155,68 @@ export function withCategoryState(
         categorySource: state.categorySource,
       }
     : place;
+}
+
+export function withListsState(place: AtlasPlaceView, state: PlaceListsStateView): AtlasPlaceView {
+  return place.id === state.placeId
+    ? {
+        ...place,
+        derivedRole: state.derivedRole,
+        memberships: state.memberships,
+      }
+    : place;
+}
+
+export function useListActions(notify: NotifyVisitChange) {
+  const queryClient = useQueryClient();
+  const bulkAssignMutation = useMutation({
+    mutationFn: (request: BulkAssignListRequest) => postBulkAssignList(request),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["atlas"] });
+    },
+  });
+  const updateSingleMutation = useMutation({
+    mutationFn: ({
+      placeId,
+      lists,
+    }: {
+      placeId: string;
+      lists: readonly PlaceListEntryRequest[];
+    }) => putPlaceLists(placeId, lists),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["atlas"] });
+    },
+  });
+  return {
+    isMutating: bulkAssignMutation.isPending || updateSingleMutation.isPending,
+    isBulkAssigning: bulkAssignMutation.isPending,
+    bulkAssign: (request: BulkAssignListRequest, onSettled: () => void) =>
+      bulkAssignMutation.mutate(request, {
+        onSuccess: (result) => {
+          const verb = request.mode === "MOVE" ? "Moved" : "Added";
+          notify(
+            `${verb} ${result.assignedCount} place${result.assignedCount === 1 ? "" : "s"} to ${result.targetListName}`,
+          );
+        },
+        onError: () => notify("Could not update list memberships"),
+        onSettled,
+      }),
+    updatePlaceLists: (
+      place: AtlasPlaceView,
+      lists: readonly PlaceListEntryRequest[],
+      onUpdated: (result: PlaceListsStateView) => void = () => undefined,
+    ) =>
+      updateSingleMutation.mutate(
+        { placeId: place.id, lists },
+        {
+          onSuccess: (result) => {
+            onUpdated(result);
+            notify(`Updated lists for ${place.canonicalName}`);
+          },
+          onError: () => notify(`Could not update lists for ${place.canonicalName}`),
+        },
+      ),
+  };
 }
 
 export function useVisitActions(notify: NotifyVisitChange) {

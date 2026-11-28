@@ -10,6 +10,12 @@ export type AtlasStatsView = components["schemas"]["AtlasStatsView"];
 export type AccountListFacetView = components["schemas"]["AccountListFacetView"];
 export type PlaceVisitStateView = components["schemas"]["PlaceVisitStateView"];
 export type PlaceCategoryStateView = components["schemas"]["PlaceCategoryStateView"];
+export type PlaceListsStateView = components["schemas"]["PlaceListsStateView"];
+export type PlaceListEntryRequest = components["schemas"]["PlaceListEntryRequest"];
+export type BulkAssignListRequest = components["schemas"]["BulkAssignListRequest"];
+export type BulkAssignListResultView = components["schemas"]["BulkAssignListResultView"];
+export type ListAssignMode = BulkAssignListRequest["mode"];
+export type ListKind = AccountListFacetView["listKind"];
 export type BulkVisitStatusResultView = components["schemas"]["BulkVisitStatusResultView"];
 export type RestoreVisitStatesResultView = components["schemas"]["RestoreVisitStatesResultView"];
 export type VisitStateSnapshotView = components["schemas"]["VisitStateSnapshotView"];
@@ -135,6 +141,40 @@ export async function patchPlaceCategory(
     }),
     "Update place category",
   );
+}
+
+export async function putPlaceLists(
+  placeId: string,
+  lists: readonly PlaceListEntryRequest[],
+): Promise<PlaceListsStateView> {
+  return unwrapResponse(
+    await apiClient.PUT("/api/v1/atlas/places/{id}/lists", {
+      params: { path: { id: placeId } },
+      body: { lists: [...lists] },
+    }),
+    "Update place lists",
+  );
+}
+
+export async function postBulkAssignList(
+  request: BulkAssignListRequest,
+): Promise<BulkAssignListResultView> {
+  const results = await sendInChunks(request.placeIds, async (batch) =>
+    unwrapResponse(
+      await apiClient.POST("/api/v1/atlas/lists/bulk-assign", {
+        body: { ...request, placeIds: batch },
+      }),
+      "Bulk assign places to list",
+    ),
+  );
+  const first = results[0];
+  return {
+    assignedCount: sum(results.map((result) => result.assignedCount)),
+    removedCount: sum(results.map((result) => result.removedCount)),
+    accountLabel: first?.accountLabel ?? request.accountLabel ?? "personal",
+    targetListName: first?.targetListName ?? request.targetListName,
+    listKind: first?.listKind ?? request.listKind ?? "CUSTOM",
+  };
 }
 
 export const BULK_BATCH_SIZE = 500;

@@ -4,6 +4,7 @@ import {
   BULK_BATCH_SIZE,
   chunkItems,
   patchBulkVisitStatus,
+  postBulkAssignList,
   postRestoreVisitStates,
   type VisitStateSnapshotView,
 } from "./client";
@@ -128,5 +129,38 @@ describe("api client bulk chunking", () => {
     expect(postSpy).toHaveBeenCalledTimes(2);
     expect(batchLengths).toEqual([500, 101]);
     expect(result).toEqual({ restoredCount: 601 });
+  });
+
+  it("chunks postBulkAssignList in batches of 500 and aggregates counts", async () => {
+    const batchLengths: number[] = [];
+    const postSpy = vi.spyOn(apiClient, "POST").mockImplementation((async (
+      _url: string,
+      options?: { body?: { placeIds: string[]; targetListName: string } },
+    ) => {
+      const placeIds = options?.body?.placeIds ?? [];
+      batchLengths.push(placeIds.length);
+      return {
+        data: {
+          assignedCount: placeIds.length,
+          removedCount: placeIds.length,
+          accountLabel: "personal",
+          targetListName: options?.body?.targetListName ?? "Trip",
+          listKind: "CUSTOM",
+        },
+        response: new Response(null, { status: 200 }),
+      };
+    }) as typeof apiClient.POST);
+
+    const ids = Array.from({ length: 502 }, (_, i) => `id-${i}`);
+    const result = await postBulkAssignList({
+      placeIds: ids,
+      targetListName: "Trip",
+      listKind: "CUSTOM",
+      mode: "MOVE",
+    });
+    expect(postSpy).toHaveBeenCalledTimes(2);
+    expect(batchLengths).toEqual([500, 2]);
+    expect(result.assignedCount).toBe(502);
+    expect(result.removedCount).toBe(502);
   });
 });

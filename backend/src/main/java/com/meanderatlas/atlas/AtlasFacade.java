@@ -2,6 +2,7 @@ package com.meanderatlas.atlas;
 
 import com.meanderatlas.atlas.application.ApplyPlaceEnrichment;
 import com.meanderatlas.atlas.application.AttachCsvMembershipByCid;
+import com.meanderatlas.atlas.application.BulkAssignPlacesToList;
 import com.meanderatlas.atlas.application.BulkUpdatePlaceVisitStatus;
 import com.meanderatlas.atlas.application.FindPlaceEnrichmentTargets;
 import com.meanderatlas.atlas.application.FindPlacesNeedingEnrichment;
@@ -15,6 +16,7 @@ import com.meanderatlas.atlas.application.ReconcileTimelineVisit;
 import com.meanderatlas.atlas.application.RestorePlaceVisitStates;
 import com.meanderatlas.atlas.application.SeedRegionBoundaries;
 import com.meanderatlas.atlas.application.UpdatePlaceCategory;
+import com.meanderatlas.atlas.application.UpdatePlaceLists;
 import com.meanderatlas.atlas.application.UpdatePlaceVisitStatus;
 import com.meanderatlas.atlas.application.UpsertImportedPlace;
 import com.meanderatlas.shared.PlaceId;
@@ -36,6 +38,8 @@ public class AtlasFacade {
     private final GetAtlasStats getAtlasStats;
     private final UpdatePlaceVisitStatus updatePlaceVisitStatus;
     private final UpdatePlaceCategory updatePlaceCategory;
+    private final UpdatePlaceLists updatePlaceLists;
+    private final BulkAssignPlacesToList bulkAssignPlacesToList;
     private final BulkUpdatePlaceVisitStatus bulkUpdatePlaceVisitStatus;
     private final RestorePlaceVisitStates restorePlaceVisitStates;
     private final UpsertImportedPlace upsertImportedPlace;
@@ -55,6 +59,8 @@ public class AtlasFacade {
             GetAtlasStats getAtlasStats,
             UpdatePlaceVisitStatus updatePlaceVisitStatus,
             UpdatePlaceCategory updatePlaceCategory,
+            UpdatePlaceLists updatePlaceLists,
+            BulkAssignPlacesToList bulkAssignPlacesToList,
             BulkUpdatePlaceVisitStatus bulkUpdatePlaceVisitStatus,
             RestorePlaceVisitStates restorePlaceVisitStates,
             UpsertImportedPlace upsertImportedPlace,
@@ -72,6 +78,8 @@ public class AtlasFacade {
         this.getAtlasStats = getAtlasStats;
         this.updatePlaceVisitStatus = updatePlaceVisitStatus;
         this.updatePlaceCategory = updatePlaceCategory;
+        this.updatePlaceLists = updatePlaceLists;
+        this.bulkAssignPlacesToList = bulkAssignPlacesToList;
         this.bulkUpdatePlaceVisitStatus = bulkUpdatePlaceVisitStatus;
         this.restorePlaceVisitStates = restorePlaceVisitStates;
         this.upsertImportedPlace = upsertImportedPlace;
@@ -120,6 +128,14 @@ public class AtlasFacade {
     public PlaceCategoryStateView updatePlaceCategory(
             UUID placeId, UpdatePlaceCategoryRequest request) {
         return updatePlaceCategory.execute(placeId, request);
+    }
+
+    public PlaceListsStateView updatePlaceLists(UUID placeId, UpdatePlaceListsRequest request) {
+        return updatePlaceLists.execute(placeId, request);
+    }
+
+    public BulkAssignListResultView bulkAssignPlacesToList(BulkAssignListRequest request) {
+        return bulkAssignPlacesToList.execute(request);
     }
 
     public BulkVisitStatusResultView bulkUpdatePlaceVisitStatus(BulkVisitStatusRequest request) {
