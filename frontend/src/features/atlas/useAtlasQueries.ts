@@ -6,14 +6,18 @@ import {
   fetchAtlasStats,
   fetchRegionDossier,
   fetchRegionSummaries,
+  type PlaceCategory,
+  type PlaceCategoryStateView,
   type PlaceVisitStateView,
   patchBulkVisitStatus,
+  patchPlaceCategory,
   patchPlaceVisitStatus,
   postRestoreVisitStates,
   type RegionLevel,
   type VisitStateSnapshotView,
   type VisitStatus,
 } from "../../api/client";
+import { categoryLabel } from "./atlasLabels";
 import type { AtlasViewState } from "./viewState";
 
 export function toFilterParams(state: AtlasViewState): AtlasFilterParams {
@@ -83,6 +87,17 @@ function useUpdatePlaceVisitStatus() {
   });
 }
 
+function useUpdatePlaceCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ placeId, category }: { placeId: string; category: PlaceCategory }) =>
+      patchPlaceCategory(placeId, category),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["atlas"] });
+    },
+  });
+}
+
 export function useBulkUpdateVisitStatus() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -123,14 +138,44 @@ export function withVisitState(place: AtlasPlaceView, state: PlaceVisitStateView
     : place;
 }
 
+export function withCategoryState(
+  place: AtlasPlaceView,
+  state: PlaceCategoryStateView,
+): AtlasPlaceView {
+  return place.id === state.placeId
+    ? {
+        ...place,
+        category: state.category,
+        subcategory: state.subcategory,
+        categorySource: state.categorySource,
+      }
+    : place;
+}
+
 export function useVisitActions(notify: NotifyVisitChange) {
   const single = useUpdatePlaceVisitStatus();
+  const category = useUpdatePlaceCategory();
   const bulk = useBulkUpdateVisitStatus();
   const restore = useRestoreVisitStates();
   return {
-    isMutating: single.isPending || bulk.isPending || restore.isPending,
+    isMutating: single.isPending || category.isPending || bulk.isPending || restore.isPending,
     isBulkUpdating: bulk.isPending,
     isRestoring: restore.isPending,
+    updateCategory: (
+      place: AtlasPlaceView,
+      nextCategory: PlaceCategory,
+      onUpdated: (result: PlaceCategoryStateView) => void = () => undefined,
+    ) =>
+      category.mutate(
+        { placeId: place.id, category: nextCategory },
+        {
+          onSuccess: (result) => {
+            onUpdated(result);
+            notify(`Updated ${place.canonicalName} category to ${categoryLabel(nextCategory)}`);
+          },
+          onError: () => notify(`Could not update category for ${place.canonicalName}`),
+        },
+      ),
     updatePlace: (
       place: AtlasPlaceView,
       status: VisitStatus,

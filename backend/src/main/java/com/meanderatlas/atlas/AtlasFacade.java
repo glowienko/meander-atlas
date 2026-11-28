@@ -14,6 +14,7 @@ import com.meanderatlas.atlas.application.QueryAtlasPlaces;
 import com.meanderatlas.atlas.application.ReconcileTimelineVisit;
 import com.meanderatlas.atlas.application.RestorePlaceVisitStates;
 import com.meanderatlas.atlas.application.SeedRegionBoundaries;
+import com.meanderatlas.atlas.application.UpdatePlaceCategory;
 import com.meanderatlas.atlas.application.UpdatePlaceVisitStatus;
 import com.meanderatlas.atlas.application.UpsertImportedPlace;
 import com.meanderatlas.shared.PlaceId;
@@ -34,6 +35,7 @@ public class AtlasFacade {
     private final GetRegionDossier getRegionDossier;
     private final GetAtlasStats getAtlasStats;
     private final UpdatePlaceVisitStatus updatePlaceVisitStatus;
+    private final UpdatePlaceCategory updatePlaceCategory;
     private final BulkUpdatePlaceVisitStatus bulkUpdatePlaceVisitStatus;
     private final RestorePlaceVisitStates restorePlaceVisitStates;
     private final UpsertImportedPlace upsertImportedPlace;
@@ -52,6 +54,7 @@ public class AtlasFacade {
             GetRegionDossier getRegionDossier,
             GetAtlasStats getAtlasStats,
             UpdatePlaceVisitStatus updatePlaceVisitStatus,
+            UpdatePlaceCategory updatePlaceCategory,
             BulkUpdatePlaceVisitStatus bulkUpdatePlaceVisitStatus,
             RestorePlaceVisitStates restorePlaceVisitStates,
             UpsertImportedPlace upsertImportedPlace,
@@ -68,6 +71,7 @@ public class AtlasFacade {
         this.getRegionDossier = getRegionDossier;
         this.getAtlasStats = getAtlasStats;
         this.updatePlaceVisitStatus = updatePlaceVisitStatus;
+        this.updatePlaceCategory = updatePlaceCategory;
         this.bulkUpdatePlaceVisitStatus = bulkUpdatePlaceVisitStatus;
         this.restorePlaceVisitStates = restorePlaceVisitStates;
         this.upsertImportedPlace = upsertImportedPlace;
@@ -111,6 +115,11 @@ public class AtlasFacade {
     public PlaceVisitStateView updatePlaceVisitStatus(
             UUID placeId, UpdatePlaceVisitStatusRequest request) {
         return updatePlaceVisitStatus.execute(placeId, request);
+    }
+
+    public PlaceCategoryStateView updatePlaceCategory(
+            UUID placeId, UpdatePlaceCategoryRequest request) {
+        return updatePlaceCategory.execute(placeId, request);
     }
 
     public BulkVisitStatusResultView bulkUpdatePlaceVisitStatus(BulkVisitStatusRequest request) {

@@ -12,11 +12,11 @@ describe("pinIcons", () => {
     vi.restoreAllMocks();
   });
 
-  it("defines unique icon IDs for all 10 non-UNCATEGORIZED categories", () => {
-    expect(PIN_ICON_CATEGORY_LIST).toHaveLength(10);
-    expect(Object.keys(PIN_ICON_IDS)).toHaveLength(10);
+  it("defines unique icon IDs for all 16 non-UNCATEGORIZED categories", () => {
+    expect(PIN_ICON_CATEGORY_LIST).toHaveLength(16);
+    expect(Object.keys(PIN_ICON_IDS)).toHaveLength(16);
     const uniqueIds = new Set(Object.values(PIN_ICON_IDS));
-    expect(uniqueIds.size).toBe(10);
+    expect(uniqueIds.size).toBe(16);
   });
 
   it("handles missing canvas 2d context gracefully and ignores unknown icon IDs", () => {
@@ -43,7 +43,7 @@ describe("pinIcons", () => {
     expect(addImage).not.toHaveBeenCalled();
   });
 
-  it("registers all 10 retina icons when canvas 2d context is available and skips duplicates", () => {
+  it("registers all 16 retina icons when canvas 2d context is available and skips duplicates", () => {
     const registered = new Set<string>();
     const addImage = vi.fn((id: string) => {
       registered.add(id);
@@ -87,7 +87,7 @@ describe("pinIcons", () => {
     });
 
     registerCategoryPinIcons(fakeMap);
-    expect(addImage).toHaveBeenCalledTimes(10);
+    expect(addImage).toHaveBeenCalledTimes(16);
     for (const category of PIN_ICON_CATEGORY_LIST) {
       expect(addImage).toHaveBeenCalledWith(
         PIN_ICON_IDS[category],
@@ -97,6 +97,6 @@ describe("pinIcons", () => {
     }
 
     registerCategoryPinIcons(fakeMap);
-    expect(addImage).toHaveBeenCalledTimes(10);
+    expect(addImage).toHaveBeenCalledTimes(16);
   });
 });

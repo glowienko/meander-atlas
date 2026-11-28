@@ -139,12 +139,21 @@ class PlaceCategoryClassifierTest {
                 .isEqualTo(PlaceCategory.UNCATEGORIZED);
         assertThat(PlaceCategoryClassifier.classify("Galeria Krakowska", null, null).category())
                 .isEqualTo(PlaceCategory.UNCATEGORIZED);
-        assertThat(
-                        PlaceCategoryClassifier.classify("Q-Park Markt Hilversum", null, null)
-                                .category())
-                .isEqualTo(PlaceCategory.UNCATEGORIZED);
-        assertThat(PlaceCategoryClassifier.classify("Central Car Park", null, null).category())
-                .isEqualTo(PlaceCategory.UNCATEGORIZED);
+        assertClassified("Q-Park Markt Hilversum", PlaceCategory.PARKING, "parking");
+        assertClassified("Central Car Park", PlaceCategory.PARKING, "parking");
+        assertClassified("Supermercado El Cotillo", PlaceCategory.GROCERIES, "supermarket");
+        assertClassified("Albert Heijn Hilversum", PlaceCategory.GROCERIES, "supermarket");
+        assertClassified("Biedronka Centrum", PlaceCategory.GROCERIES, "supermarket");
+        assertClassified("Farmacia Central", PlaceCategory.PHARMACY, "pharmacy");
+        assertClassified("Apteka Całodobowa", PlaceCategory.PHARMACY, "pharmacy");
+        assertClassified("Apotheek Centrum", PlaceCategory.PHARMACY, "pharmacy");
+        assertClassified("Public Toilet Park", PlaceCategory.RESTROOM, "restroom");
+        assertClassified("Toaleta Publiczna WC", PlaceCategory.RESTROOM, "restroom");
+        assertClassified("Dworzec Główny", PlaceCategory.TRANSPORT, "station");
+        assertClassified("Amsterdam Centraal", PlaceCategory.TRANSPORT, "station");
+        assertClassified("Schiphol Airport", PlaceCategory.TRANSPORT, "airport");
+        assertClassified("Decathlon Zakopianka", PlaceCategory.SHOPPING, "outdoor_gear");
+        assertClassified("Centrum Handlowe Arkadia", PlaceCategory.SHOPPING, "mall");
     }
 
     @Test

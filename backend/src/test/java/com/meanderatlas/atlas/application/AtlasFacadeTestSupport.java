@@ -32,6 +32,7 @@ public final class AtlasFacadeTestSupport {
                 new GetRegionDossier(statsRepo, placeRepo, userProvider),
                 new GetAtlasStats(statsRepo, userProvider),
                 new UpdatePlaceVisitStatus(placeRepo, userProvider, Clock.systemUTC()),
+                new UpdatePlaceCategory(placeRepo, userProvider),
                 new BulkUpdatePlaceVisitStatus(placeRepo, userProvider, Clock.systemUTC()),
                 new RestorePlaceVisitStates(placeRepo, userProvider),
                 new UpsertImportedPlace(placeRepo, userProvider, merger),

@@ -696,6 +696,26 @@ class JdbcAtlasPlaceRepository implements AtlasPlaceRepository {
     }
 
     @Override
+    public void updateManualCategory(
+            UserId userId, PlaceId placeId, PlaceCategory category, @Nullable String subcategory) {
+        jdbcTemplate.update(
+                """
+                UPDATE places
+                SET category = :category,
+                    subcategory = :subcategory,
+                    category_source = 'MANUAL',
+                    updated_at = now()
+                WHERE id = :placeId
+                  AND user_id = :userId
+                """,
+                new MapSqlParameterSource()
+                        .addValue("placeId", placeId.value())
+                        .addValue("userId", userId.value())
+                        .addValue("category", category.name())
+                        .addValue("subcategory", subcategory, Types.VARCHAR));
+    }
+
+    @Override
     public List<PlaceEnrichmentTarget> findEnrichmentTargets(
             UserId userId, List<PlaceId> placeIds) {
         if (placeIds.isEmpty()) {

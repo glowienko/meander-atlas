@@ -28,6 +28,7 @@ import {
   useRegionDossier,
   useRegionSummaries,
   useVisitActions,
+  withCategoryState,
   withVisitState,
 } from "./features/atlas/useAtlasQueries";
 import {
@@ -292,6 +293,13 @@ function AtlasShell() {
           onUpdateVisitStatus={(place, status) =>
             visits.updatePlace(place, status, (result) =>
               setSelection((previous) => (previous ? withVisitState(previous, result) : previous)),
+            )
+          }
+          onUpdateCategory={(place, nextCategory) =>
+            visits.updateCategory(place, nextCategory, (result) =>
+              setSelection((previous) =>
+                previous ? withCategoryState(previous, result) : previous,
+              ),
             )
           }
         />

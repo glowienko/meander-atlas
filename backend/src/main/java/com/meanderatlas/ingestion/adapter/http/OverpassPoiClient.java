@@ -26,7 +26,7 @@ class OverpassPoiClient {
     private static final int MAX_OVERPASS_CLAUSES_PER_BATCH = 10;
     private static final double SPATIAL_CELL_DEGREES = 2.0;
     private static final String POI_KEY_REGEX =
-            "^(tourism|amenity|natural|historic|leisure|shop|craft|man_made|waterway|boundary|railway|aeroway)$";
+            "^(tourism|amenity|natural|historic|leisure|shop|craft|man_made|waterway|boundary|railway|aeroway|public_transport|aerialway)$";
 
     private final OpenDataHttp http;
     private final EnrichmentProperties properties;

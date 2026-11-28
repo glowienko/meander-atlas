@@ -1,7 +1,7 @@
 import { CheckCircle2, Compass, ExternalLink, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
-import type { AtlasPlaceView, VisitStatus } from "../../api/client";
-import { categoryLabel, derivedRoleLabel, visitStatusLabel } from "./atlasLabels";
+import type { AtlasPlaceView, PlaceCategory, VisitStatus } from "../../api/client";
+import { CATEGORY_OPTIONS, derivedRoleLabel, visitStatusLabel } from "./atlasLabels";
 import { STATUS_COLORS, withAlpha } from "./atlasPalette";
 
 interface PlaceDetailCardProps {
@@ -10,6 +10,7 @@ interface PlaceDetailCardProps {
   offsetForStats?: boolean;
   onClose: () => void;
   onUpdateVisitStatus: (place: AtlasPlaceView, nextStatus: VisitStatus) => void;
+  onUpdateCategory: (place: AtlasPlaceView, nextCategory: PlaceCategory) => void;
 }
 
 const VISIT_DATE_FORMATTER = new Intl.DateTimeFormat("en", {
@@ -50,6 +51,7 @@ export function PlaceDetailCard({
   offsetForStats = false,
   onClose,
   onUpdateVisitStatus,
+  onUpdateCategory,
 }: PlaceDetailCardProps) {
   const [failedPhotoUrl, setFailedPhotoUrl] = useState<string | null>(null);
   const safeExternalUrl = place.memberships.find(
@@ -66,7 +68,6 @@ export function PlaceDetailCard({
   const locationSummary =
     [place.cityName, place.admin1Name, place.countryCode].filter(Boolean).join(" · ") ||
     `${place.lat.toFixed(4)}, ${place.lng.toFixed(4)}`;
-  const categorySummary = `${categoryLabel(place.category)}${place.subcategory ? ` · ${place.subcategory}` : ""}`;
   const visitDates = formatVisitDates(place.firstVisitedAt, place.lastVisitedAt);
 
   return (
@@ -135,8 +136,6 @@ export function PlaceDetailCard({
           <span className="text-atlas-accent">{visitStatusLabel(place.visitStatus)}</span>
           {" · "}
           <span className="text-atlas-muted">{derivedRoleLabel(place.derivedRole)}</span>
-          {" · "}
-          <span>{categorySummary}</span>
           {place.visitCount > 0 && (
             <span className="text-atlas-muted">
               {" · "}
@@ -144,6 +143,36 @@ export function PlaceDetailCard({
             </span>
           )}
         </p>
+
+        <div className="mt-2 flex items-center gap-2 text-[12px] text-atlas-muted">
+          <label htmlFor="place-category-select" className="shrink-0 font-medium">
+            Category
+          </label>
+          <select
+            id="place-category-select"
+            data-testid="place-category-select"
+            aria-label="Place category"
+            disabled={isMutating}
+            value={place.category}
+            onChange={(event) => onUpdateCategory(place, event.target.value as PlaceCategory)}
+            className="h-7 min-w-0 flex-1 cursor-pointer rounded-full border border-atlas-border bg-white/80 px-2.5 text-[12px] text-atlas-ink outline-none focus:border-atlas-accent disabled:opacity-50"
+          >
+            {CATEGORY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          {place.subcategory && <span className="truncate">{place.subcategory}</span>}
+          {place.categorySource === "MANUAL" && (
+            <span
+              data-testid="place-category-manual-badge"
+              className="shrink-0 rounded-full bg-atlas-accent-soft px-2 py-0.5 text-[10px] font-medium text-atlas-accent"
+            >
+              Manual
+            </span>
+          )}
+        </div>
 
         {visitDates && (
           <p

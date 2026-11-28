@@ -8,7 +8,7 @@ import { PlaceSelectionDialog } from "./PlaceSelectionDialog";
 import { RegionDossierDrawer } from "./RegionDossierDrawer";
 import { TravelStatsPanel } from "./TravelStatsPanel";
 import { UndoToast } from "./UndoToast";
-import { withVisitState } from "./useAtlasQueries";
+import { withCategoryState, withVisitState } from "./useAtlasQueries";
 import { defaultAtlasViewState } from "./viewState";
 
 const SAMPLE_PLACE: AtlasPlaceView = {
@@ -100,21 +100,27 @@ describe("Living Atlas components", () => {
     expect(onOpenBulkVisit).toHaveBeenCalledWith([SAMPLE_PLACE], "Mark Poland places visited");
   });
 
-  it("sanitizes external URLs in PlaceDetailCard and triggers status update", () => {
+  it("sanitizes external URLs in PlaceDetailCard and triggers status and category updates", () => {
     const onUpdateVisitStatus = vi.fn();
+    const onUpdateCategory = vi.fn();
     const { rerender } = render(
       <PlaceDetailCard
         place={SAMPLE_PLACE}
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={onUpdateVisitStatus}
+        onUpdateCategory={onUpdateCategory}
       />,
     );
 
     const card = screen.getByTestId("place-detail-card");
     expect(card).toHaveTextContent("Wawel Royal Castle");
     expect(card).toHaveTextContent("Bucket list");
-    expect(card).toHaveTextContent("Landmarks · castle");
+    expect(card).toHaveTextContent("castle");
+    const categorySelect = screen.getByTestId("place-category-select");
+    expect(categorySelect).toHaveValue("LANDMARK");
+    fireEvent.change(categorySelect, { target: { value: "GROCERIES" } });
+    expect(onUpdateCategory).toHaveBeenCalledWith(SAMPLE_PLACE, "GROCERIES");
     const link = screen.getByRole("link", { name: /Google Maps/i });
     expect(link).toHaveAttribute("href", "https://maps.google.com/?cid=123");
 
@@ -125,6 +131,8 @@ describe("Living Atlas components", () => {
       ...SAMPLE_PLACE,
       visitStatus: "VISITED",
       visitCount: 2,
+      category: "GROCERIES",
+      categorySource: "MANUAL",
       memberships: [
         {
           accountLabel: "personal",
@@ -140,11 +148,13 @@ describe("Living Atlas components", () => {
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={onUpdateVisitStatus}
+        onUpdateCategory={onUpdateCategory}
       />,
     );
 
     expect(screen.queryByRole("link", { name: /Google Maps/i })).not.toBeInTheDocument();
     expect(screen.getByTestId("place-detail-card")).toHaveTextContent("2 visits");
+    expect(screen.getByTestId("place-category-manual-badge")).toHaveTextContent("Manual");
   });
 
   it("allows unchecking single places in PlaceSelectionDialog and submits remaining IDs", () => {
@@ -258,6 +268,7 @@ describe("Living Atlas components", () => {
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={vi.fn()}
+        onUpdateCategory={vi.fn()}
       />,
     );
     expect(screen.getByTestId("place-visit-dates")).toHaveTextContent(
@@ -270,6 +281,7 @@ describe("Living Atlas components", () => {
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={vi.fn()}
+        onUpdateCategory={vi.fn()}
       />,
     );
     expect(screen.queryByTestId("place-visit-dates")).not.toBeInTheDocument();
@@ -288,6 +300,7 @@ describe("Living Atlas components", () => {
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={vi.fn()}
+        onUpdateCategory={vi.fn()}
       />,
     );
 
@@ -316,6 +329,7 @@ describe("Living Atlas components", () => {
         isMutating={false}
         onClose={vi.fn()}
         onUpdateVisitStatus={vi.fn()}
+        onUpdateCategory={vi.fn()}
       />,
     );
 
@@ -441,5 +455,22 @@ describe("withVisitState", () => {
       lastVisitedAt: "2026-11-27T10:00:00Z",
     });
     expect(withVisitState(SECOND_PLACE, result)).toBe(SECOND_PLACE);
+  });
+
+  it("applies a category result to the matching selected place only", () => {
+    const result = {
+      placeId: SAMPLE_PLACE.id,
+      category: "GROCERIES" as const,
+      subcategory: "supermarket",
+      categorySource: "MANUAL" as const,
+    };
+
+    expect(withCategoryState(SAMPLE_PLACE, result)).toMatchObject({
+      id: SAMPLE_PLACE.id,
+      category: "GROCERIES",
+      subcategory: "supermarket",
+      categorySource: "MANUAL",
+    });
+    expect(withCategoryState(SECOND_PLACE, result)).toBe(SECOND_PLACE);
   });
 });

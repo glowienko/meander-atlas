@@ -113,4 +113,7 @@ public interface AtlasPlaceRepository {
     List<PlaceEnrichmentTarget> findEnrichmentTargets(UserId userId, List<PlaceId> placeIds);
 
     void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update);
+
+    void updateManualCategory(
+            UserId userId, PlaceId placeId, PlaceCategory category, @Nullable String subcategory);
 }

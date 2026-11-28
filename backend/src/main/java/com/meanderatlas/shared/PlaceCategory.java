@@ -11,5 +11,11 @@ public enum PlaceCategory {
     WATER,
     NATURE_PARK,
     VIEWPOINT,
+    GROCERIES,
+    PHARMACY,
+    RESTROOM,
+    TRANSPORT,
+    PARKING,
+    SHOPPING,
     UNCATEGORIZED
 }

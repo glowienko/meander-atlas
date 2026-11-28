@@ -301,5 +301,12 @@ class BulkUpdateAndRestoreVisitStatesTest {
 
         @Override
         public void applyPlaceEnrichment(UserId userId, PlaceEnrichmentUpdate update) {}
+
+        @Override
+        public void updateManualCategory(
+                UserId userId,
+                PlaceId placeId,
+                PlaceCategory category,
+                @Nullable String subcategory) {}
     }
 }

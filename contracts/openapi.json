@@ -85,7 +85,7 @@
           "required" : false,
           "schema" : {
             "type" : [ "string", "null" ],
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           }
         }, {
           "in" : "query",
@@ -220,6 +220,43 @@
         "tags" : [ "atlas-places-controller" ]
       }
     },
+    "/api/v1/atlas/places/{id}/category" : {
+      "patch" : {
+        "operationId" : "updateCategory",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpdatePlaceCategoryRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/PlaceCategoryStateView"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "atlas-places-controller" ]
+      }
+    },
     "/api/v1/atlas/places/{id}/visit-status" : {
       "patch" : {
         "operationId" : "updateVisitStatus",
@@ -297,7 +334,7 @@
           "required" : false,
           "schema" : {
             "type" : [ "string", "null" ],
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           }
         }, {
           "in" : "query",
@@ -679,7 +716,7 @@
           },
           "category" : {
             "type" : "string",
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           },
           "categorySource" : {
             "type" : "string",
@@ -879,7 +916,7 @@
         "properties" : {
           "category" : {
             "type" : "string",
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           },
           "totalCount" : {
             "type" : "integer",
@@ -1058,6 +1095,27 @@
           }
         },
         "required" : [ "approxFromS2Count", "enqueuedEnrichmentCount", "exactFromTitleCount", "materializedCount", "mergedByCidCount", "remainingLookupCount" ]
+      },
+      "PlaceCategoryStateView" : {
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
+          },
+          "categorySource" : {
+            "type" : "string",
+            "enum" : [ "HEURISTIC", "OPEN_CATALOG", "MANUAL" ]
+          },
+          "placeId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "subcategory" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "category", "categorySource", "placeId" ]
       },
       "PlaceMembershipView" : {
         "type" : "object",
@@ -1257,7 +1315,7 @@
         "properties" : {
           "category" : {
             "type" : "string",
-            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "UNCATEGORIZED" ]
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
           },
           "subcategory" : {
             "type" : "string"
@@ -1272,6 +1330,21 @@
           }
         },
         "required" : [ "category", "subcategory", "totalCount", "visitedCount" ]
+      },
+      "UpdatePlaceCategoryRequest" : {
+        "type" : "object",
+        "properties" : {
+          "category" : {
+            "type" : "string",
+            "enum" : [ "RESTAURANT", "CAFE_BAR", "HOTEL", "MUSEUM", "LANDMARK", "SACRAL", "MOUNTAIN", "WATER", "NATURE_PARK", "VIEWPOINT", "GROCERIES", "PHARMACY", "RESTROOM", "TRANSPORT", "PARKING", "SHOPPING", "UNCATEGORIZED" ]
+          },
+          "subcategory" : {
+            "type" : "string",
+            "maxLength" : 120,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "category" ]
       },
       "UpdatePlaceVisitStatusRequest" : {
         "type" : "object",

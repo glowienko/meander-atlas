@@ -399,6 +399,17 @@ public final class FakeAtlasPlaceRepository implements AtlasPlaceRepository {
         return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(h));
     }
 
+    @Override
+    public void updateManualCategory(
+            UserId userId, PlaceId placeId, PlaceCategory category, @Nullable String subcategory) {
+        MutablePlaceRecord record = places.get(placeId);
+        if (record != null && record.userId.equals(userId)) {
+            record.category = category;
+            record.subcategory = subcategory;
+            record.categorySource = CategorySource.MANUAL;
+        }
+    }
+
     public static final class MutablePlaceRecord {
         public final PlaceId id;
         public final UserId userId;

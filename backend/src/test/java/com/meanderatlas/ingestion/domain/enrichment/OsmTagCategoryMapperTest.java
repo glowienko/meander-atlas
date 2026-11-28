@@ -70,14 +70,32 @@ class OsmTagCategoryMapperTest {
                 .isEqualTo(new OsmCategoryMapping(PlaceCategory.CAFE_BAR, "bakery"));
         assertThat(OsmTagCategoryMapper.map(Map.of("shop", "seafood")))
                 .isEqualTo(new OsmCategoryMapping(PlaceCategory.RESTAURANT, "seafood"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("shop", "supermarket")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.GROCERIES, "supermarket"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("shop", "convenience")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.GROCERIES, "convenience"));
         assertThat(OsmTagCategoryMapper.map(Map.of("shop", "books")))
-                .isEqualTo(new OsmCategoryMapping(PlaceCategory.LANDMARK, "books"));
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.SHOPPING, "books"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("amenity", "pharmacy")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.PHARMACY, "pharmacy"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("amenity", "toilets")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.RESTROOM, "toilets"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("amenity", "parking")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.PARKING, "parking"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("amenity", "bus_station")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.TRANSPORT, "bus_station"));
         assertThat(OsmTagCategoryMapper.map(Map.of("man_made", "lighthouse")))
                 .isEqualTo(new OsmCategoryMapping(PlaceCategory.LANDMARK, "lighthouse"));
         assertThat(OsmTagCategoryMapper.map(Map.of("railway", "station")))
-                .isEqualTo(new OsmCategoryMapping(PlaceCategory.LANDMARK, "station"));
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.TRANSPORT, "station"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("public_transport", "station")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.TRANSPORT, "station"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("aerialway", "station")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.TRANSPORT, "cable_car"));
         assertThat(OsmTagCategoryMapper.map(Map.of("aeroway", "aerodrome")))
-                .isEqualTo(new OsmCategoryMapping(PlaceCategory.LANDMARK, "aerodrome"));
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.TRANSPORT, "aerodrome"));
+        assertThat(OsmTagCategoryMapper.map(Map.of("building", "train_station")))
+                .isEqualTo(new OsmCategoryMapping(PlaceCategory.TRANSPORT, "train_station"));
         assertThat(OsmTagCategoryMapper.map(Map.of("building", "cathedral")))
                 .isEqualTo(new OsmCategoryMapping(PlaceCategory.SACRAL, "cathedral"));
         assertThat(OsmTagCategoryMapper.map(Map.of("building", "palace")))

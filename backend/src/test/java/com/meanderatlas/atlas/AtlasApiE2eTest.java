@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.meanderatlas.TestEnvironment;
 import com.meanderatlas.TestcontainersConfiguration;
+import com.meanderatlas.shared.CategorySource;
 import com.meanderatlas.shared.CoordSource;
 import com.meanderatlas.shared.DerivedRole;
+import com.meanderatlas.shared.PlaceCategory;
 import com.meanderatlas.shared.VisitSource;
 import com.meanderatlas.shared.VisitStatus;
 import java.sql.Types;
@@ -309,6 +311,57 @@ class AtlasApiE2eTest {
         assertThat(malopolskieDossier).isNotNull();
         assertThat(malopolskieDossier.region().name()).isEqualTo("Malopolskie");
         assertThat(malopolskieDossier.places()).hasSize(2);
+    }
+
+    @Test
+    void updatesPlaceCategoryManuallyAndPersistsAcrossQueries() {
+        RestClient client =
+                RestClient.builder().baseUrl(TestEnvironment.localhostUrl(port)).build();
+        UUID placeId = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO places (
+                    id, user_id, canonical_name, geom, coord_source,
+                    category, category_source, derived_role, country_code
+                )
+                VALUES (
+                    :id, :userId, 'Supermercado El Cotillo',
+                    ST_SetSRID(ST_MakePoint(-14.010, 28.683), 4326),
+                    'TAKEOUT', 'UNCATEGORIZED', 'HEURISTIC', 'BACKLOG', 'ES'
+                )
+                """,
+                Map.of("id", placeId, "userId", USER_ID));
+
+        PlaceCategoryStateView updated =
+                client.patch()
+                        .uri("/api/v1/atlas/places/{id}/category", placeId)
+                        .body(
+                                new UpdatePlaceCategoryRequest(
+                                        PlaceCategory.GROCERIES, "supermarket"))
+                        .retrieve()
+                        .body(PlaceCategoryStateView.class);
+        assertThat(updated).isNotNull();
+        assertThat(updated.placeId()).isEqualTo(placeId);
+        assertThat(updated.category()).isEqualTo(PlaceCategory.GROCERIES);
+        assertThat(updated.subcategory()).isEqualTo("supermarket");
+        assertThat(updated.categorySource()).isEqualTo(CategorySource.MANUAL);
+
+        AtlasPlacesResponse filtered =
+                client.get()
+                        .uri("/api/v1/atlas/places?category=GROCERIES")
+                        .retrieve()
+                        .body(AtlasPlacesResponse.class);
+        assertThat(filtered).isNotNull();
+        assertThat(filtered.places()).hasSize(1);
+        assertThat(filtered.places().getFirst().categorySource()).isEqualTo(CategorySource.MANUAL);
+
+        assertThatThrownBy(() ->
+                        client.patch()
+                                .uri("/api/v1/atlas/places/{id}/category", UUID.randomUUID())
+                                .body(new UpdatePlaceCategoryRequest(PlaceCategory.PHARMACY, null))
+                                .retrieve()
+                                .toBodilessEntity())
+                .isInstanceOf(HttpClientErrorException.NotFound.class);
     }
 
     @Test

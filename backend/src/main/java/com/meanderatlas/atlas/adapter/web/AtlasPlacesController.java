@@ -5,9 +5,11 @@ import com.meanderatlas.atlas.AtlasPlaceFilterQuery;
 import com.meanderatlas.atlas.AtlasPlacesResponse;
 import com.meanderatlas.atlas.BulkVisitStatusRequest;
 import com.meanderatlas.atlas.BulkVisitStatusResultView;
+import com.meanderatlas.atlas.PlaceCategoryStateView;
 import com.meanderatlas.atlas.PlaceVisitStateView;
 import com.meanderatlas.atlas.RestoreVisitStatesRequest;
 import com.meanderatlas.atlas.RestoreVisitStatesResultView;
+import com.meanderatlas.atlas.UpdatePlaceCategoryRequest;
 import com.meanderatlas.atlas.UpdatePlaceVisitStatusRequest;
 import com.meanderatlas.shared.DerivedRole;
 import com.meanderatlas.shared.PlaceCategory;
@@ -72,6 +74,15 @@ class AtlasPlacesController {
     PlaceVisitStateView updateVisitStatus(
             @PathVariable UUID id, @Valid @RequestBody UpdatePlaceVisitStatusRequest request) {
         return atlasFacade.updatePlaceVisitStatus(id, request);
+    }
+
+    @PatchMapping(
+            value = "/{id}/category",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    PlaceCategoryStateView updateCategory(
+            @PathVariable UUID id, @Valid @RequestBody UpdatePlaceCategoryRequest request) {
+        return atlasFacade.updatePlaceCategory(id, request);
     }
 
     @PatchMapping(

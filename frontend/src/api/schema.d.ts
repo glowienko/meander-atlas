@@ -84,6 +84,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/atlas/places/{id}/category": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateCategory"];
+        trace?: never;
+    };
     "/api/v1/atlas/places/{id}/visit-status": {
         parameters: {
             query?: never;
@@ -275,7 +291,7 @@ export interface components {
             admin1Name?: string;
             canonicalName: string;
             /** @enum {string} */
-            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED";
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED";
             /** @enum {string} */
             categorySource: "HEURISTIC" | "OPEN_CATALOG" | "MANUAL";
             cityName?: string;
@@ -351,7 +367,7 @@ export interface components {
         };
         CategoryStatView: {
             /** @enum {string} */
-            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED";
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED";
             /** Format: int32 */
             totalCount: number;
             /** Format: int32 */
@@ -429,6 +445,15 @@ export interface components {
             mergedByCidCount: number;
             /** Format: int32 */
             remainingLookupCount: number;
+        };
+        PlaceCategoryStateView: {
+            /** @enum {string} */
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED";
+            /** @enum {string} */
+            categorySource: "HEURISTIC" | "OPEN_CATALOG" | "MANUAL";
+            /** Format: uuid */
+            placeId: string;
+            subcategory?: string;
         };
         PlaceMembershipView: {
             accountLabel: string;
@@ -510,12 +535,17 @@ export interface components {
         };
         SubcategoryStatView: {
             /** @enum {string} */
-            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED";
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED";
             subcategory: string;
             /** Format: int32 */
             totalCount: number;
             /** Format: int32 */
             visitedCount: number;
+        };
+        UpdatePlaceCategoryRequest: {
+            /** @enum {string} */
+            category: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED";
+            subcategory?: string;
         };
         UpdatePlaceVisitStatusRequest: {
             /** @enum {string} */
@@ -592,7 +622,7 @@ export interface operations {
                 q?: string | null;
                 visitStatus?: "UNVISITED" | "VISITED" | "NEEDS_TRIAGE" | null;
                 derivedRole?: "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG" | null;
-                category?: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED" | null;
+                category?: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED" | null;
                 account?: string | null;
                 list?: string | null;
                 countryCode?: string | null;
@@ -667,6 +697,32 @@ export interface operations {
             };
         };
     };
+    updateCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlaceCategoryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceCategoryStateView"];
+                };
+            };
+        };
+    };
     updateVisitStatus: {
         parameters: {
             query?: never;
@@ -700,7 +756,7 @@ export interface operations {
                 countryCode?: string | null;
                 q?: string | null;
                 derivedRole?: "PREFERRED_HOTEL" | "MUST_SEE" | "FAVORITE" | "BACKLOG" | null;
-                category?: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "UNCATEGORIZED" | null;
+                category?: "RESTAURANT" | "CAFE_BAR" | "HOTEL" | "MUSEUM" | "LANDMARK" | "SACRAL" | "MOUNTAIN" | "WATER" | "NATURE_PARK" | "VIEWPOINT" | "GROCERIES" | "PHARMACY" | "RESTROOM" | "TRANSPORT" | "PARKING" | "SHOPPING" | "UNCATEGORIZED" | null;
                 account?: string | null;
                 list?: string | null;
             };

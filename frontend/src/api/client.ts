@@ -9,6 +9,7 @@ export type RegionDossierView = components["schemas"]["RegionDossierView"];
 export type AtlasStatsView = components["schemas"]["AtlasStatsView"];
 export type AccountListFacetView = components["schemas"]["AccountListFacetView"];
 export type PlaceVisitStateView = components["schemas"]["PlaceVisitStateView"];
+export type PlaceCategoryStateView = components["schemas"]["PlaceCategoryStateView"];
 export type BulkVisitStatusResultView = components["schemas"]["BulkVisitStatusResultView"];
 export type RestoreVisitStatesResultView = components["schemas"]["RestoreVisitStatesResultView"];
 export type VisitStateSnapshotView = components["schemas"]["VisitStateSnapshotView"];
@@ -119,6 +120,20 @@ export async function patchPlaceVisitStatus(
       body: { status },
     }),
     "Update place status",
+  );
+}
+
+export async function patchPlaceCategory(
+  placeId: string,
+  category: PlaceCategory,
+  subcategory?: string,
+): Promise<PlaceCategoryStateView> {
+  return unwrapResponse(
+    await apiClient.PATCH("/api/v1/atlas/places/{id}/category", {
+      params: { path: { id: placeId } },
+      body: { category, subcategory },
+    }),
+    "Update place category",
   );
 }
 
