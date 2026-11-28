@@ -13,7 +13,7 @@ export function UndoToast({ message, canUndo, isRestoring, onUndo, onDismiss }: 
     <div
       role="status"
       data-testid="atlas-undo-toast"
-      className="atlas-panel pointer-events-auto fixed right-4 bottom-4 z-50 flex items-center gap-3 rounded-full px-4 py-2 text-[13px] text-atlas-ink"
+      className="atlas-panel pointer-events-auto fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-[13px] text-atlas-ink"
     >
       <span className="font-medium">{message}</span>
       {canUndo && (

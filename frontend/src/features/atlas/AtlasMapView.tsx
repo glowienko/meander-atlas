@@ -109,6 +109,14 @@ function overlayPadding(map: MapLibreMap, overlays: MapOverlays, minimum = 0) {
   );
 }
 
+function clearMapDataset(container: HTMLElement): void {
+  delete container.dataset.mapLoaded;
+  delete container.dataset.styleLoaded;
+  delete container.dataset.projection;
+  delete container.dataset.basemap;
+  delete container.dataset.zoom;
+}
+
 function boxRect(box: DragBox): ScreenRect {
   return {
     minX: Math.min(box.startX, box.currentX),
@@ -151,7 +159,11 @@ export function AtlasMapView({
   const [styleRevision, setStyleRevision] = useState(0);
   const [dragBox, setDragBox] = useState<DragBox | null>(null);
 
-  const emitViewport = useEffectEvent((map: MapLibreMap) => onViewportChange(viewportOf(map)));
+  const emitViewport = useEffectEvent((map: MapLibreMap) => {
+    const viewport = viewportOf(map);
+    map.getContainer().dataset.zoom = viewport.zoom.toFixed(2);
+    onViewportChange(viewport);
+  });
 
   const zoomToCluster = (map: MapLibreMap, hit: Extract<MapHit, { kind: "cluster" }>) => {
     void clusterExpansionZoom(map, hit.clusterId)?.then((zoom) => {
@@ -293,9 +305,7 @@ export function AtlasMapView({
       styleLoadedRef.current = false;
       mapRef.current = null;
       map.remove();
-      delete container.dataset.mapLoaded;
-      delete container.dataset.styleLoaded;
-      delete container.dataset.projection;
+      clearMapDataset(container);
     };
   }, []);
 
@@ -306,6 +316,7 @@ export function AtlasMapView({
     }
     styleLoadedRef.current = false;
     delete map.getContainer().dataset.styleLoaded;
+    map.getContainer().dataset.basemap = basemap;
     map.setStyle(STYLE_BY_BASEMAP[basemap], { diff: false });
   }, [basemap]);
 
